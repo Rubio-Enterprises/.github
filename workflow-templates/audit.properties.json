@@ -1,0 +1,6 @@
+{
+  "name": "Standards audit",
+  "description": "Runs the Rubio-Enterprises standards audit (check.sh + JSON Schema + Conftest).",
+  "iconName": "octicon shield-check",
+  "categories": ["Continuous integration"]
+}

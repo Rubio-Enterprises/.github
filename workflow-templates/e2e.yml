@@ -1,0 +1,14 @@
+# Starter for non-Copier-scaffolded repos. Workflow `name:` is intentionally
+# `e2e-starter` (NOT `e2e` or `standards`) to avoid colliding with the Copier-managed
+# thin caller's `e2e` job which is invoked from `standards.yml`.
+# CAVEAT: `@v1` resolves only after Plan 2 Task 11. See audit.yml caveat above.
+name: e2e-starter
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  e2e:
+    uses: Rubio-Enterprises/.github/.github/workflows/e2e.yml@v1

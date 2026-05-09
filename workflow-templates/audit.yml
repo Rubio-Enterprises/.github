@@ -1,0 +1,21 @@
+# This workflow appears in the GitHub Actions "New workflow" picker for org repos.
+# It's a STARTER for repos that aren't Copier-scaffolded. The workflow `name:` is
+# intentionally `standards-audit-starter` (NOT `standards`) to avoid colliding with
+# the Copier-managed `standards.yml` workflow that consumers receive at scaffold time.
+# Copier-scaffolded repos do NOT need this — they already have `.github/workflows/standards.yml`.
+#
+# CAVEAT: the `@v1` ref below resolves only AFTER Plan 2 Task 11 cuts the v1.0.0 release
+# of Rubio-Enterprises/.github. Picking this template from the GitHub UI between Phase 1
+# completion and Phase 2 Task 11 will land an unresolvable reference. Mitigation: the
+# fleet has zero non-Copier repos at Phase 1 publication, so the gap is theoretical.
+name: standards-audit-starter
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  audit:
+    uses: Rubio-Enterprises/.github/.github/workflows/audit.yml@v1
