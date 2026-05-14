@@ -1,0 +1,60 @@
+name: e2e (reusable)
+on:
+  workflow_call:
+    inputs:
+      retries:         { type: number, default: 2 }
+      shard:           { type: string, default: '' }
+      timeout-minutes: { type: number, default: 30 }
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - id: detect
+        run: |
+          set -euo pipefail
+          if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
+            echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
+          elif [ -f package.json ] && jq -e '.scripts.e2e' package.json >/dev/null; then
+            echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No e2e entry point found (mise tasks or package.json scripts.e2e)"
+            exit 1
+          fi
+        shell: bash
+      - name: Install JS deps (lockfile-aware)
+        run: |
+          set -euo pipefail
+          if [ -f package.json ]; then
+            if   [ -f pnpm-lock.yaml ];      then corepack pnpm install --frozen-lockfile
+            elif [ -f yarn.lock ];           then corepack yarn install --frozen-lockfile
+            elif [ -f bun.lock ] || [ -f bun.lockb ]; then bun install --frozen-lockfile
+            elif [ -f package-lock.json ];   then npm ci
+            else echo "::error::package.json without lockfile"; exit 1
+            fi
+          fi
+        shell: bash
+      - name: e2e-setup (browser install, fixtures, etc.)
+        run: |
+          set -euo pipefail
+          if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
+            mise run e2e-setup
+          fi
+        shell: bash
+      - env:
+          PW_RETRIES: ${{ inputs.retries }}
+          PW_SHARD:   ${{ inputs.shard }}
+        run: ${{ steps.detect.outputs.cmd }}
+        timeout-minutes: ${{ inputs.timeout-minutes }}
+      - if: always()
+        uses: mikepenz/action-junit-report@v6
+        with: { report_paths: 'reports/e2e/junit.xml' }
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-reports-${{ github.run_id }}
+          path: reports/e2e/
+          retention-days: 14
