@@ -48,7 +48,15 @@ jobs:
           for f in biome.json ruff.toml .golangci.yml package.json; do
             [ -f "$f" ] && inputs+=("$f")
           done
-          [ ${#inputs[@]} -gt 0 ] && conftest test --combine \
-            --policy .standards/policy \
-            --data   .standards/data/base \
-            "${inputs[@]}"
+          # Use an explicit `if`/`fi` instead of `[ … ] && conftest …` — under
+          # `set -e -o pipefail` the test command returns 1 when the array is
+          # empty (e.g. Deno-shaped repos with none of those files), and the
+          # shell aborts the step before conftest is even considered.
+          if [ ${#inputs[@]} -gt 0 ]; then
+            conftest test --combine \
+              --policy .standards/policy \
+              --data   .standards/data/base \
+              "${inputs[@]}"
+          else
+            echo "no conftest inputs in this repo (biome.json/ruff.toml/.golangci.yml/package.json all absent); skipping"
+          fi
