@@ -1,0 +1,25 @@
+name: rust test (reusable)
+on:
+  workflow_call:
+    inputs:
+      timeout-minutes: { type: number, default: 20 }
+permissions:
+  contents: read
+jobs:
+  rust-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: mise run test
+      - if: always()
+        uses: mikepenz/action-junit-report@v6
+        with: { report_paths: 'target/nextest/ci/junit.xml' }
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-test-reports-${{ github.run_id }}
+          path: target/nextest/ci/
+          retention-days: 14
