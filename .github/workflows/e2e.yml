@@ -20,7 +20,10 @@
 # starts — the dev-server step must run *in the same job* as `playwright
 # test` because Playwright connects to localhost on the same runner.
 #
-# See also: rubio-standards README.md "Reusable e2e.yml contract" section.
+# See also: rubio-standards README.md "Reusable e2e.yml contract" section
+# and `docs/opt-outs.md` in this repo for the canonical opt-out pattern when
+# a consumer's shape (Angular + Electron, docker-compose-backed e2e, etc.)
+# can't fit option (a) above.
 name: e2e (reusable)
 on:
   workflow_call:
