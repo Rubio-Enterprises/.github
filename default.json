@@ -6,8 +6,8 @@
     "helpers:pinGitHubActionDigests"
   ],
   "timezone": "America/Chicago",
-  "prHourlyLimit": 4,
-  "prConcurrentLimit": 10,
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 20,
   "rangeStrategy": "bump",
   "labels": ["dependencies"],
   "packageRules": [
