@@ -1,0 +1,43 @@
+name: lint hooks (reusable)
+# CI gate that runs the consumer's lefthook commands across all repo files (not
+# just staged diffs). Validates that the hook-tool surface (lefthook + the
+# pinned tools backing each command) actually executes end-to-end. Without this,
+# `lefthook run pre-commit` only ever exercises on a dev's staged changes —
+# tooling regressions (PATH issues, version pins) escape until they break
+# someone's commit locally.
+#
+# Consumer thin-callers invoke this via `uses:`. The `pull_request:` trigger is
+# required so GitHub's org-ruleset `required_workflows` validator accepts the
+# workflow (422 otherwise — same precedent as audit.yml). On PRs against
+# `.github` itself the pull_request path is a no-op (this is a reusable, not a
+# project workflow).
+on:
+  workflow_call:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  lint-hooks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the consumer repo
+        uses: actions/checkout@v6
+      - name: Install consumer-repo runtimes (lefthook + pinned hook tools)
+        uses: jdx/mise-action@v4
+      - name: Run lefthook pre-commit across all files
+        # MISE_ENV=ci is forwarded so any mise env-conditional config behaves
+        # the same as the audit job. `--all-files` walks the repo tree rather
+        # than the empty staged-diff set CI checkouts present.
+        env:
+          MISE_ENV: ci
+        run: mise exec -- lefthook run pre-commit --all-files
+      - name: Validate commit-msg hook accepts a conventional commit
+        # Writes a well-formed conventional-commit message and runs the
+        # commit-msg hook against it. Smokes the commitlint config + the
+        # commitlint binary's presence on PATH. Failure here means the hook
+        # would reject valid commits locally.
+        env:
+          MISE_ENV: ci
+        run: |
+          printf 'feat(ci): smoke-test commit-msg hook\n' > /tmp/test-commit-msg
+          mise exec -- lefthook run commit-msg --files /tmp/test-commit-msg
