@@ -1,3 +1,26 @@
+# Reusable e2e workflow. Runs `mise run e2e` (or `npm run e2e` fallback) inside
+# a Playwright-shaped job after installing the consumer's mise toolchain +
+# lockfile-pinned JS deps + `mise run e2e-setup` (Playwright browser install).
+#
+# DEV-SERVER CONTRACT
+# -------------------
+# This workflow does NOT start a dev server before invoking `playwright test`.
+# Consumers must EITHER:
+#   (a) Wire `playwright.config.ts::webServer` to self-start the app under
+#       test (Playwright runs the command and waits on the URL before the
+#       first test runs). Single-process projects (Next.js dev, Vite dev, a
+#       static-site preview) fit cleanly here.
+#   (b) Skip this reusable entirely and call Playwright from the consumer's
+#       own `ci.yml`, with explicit prior steps for multi-process boots
+#       (e.g. `ng build` → `ng serve &` → `wait-on http://localhost:4200`
+#       → `playwright test` for Angular + Electron + Playwright shapes).
+# Option (b) is the expected path for any project where `config.webServer`
+# would have to orchestrate more than one long-running process. Don't try to
+# add `jobs.e2e.needs: <build-job>` to retrofit this reusable into multi-step
+# starts — the dev-server step must run *in the same job* as `playwright
+# test` because Playwright connects to localhost on the same runner.
+#
+# See also: rubio-standards README.md "Reusable e2e.yml contract" section.
 name: e2e (reusable)
 on:
   workflow_call:
