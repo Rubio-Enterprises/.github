@@ -1,6 +1,11 @@
 name: standards audit (reusable)
 on:
   workflow_call:
+  # `pull_request` trigger is required by GitHub's organization-ruleset
+  # `required_workflows` validator (422 otherwise). Consumer thin-callers
+  # still invoke this workflow via `workflow_call`; the `pull_request` path
+  # is only exercised on PRs against `.github` itself (no-op there).
+  pull_request:
 permissions:
   contents: read
 jobs:
