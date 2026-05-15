@@ -51,11 +51,21 @@ jobs:
             exit 1
           fi
         shell: bash
+      # Stand up pnpm via the first-party `pnpm/action-setup` action rather
+      # than `corepack pnpm install`. Corepack ≤ 0.29 (bundled with Node
+      # 22.0–22.12) ships a stale pnpm signing-key trust store and crashes
+      # with `Cannot find matching keyid` when it tries to fetch the latest
+      # stable version. `pnpm/action-setup@v4` reads the consumer's
+      # `packageManager` field in package.json and installs exactly that
+      # version without going through corepack. The step is a no-op when
+      # `pnpm-lock.yaml` is absent.
+      - if: hashFiles('pnpm-lock.yaml') != ''
+        uses: pnpm/action-setup@v4
       - name: Install JS deps (lockfile-aware)
         run: |
           set -euo pipefail
           if [ -f package.json ]; then
-            if   [ -f pnpm-lock.yaml ];      then corepack pnpm install --frozen-lockfile
+            if   [ -f pnpm-lock.yaml ];      then pnpm install --frozen-lockfile
             elif [ -f yarn.lock ];           then corepack yarn install --frozen-lockfile
             elif [ -f bun.lock ] || [ -f bun.lockb ]; then bun install --frozen-lockfile
             elif [ -f package-lock.json ];   then npm ci
