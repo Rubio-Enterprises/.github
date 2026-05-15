@@ -25,12 +25,12 @@
 # a consumer's shape (Angular + Electron, docker-compose-backed e2e, etc.)
 # can't fit option (a) above.
 name: e2e (reusable)
-on:
+"on":
   workflow_call:
     inputs:
-      retries:         { type: number, default: 2 }
-      shard:           { type: string, default: '' }
-      timeout-minutes: { type: number, default: 30 }
+      retries: {type: number, default: 2}
+      shard: {type: string, default: ''}
+      timeout-minutes: {type: number, default: 30}
 permissions:
   contents: read
 jobs:
@@ -82,12 +82,12 @@ jobs:
         shell: bash
       - env:
           PW_RETRIES: ${{ inputs.retries }}
-          PW_SHARD:   ${{ inputs.shard }}
+          PW_SHARD: ${{ inputs.shard }}
         run: ${{ steps.detect.outputs.cmd }}
         timeout-minutes: ${{ inputs.timeout-minutes }}
       - if: always()
         uses: mikepenz/action-junit-report@v6
-        with: { report_paths: 'reports/e2e/junit.xml' }
+        with: {report_paths: 'reports/e2e/junit.xml'}
       - if: always()
         uses: actions/upload-artifact@v7
         with:

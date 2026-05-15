@@ -10,14 +10,22 @@ name: lint hooks (reusable)
 # required so GitHub's org-ruleset `required_workflows` validator accepts the
 # workflow (422 otherwise — same precedent as audit.yml). On PRs against
 # `.github` itself the pull_request path is a no-op (this is a reusable, not a
-# project workflow).
-on:
+# project workflow) — enforced by the job-level `if:` guard below, since the
+# `.github` repo doesn't ship a `.mise.toml` or `lefthook.yml` and would fail
+# the `mise exec -- lefthook` invocation otherwise.
+"on":
   workflow_call:
   pull_request:
 permissions:
   contents: read
 jobs:
   lint-hooks:
+    # Skip when running as the `pull_request` no-op on the `.github` repo
+    # itself. Consumer thin-callers invoke via `workflow_call`, where
+    # `github.event_name` is `workflow_call` and this guard passes.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'Rubio-Enterprises/.github'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the consumer repo
