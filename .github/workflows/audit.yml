@@ -1,15 +1,24 @@
 name: standards audit (reusable)
-on:
+"on":
   workflow_call:
   # `pull_request` trigger is required by GitHub's organization-ruleset
   # `required_workflows` validator (422 otherwise). Consumer thin-callers
   # still invoke this workflow via `workflow_call`; the `pull_request` path
-  # is only exercised on PRs against `.github` itself (no-op there).
+  # is a no-op on PRs against `.github` itself (skipped via the job-level
+  # `if:` guard below — this repo is the bootstrap source of the reusable,
+  # not a consumer, so it can't satisfy the consumer-shaped contract that
+  # `scripts/check.sh` enforces).
   pull_request:
 permissions:
   contents: read
 jobs:
   audit:
+    # Skip when running as the `pull_request` no-op on the `.github` repo
+    # itself. Consumer thin-callers invoke via `workflow_call`, where
+    # `github.event_name` is `workflow_call` and this guard passes.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'Rubio-Enterprises/.github'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the consumer repo
