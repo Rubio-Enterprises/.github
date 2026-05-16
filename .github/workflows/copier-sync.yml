@@ -1,0 +1,170 @@
+name: copier sync (reusable)
+"on":
+  workflow_call:
+    inputs:
+      vcs-ref:
+        description: 'Copier --vcs-ref to update against (default: floating template/v1)'
+        type: string
+        required: false
+        default: 'template/v1'
+      base-branch:
+        description: 'Base branch the PR targets (default: repo default branch resolved at runtime)'
+        type: string
+        required: false
+        default: ''
+  # `pull_request` trigger satisfies GitHub's organization-ruleset
+  # `required_workflows` validator (422 otherwise). On PRs against `.github`
+  # itself it's a no-op via the job-level `if:` guard.
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  copier-sync:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'Rubio-Enterprises/.github'
+    runs-on: ubuntu-latest
+    # Job-scoped writes: only this job needs to push a branch and open a PR.
+    # The workflow-level `permissions: contents: read` keeps other jobs least-priv.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out consumer (full history; copier needs the previous commit)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # The default GITHUB_TOKEN works for push + PR-create on the same
+          # repo; consumers needing cross-repo PRs override this via secret.
+          token: ${{ github.token }}
+
+      - name: Bootstrap mise (resolves consumer's pinned copier + python)
+        uses: jdx/mise-action@v4
+
+      - name: Resolve current consumer template SHA + target SHA
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f .copier-answers.yml ]; then
+            echo "::notice::repo has no .copier-answers.yml — skipping (not standards-onboarded)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # `_commit:` records the rendered template ref (e.g. `template/v1.2.8`)
+          current=$(awk '/^_commit:/{ print $2 }' .copier-answers.yml)
+          echo "current: $current"
+          # Resolve the target ref's actual SHA via the GitHub API so we can
+          # short-circuit the no-op case without invoking copier.
+          target_sha=$(gh api "/repos/Rubio-Enterprises/standards/commits/${{ inputs.vcs-ref }}" --jq '.sha')
+          current_sha=$(gh api "/repos/Rubio-Enterprises/standards/commits/${current}" --jq '.sha' 2>/dev/null || echo "")
+          if [ "$current_sha" = "$target_sha" ]; then
+            echo "::notice::already at target SHA $target_sha — no-op"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "current=$current" >> "$GITHUB_OUTPUT"
+            echo "target=${{ inputs.vcs-ref }}" >> "$GITHUB_OUTPUT"
+            echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Run copier update
+        if: steps.resolve.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --skip-answered: don't re-prompt for any answer the user previously
+          #                  supplied. --trust + --defaults: required for
+          #                  unattended runs; --trust acknowledges _tasks
+          #                  execution, --defaults fills unanswered new
+          #                  questions with their declared defaults.
+          # --conflict inline: leave merge markers in conflicting files so the
+          #                    reviewer can resolve in the PR rather than the
+          #                    workflow silently dropping the consumer's edit.
+          # --overwrite: required to overwrite tracked files; _skip_if_exists
+          #              in copier.yml still protects consumer-owned files.
+          copier update \
+            --skip-answered \
+            --trust \
+            --defaults \
+            --conflict inline \
+            --overwrite \
+            --vcs-ref="${{ steps.resolve.outputs.target }}"
+
+      - name: Detect rendered drift
+        if: steps.resolve.outputs.skip != 'true'
+        id: drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "::notice::no rendered drift — answers file alone would update; exiting clean"
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            # Capture the affected file list for the PR body.
+            git diff --name-status > /tmp/copier-sync-diff-namestatus.txt
+            # Capture any conflict markers so the reviewer can spot them.
+            grep -rl '<<<<<<< before updating' . --exclude-dir=.git || true > /tmp/copier-sync-conflicts.txt
+          fi
+
+      - name: Open PR
+        if: steps.resolve.outputs.skip != 'true' && steps.drift.outputs.drift == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Resolve base branch — empty input means "use repo's default branch".
+          base="${{ inputs.base-branch }}"
+          if [ -z "$base" ]; then
+            base=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+          fi
+          isodate=$(date -u +%Y-%m-%d)
+          short_sha=$(echo "${{ steps.resolve.outputs.target_sha }}" | cut -c1-7)
+          branch="chore/copier-update-${isodate}-${short_sha}"
+          git checkout -b "$branch"
+          git -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              -c user.name='github-actions[bot]' \
+              commit -am "chore: copier update ${{ steps.resolve.outputs.current }} -> ${{ steps.resolve.outputs.target }} ($short_sha)"
+          git push origin "$branch"
+          # PR body: source bump, files changed (from `git diff --name-status`),
+          # link to release notes between old/new, and a conflict-marker call-out
+          # if any inline markers were left by --conflict inline.
+          {
+            echo "## Template-bump sync"
+            echo
+            cur='${{ steps.resolve.outputs.current }}'
+            tgt='${{ steps.resolve.outputs.target }}'
+            echo "**Source:** \`${cur}\` → \`${tgt}\` (\`$short_sha\`)"
+            echo
+            cmp="https://github.com/Rubio-Enterprises/standards/compare/${cur}...${tgt}"
+            echo "**Release notes:** $cmp"
+            echo
+            echo "**Files changed:**"
+            echo
+            echo '```'
+            cat /tmp/copier-sync-diff-namestatus.txt
+            echo '```'
+            if [ -s /tmp/copier-sync-conflicts.txt ]; then
+              echo
+              echo "**⚠ Conflict markers (resolve before merging):**"
+              echo
+              echo '```'
+              cat /tmp/copier-sync-conflicts.txt
+              echo '```'
+            fi
+            echo
+            echo "_Automated by \`copier-sync.yml\` reusable workflow._"
+          } > /tmp/copier-sync-pr-body.md
+          gh pr create \
+            --base "$base" \
+            --head "$branch" \
+            --title "chore: copier update ${{ steps.resolve.outputs.current }} -> ${{ steps.resolve.outputs.target }}" \
+            --body-file /tmp/copier-sync-pr-body.md \
+            --label dependencies \
+            --label standards-template-drift
+        env:
+          GH_TOKEN: ${{ github.token }}

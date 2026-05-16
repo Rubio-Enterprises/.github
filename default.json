@@ -20,6 +20,26 @@
     {
       "matchManagers": ["github-actions"],
       "groupName": "github-actions"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["Rubio-Enterprises/standards"],
+      "groupName": "rubio-standards-template",
+      "labels": ["dependencies", "standards-template-drift"],
+      "commitMessageTopic": "rubio-standards template",
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["(^|/)\\.copier-answers\\.yml$"],
+      "matchStrings": [
+        "_commit:\\s*template/(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "Rubio-Enterprises/standards",
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^template/(?<version>v\\d+\\.\\d+\\.\\d+)$"
     }
   ]
 }
