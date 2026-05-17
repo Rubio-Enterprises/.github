@@ -47,8 +47,8 @@ jobs:
           elif [ -f package.json ] && jq -e '.scripts.e2e' package.json >/dev/null; then
             echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::No e2e entry point found (mise tasks or package.json scripts.e2e)"
-            exit 1
+            echo "::notice::no e2e entry point — skipping (consumer has no mise 'e2e' task or package.json scripts.e2e)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
       # Stand up pnpm via the first-party `pnpm/action-setup` action rather
@@ -59,9 +59,10 @@ jobs:
       # `packageManager` field in package.json and installs exactly that
       # version without going through corepack. The step is a no-op when
       # `pnpm-lock.yaml` is absent.
-      - if: hashFiles('pnpm-lock.yaml') != ''
+      - if: steps.detect.outputs.skip != 'true' && hashFiles('pnpm-lock.yaml') != ''
         uses: pnpm/action-setup@v4
       - name: Install JS deps (lockfile-aware)
+        if: steps.detect.outputs.skip != 'true'
         run: |
           set -euo pipefail
           if [ -f package.json ]; then
@@ -74,21 +75,23 @@ jobs:
           fi
         shell: bash
       - name: e2e-setup (browser install, fixtures, etc.)
+        if: steps.detect.outputs.skip != 'true'
         run: |
           set -euo pipefail
           if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
             mise run e2e-setup
           fi
         shell: bash
-      - env:
+      - if: steps.detect.outputs.skip != 'true'
+        env:
           PW_RETRIES: ${{ inputs.retries }}
           PW_SHARD: ${{ inputs.shard }}
         run: ${{ steps.detect.outputs.cmd }}
         timeout-minutes: ${{ inputs.timeout-minutes }}
-      - if: always()
+      - if: always() && steps.detect.outputs.skip != 'true'
         uses: mikepenz/action-junit-report@v6
         with: {report_paths: 'reports/e2e/junit.xml'}
-      - if: always()
+      - if: always() && steps.detect.outputs.skip != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: e2e-reports-${{ github.run_id }}
