@@ -48,4 +48,4 @@ jobs:
           MISE_ENV: ci
         run: |
           printf 'feat(ci): smoke-test commit-msg hook\n' > /tmp/test-commit-msg
-          mise exec -- lefthook run commit-msg --files /tmp/test-commit-msg
+          mise exec -- lefthook run commit-msg --file /tmp/test-commit-msg
