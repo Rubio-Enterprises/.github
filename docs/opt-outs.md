@@ -40,6 +40,23 @@ Do NOT delete the block outright. Renovate keys off the `# v1` trailing comment 
 
 `secret-scan.yml` runs in two modes: gitleaks (PR-time, every PR) and trufflehog (weekly cron). The cron path is expensive on large monorepos (full-history trufflehog scan). Repos whose secret-rotation cadence makes weekly full-history trufflehog overkill can opt out of the `trufflehog:` job specifically while keeping `gitleaks:` on every PR.
 
+### `secret-scan.yml` (trufflehog) — per-path false-positive suppression via `.trufflehogignore`
+
+The org default keeps trufflehog in `--results=verified,unknown` mode so unverifiable-but-format-matching dev credentials still surface (e.g., literal `password` defaults in upstream-fork docker-compose files). When a repo legitimately needs to suppress specific paths — placeholder credentials in dev-only fixtures, upstream-convention literals in inherited fork files — drop a `.trufflehogignore` at the repo root. `secret-scan.yml` (`trufflehog` job) detects it and passes `--exclude-paths=.trufflehogignore` automatically; no workflow edit needed.
+
+**Format:** one regex per line, matched against the path string trufflehog scans. Lines starting with `#` are comments. The same regex applies to both git-history scans (the action's default `fetch-depth: 0` mode) and filesystem scans, so a path that's been deleted from the working tree still needs an entry if its original commit contained the literal.
+
+**Audit-then-add policy (load-bearing):** add an entry **only after empirically confirming trufflehog flags that path**. Never list paths defensively because they "look like they could trip a detector" — defensive padding bloats reviewer surface, conceals which entries do real work, and lulls maintainers into thinking the file documents the repo's false-positive set when it actually doesn't. Verify with:
+
+```bash
+trufflehog git file://. --results=verified,unknown --json \
+  | jq -r '"\(.DetectorName) | \(.SourceMetadata.Data.Git.file)"' | sort -u
+```
+
+Only entries that appear in that output should land in `.trufflehogignore`. Recommended commit message convention: include the pre-trim scan output in the body so reviewers can confirm each entry suppresses a real finding.
+
+**What NOT to do:** don't switch to `--results=verified` to silence the gate (loses the ability to catch real-but-unreachable-verifier secrets like rate-limited or network-unreachable detectors); don't broaden entries to directory wildcards (`^crates/remote/`) — they'd silently swallow future real secrets dropped into those dirs.
+
 ### `lint-hooks.yml` — repos with non-standard lefthook layouts
 
 `lint-hooks.yml` runs `lefthook run pre-commit --all-files` against the repo, which assumes lefthook is the canonical hook runner (the org standard per `rubio-standards/lefthook.yml.jinja`). Repos that legitimately use a different runner (husky+lint-staged, pre-commit framework) opt out, but should leave a note: the lint coverage matters, so the equivalent work has to live *somewhere* in the consumer's CI.
