@@ -42,12 +42,26 @@ jobs:
       - id: detect
         run: |
           set -euo pipefail
-          if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
-            echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
-          elif [ -f package.json ] && jq -e '.scripts.e2e' package.json >/dev/null; then
-            echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
+          # Ground truth: package.json scripts.e2e. The template renders a mise
+          # [tasks.e2e] for every ts-* archetype that delegates to `npm run e2e`,
+          # so the mise task's presence is NOT a reliable signal — what matters is
+          # whether scripts.e2e itself resolves. ensure-pkg-e2e-script.sh _tasks
+          # hook in standards/copier.yml auto-injects scripts.e2e when
+          # @playwright/test is a (dev)dependency, so this gate aligns naturally
+          # with "consumer actually has Playwright wired up".
+          # Surfaced 2026-05-17 by karakeep PR #5 (Plan 3 Task 45 follow-up):
+          # karakeep has the rendered mise e2e task BUT no @playwright/test (it
+          # uses `playwright` the lib for scraping, not @playwright/test) so
+          # ensure-pkg-e2e-script.sh correctly didn't add scripts.e2e; the prior
+          # detect picked the mise path and failed inside `npm run e2e`.
+          if [ -f package.json ] && jq -e '.scripts.e2e' package.json >/dev/null; then
+            if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
+              echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
+            else
+              echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
+            fi
           else
-            echo "::notice::no e2e entry point — skipping (consumer has no mise 'e2e' task or package.json scripts.e2e)"
+            echo "::notice::no scripts.e2e in apex package.json — skipping (consumer either opts out via has_e2e=false or has no Playwright harness wired)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
         shell: bash

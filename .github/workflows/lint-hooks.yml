@@ -39,6 +39,16 @@ jobs:
         # the corepack keyring drift documented in e2e.yml's adjacent block.
         if: hashFiles('pnpm-lock.yaml') != ''
         uses: pnpm/action-setup@v4
+      - name: Install JS deps (so lefthook.local.yml pnpm hooks resolve workspace packages)
+        # pnpm/action-setup@v4 installs the pnpm binary but does NOT populate
+        # node_modules. Consumer lefthook.local.yml hooks like `pnpm exec sherif`
+        # or `pnpm --filter @ws/x check` require the workspace to be installed.
+        # Surfaced 2026-05-17 by karakeep PR #5 v1.1.16 re-run (Plan 3 Task 48):
+        # `pnpm exec sherif` failed with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL
+        # because sherif (a devDep) wasn't in node_modules.
+        if: hashFiles('pnpm-lock.yaml') != ''
+        run: pnpm install --frozen-lockfile
+        shell: bash
       - name: Run lefthook pre-commit across all files
         # MISE_ENV=ci is forwarded so any mise env-conditional config behaves
         # the same as the audit job. `--all-files` walks the repo tree rather
