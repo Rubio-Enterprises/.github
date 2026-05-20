@@ -44,3 +44,7 @@ bash rotate-sops-recipients.sh "<OLD_HOST_PUB>" "" --replace
 `--replace` substitutes the old pubkey with the new one (empty `NEW` means "remove old without adding anything"). Use this when a host leaves the fleet.
 
 After either of the two, run `copier update --skip-answered --vcs-ref=v1` against the fleet so `.sops.yaml` files re-pin to the updated recipient list (Plan 2 Task 12 established the fleet-wide rollout pattern).
+
+## Release history
+
+- 2026-05-20 — Reconciled `v1` floating tag off its collision with `v1.1.19` (`89a811f`). One-time backfill of the floating-tag floor-advance ritual mandated by [`standards#12`](https://github.com/Rubio-Enterprises/standards/pull/12).
