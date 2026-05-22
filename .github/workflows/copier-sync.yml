@@ -61,7 +61,9 @@ jobs:
           # drift source in phase 3.
           current=$(awk '/^_rubio_template_version:/{ print $2 }' .copier-answers.yml)
           if [ -z "$current" ]; then
-            echo "::error::could not resolve template ref from .copier-answers.yml — \`_rubio_template_version\` is missing. Consumer must be on standards \`template/v1.24.0\` or later. Run \`copier update --vcs-ref=template/v1 --defaults --trust\` and re-merge."
+            echo "::error::missing \`_rubio_template_version\` in .copier-answers.yml"
+            echo "::error::consumer must be on standards \`template/v1.24.0\` or later"
+            echo "::error::remediate: copier update --vcs-ref=template/v1 --defaults --trust"
             exit 1
           fi
           echo "current: $current"
