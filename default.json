@@ -37,6 +37,11 @@
       "groupName": "github-actions"
     },
     {
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["aquasecurity/trivy-action"],
+      "extractVersion": "^v?(?<version>.+)$"
+    },
+    {
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["Rubio-Enterprises/standards"],
       "groupName": "rubio-standards-template",
