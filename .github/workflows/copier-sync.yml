@@ -53,18 +53,17 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Read the persisted template ref. Prefer `_rubio_template_version`
-          # (introduced by standards `template/v1.24.0` — task #15 phase 1).
-          # Fall back to copier's built-in `_commit` for consumers that haven't
-          # yet been bumped to v1.24.0+. Phase 3 (future) will retire the
-          # fallback once fleet propagation is complete.
+          # Read the persisted template ref from the canonical Rubio sentinel
+          # field `_rubio_template_version` (introduced by standards
+          # `template/v1.24.0`, task #15 phase 1; sole source after phase 3).
+          # Copier's built-in `_commit` is no longer consulted here — it
+          # conflates provenance pin with drift sentinel and was retired as a
+          # drift source in phase 3.
           current=$(awk '/^_rubio_template_version:/{ print $2 }' .copier-answers.yml)
           if [ -z "$current" ]; then
-            current=$(awk '/^_commit:/{ print $2 }' .copier-answers.yml)
-            echo "::notice::using _commit fallback (consumer not yet on template/v1.24.0+); will graduate to _rubio_template_version on next copier update"
-          fi
-          if [ -z "$current" ]; then
-            echo "::error::could not resolve template ref from .copier-answers.yml (neither _rubio_template_version nor _commit present)"
+            echo "::error::missing \`_rubio_template_version\` in .copier-answers.yml"
+            echo "::error::consumer must be on standards \`template/v1.24.0\` or later"
+            echo "::error::remediate: copier update --vcs-ref=template/v1 --defaults --trust"
             exit 1
           fi
           echo "current: $current"
