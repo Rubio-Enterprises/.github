@@ -13,10 +13,24 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
+      "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^0/",
       "automerge": true,
       "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["github-actions", "dockerfile"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major npm dependencies",
+      "groupSlug": "npm-non-major"
     },
     {
       "matchManagers": ["github-actions"],
