@@ -35,6 +35,30 @@ jobs:
         uses: jdx/mise-action@v4
         with:
           working_directory: .standards
+      - name: Verify lockfile integrity (npm)
+        # Defense-in-depth complement to the `NPM-LOCKFILE-PRESENT` audit
+        # rule (scripts/check.sh, §6.6) and the template's `lockfile-drift`
+        # pre-commit hook (template/lefthook.yml.jinja). Walks every
+        # checked-in `package-lock.json` and runs
+        # `npm ci --dry-run --ignore-scripts` — fails fast on manifest↔
+        # lockfile drift without installing `node_modules`. Skipped
+        # silently when no npm lockfile is present (non-npm consumers or
+        # zero-dep repos). Monorepos with multiple package.json/lock
+        # pairs are walked per directory. `node_modules` is pruned so
+        # vendored upstream lockfiles aren't validated.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t locks < <(find . -name node_modules -prune -o -name package-lock.json -print 2>/dev/null | sort)
+          if [ "${#locks[@]}" -eq 0 ]; then
+            echo "no package-lock.json files found; skipping"
+            exit 0
+          fi
+          for lockfile in "${locks[@]}"; do
+            dir="$(dirname "$lockfile")"
+            echo "Verifying lockfile integrity: $dir"
+            ( cd "$dir" && npm ci --dry-run --ignore-scripts )
+          done
       - name: Deterministic baseline
         run: bash .standards/scripts/check.sh
       - name: JSON Schema validation (intra-document rules)
