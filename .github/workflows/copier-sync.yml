@@ -53,8 +53,20 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # `_commit:` records the rendered template ref (e.g. `template/v1.2.8`)
-          current=$(awk '/^_commit:/{ print $2 }' .copier-answers.yml)
+          # Read the persisted template ref. Prefer `_rubio_template_version`
+          # (introduced by standards `template/v1.24.0` — task #15 phase 1).
+          # Fall back to copier's built-in `_commit` for consumers that haven't
+          # yet been bumped to v1.24.0+. Phase 3 (future) will retire the
+          # fallback once fleet propagation is complete.
+          current=$(awk '/^_rubio_template_version:/{ print $2 }' .copier-answers.yml)
+          if [ -z "$current" ]; then
+            current=$(awk '/^_commit:/{ print $2 }' .copier-answers.yml)
+            echo "::notice::using _commit fallback (consumer not yet on template/v1.24.0+); will graduate to _rubio_template_version on next copier update"
+          fi
+          if [ -z "$current" ]; then
+            echo "::error::could not resolve template ref from .copier-answers.yml (neither _rubio_template_version nor _commit present)"
+            exit 1
+          fi
           echo "current: $current"
           # Resolve the target ref's actual SHA via the GitHub API so we can
           # short-circuit the no-op case without invoking copier.
