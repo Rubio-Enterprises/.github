@@ -95,3 +95,16 @@ jobs:
           else
             echo "no conftest inputs (biome.json/ruff.toml/.golangci.yml/package.json/deno.json/deno.jsonc all absent); skipping"
           fi
+      - name: Managed-content drift (strict gate)
+        # §8-END enforcement flip. Runs the MD-* managed-content drift checker
+        # against the consumer's committed carriers (.claude/settings.json,
+        # .gitignore deny-block, release-please manifest). CHECK_MANAGED_CONTENT_STRICT=1
+        # turns the default reporter (always exit 0) into a GATE: exit 1 when any
+        # FAIL row is emitted. This is the channel that propagates the org plugin
+        # superset (MD-05/07/08) and the now-FAIL-tier MD-09 deny-block to the
+        # fleet — the standards check.sh baseline above does not run it.
+        # Requires mikefarah yq, pinned audit-side in standards/.mise.toml and
+        # installed by the `working_directory: .standards` mise step above; the
+        # checker SKIPs (exit 0) if yq/jq are absent, so the pin is load-bearing.
+        shell: bash
+        run: CHECK_MANAGED_CONTENT_STRICT=1 bash .standards/skills/audit-standards/scripts/check-managed-content.sh
