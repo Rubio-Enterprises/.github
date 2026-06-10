@@ -30,6 +30,12 @@ jobs:
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@v6
+      # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
+      # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
+      # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
+      # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
+      - name: Install uv (routes mise pipx installs through uvx)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Install consumer-repo runtimes (lefthook + pinned hook tools)
         uses: jdx/mise-action@v4
       - name: Install pnpm (for lefthook.local.yml hooks invoking pnpm)
