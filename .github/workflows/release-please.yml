@@ -1,0 +1,50 @@
+# release-please: opens / updates a release PR on every push to main.
+# When the release PR is merged, release-please tags + creates a GitHub
+# release, and the follow-up step below moves the floating major tag
+# (v1, v2, …) to the release commit.
+#
+# The floating tag is load-bearing: consumer repos pin these reusable
+# workflows by SHA with a `# v1` comment that tells Renovate which tag to
+# track, so Renovate only bumps consumer pins when the floating tag moves.
+# Before this workflow the tag was moved by hand and drifted twice (v1
+# lagged both the latest semver tag and the SHAs consumers actually ran).
+# Cutting releases and moving the major tag in one motion makes that
+# drift impossible.
+
+name: release-please
+# `on:` is quoted to satisfy `yaml[truthy]` (yamllint + ansible-lint): without
+# quotes, YAML 1.1 parsers fold `on` into the boolean `On`. GitHub Actions
+# resolves the key by name regardless, and actionlint accepts both forms.
+"on":
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # tag + create release + move the floating major tag
+  pull-requests: write # open / update the release PR
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      # fetch-depth: 0 so the release commit is guaranteed present locally
+      # even if pushes raced between trigger and tag creation.
+      - uses: actions/checkout@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          fetch-depth: 0
+      - name: Move floating major tag to the release commit
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          # v1.2.3 -> v1; a future v2.0.0 moves v2 and leaves v1 alone.
+          major="${TAG_NAME%%.*}"
+          git push origin "+${RELEASE_SHA}:refs/tags/${major}"
