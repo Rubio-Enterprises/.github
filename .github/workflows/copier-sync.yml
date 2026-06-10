@@ -110,14 +110,14 @@ jobs:
           # --conflict inline: leave merge markers in conflicting files so the
           #                    reviewer can resolve in the PR rather than the
           #                    workflow silently dropping the consumer's edit.
-          # --overwrite: required to overwrite tracked files; _skip_if_exists
-          #              in copier.yml still protects consumer-owned files.
+          # NOTE: no --overwrite — that switch exists only on `copier copy`;
+          #       `copier update` always applies the template diff to managed
+          #       files (copier 9.x rejects unknown switches with exit 2).
           copier update \
             --skip-answered \
             --trust \
             --defaults \
             --conflict inline \
-            --overwrite \
             --vcs-ref="${{ steps.resolve.outputs.target }}"
 
       - name: Detect rendered drift
