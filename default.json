@@ -13,24 +13,30 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
-      "matchDepTypes": ["devDependencies"],
+      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge is OFF org-wide on purpose: these repos have no required status checks beyond the org audit ruleset, and GitHub-native automerge waits only on REQUIRED checks - it would merge PRs whose tests or gitleaks are red. Renovate's own automerge engine merges only when the branch is green across ALL checks, at the cost of merges landing on Renovate runs (cron in .github-private renovate.yml).",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^0/",
       "automerge": true,
-      "platformAutomerge": true
+      "platformAutomerge": false
     },
     {
-      "matchManagers": ["github-actions", "dockerfile"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "matchCurrentVersion": "!/^0/",
+      "description": "Lockfile maintenance only refreshes transitive resolution inside existing ranges - the lowest-risk update class.",
+      "matchUpdateTypes": ["lockFileMaintenance"],
       "automerge": true,
-      "platformAutomerge": true
+      "platformAutomerge": false
     },
     {
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "all non-major npm dependencies",
       "groupSlug": "npm-non-major"
+    },
+    {
+      "description": "Same per-repo consolidation as npm: one rolling PR per repo for non-major crate bumps instead of one PR per crate (vibe-kanban alone accumulated 100+ individual crate PRs).",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major cargo dependencies",
+      "groupSlug": "cargo-non-major"
     },
     {
       "matchManagers": ["github-actions"],
@@ -42,6 +48,7 @@
       "extractVersion": "^v?(?<version>.+)$"
     },
     {
+      "description": "KEEP LAST: overrides the blanket automerge rule above - template-drift PRs always get human review.",
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["Rubio-Enterprises/standards"],
       "groupName": "rubio-standards-template",
