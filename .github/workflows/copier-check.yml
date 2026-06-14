@@ -106,12 +106,17 @@ jobs:
           set -euo pipefail
           # Identical flags to copier-sync.yml's update step, so the rendered
           # result is byte-for-byte what a sync PR would produce.
+          # NOTE: no --overwrite — that switch exists only on `copier copy`;
+          #       `copier update` always applies the template diff to managed
+          #       files and copier 9.x rejects the unknown switch with exit 2
+          #       (printing usage), which fails this render BEFORE the
+          #       mode/enforce step can apply advisory suppression. The sister
+          #       copier-sync.yml dropped it in .github #18; this gate was missed.
           copier update \
             --skip-answered \
             --trust \
             --defaults \
             --conflict inline \
-            --overwrite \
             --vcs-ref="${{ steps.resolve.outputs.target }}"
           # REAL rendered drift = any change OTHER than .copier-answers.yml.
           # The `:(exclude).copier-answers.yml` pathspec is the one deliberate
@@ -148,7 +153,7 @@ jobs:
             echo "   of the \`standards\` workflow opens it."
             echo "2. Or render locally and open the PR yourself:"
             echo '   ```'
-            echo "   copier update --vcs-ref=${{ steps.resolve.outputs.target }} --defaults --trust --conflict inline --overwrite"
+            echo "   copier update --vcs-ref=${{ steps.resolve.outputs.target }} --defaults --trust --conflict inline"
             echo '   ```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ inputs.mode }}" = "advisory" ]; then
