@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/Rubio-Enterprises/.github/compare/v1.3.0...v1.3.1) (2026-06-14)
+
+
+### Bug Fixes
+
+* pin mise version + onboard dot-github to renovate ([#29](https://github.com/Rubio-Enterprises/.github/issues/29)) ([9833367](https://github.com/Rubio-Enterprises/.github/commit/98333676562c57801bd5b62c31bec7f5fb576667))
+
 ## [1.3.0](https://github.com/Rubio-Enterprises/.github/compare/v1.2.0...v1.3.0) (2026-06-14)
 
 
