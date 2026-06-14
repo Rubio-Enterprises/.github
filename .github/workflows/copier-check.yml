@@ -1,0 +1,149 @@
+name: copier drift check (reusable)
+# Blocking template-drift GATE. Fails when the consumer's RENDERED template
+# state drifts from the target ref (default: floating `template/v1`).
+#
+# "Rendered drift" = any `git diff` after a `copier update`, EXCLUDING
+# `.copier-answers.yml` (whose `_commit` / `_rubio_template_version` are
+# rewritten on every render by the normalize-copier-answers-commit.sh _tasks
+# hook). This is the SAME drift definition copier-sync.yml uses to decide
+# whether to open a PR, so a RED gate ALWAYS implies copier-sync can open a
+# real remediation PR — never a dead-end red with nothing to merge.
+#
+# We deliberately do NOT use `copier check-update`: it keys off template TAG
+# comparison (PEP 440), returning "update available" whenever a newer tag
+# exists even when nothing the consumer renders changed. Because `template/v1`
+# floats forward on every release, that would produce a permanently-red repo
+# with no PR able to fix it. `git diff` after `copier update` is the only
+# definition that stays in lockstep with copier-sync.
+"on":
+  workflow_call:
+    inputs:
+      vcs-ref:
+        description: 'Copier --vcs-ref to check against (default: floating template/v1)'
+        type: string
+        required: false
+        default: 'template/v1'
+      mode:
+        description: 'blocking (fail on drift) | advisory (annotate only, never fail)'
+        type: string
+        required: false
+        default: 'blocking'
+  # `pull_request` trigger satisfies GitHub's organization-ruleset
+  # `required_workflows` validator (422 otherwise). On PRs against `.github`
+  # itself it's a no-op via the job-level `if:` guard.
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  copier-check:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'Rubio-Enterprises/.github'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out consumer (full history; copier needs the previous commit)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Bootstrap mise (resolves consumer's pinned copier + python)
+        uses: jdx/mise-action@v4
+
+      - name: Resolve current consumer template SHA + target SHA
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f .copier-answers.yml ]; then
+            echo "::notice::repo has no .copier-answers.yml — skipping (not standards-onboarded)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Read the persisted template ref from the canonical Rubio sentinel
+          # field `_rubio_template_version` (mirrors copier-sync.yml). Copier's
+          # built-in `_commit` is intentionally not consulted.
+          current=$(awk '/^_rubio_template_version:/{ print $2 }' .copier-answers.yml)
+          if [ -z "$current" ]; then
+            echo "::error::missing \`_rubio_template_version\` in .copier-answers.yml"
+            echo "::error::consumer must be on standards \`template/v1.24.0\` or later"
+            echo "::error::remediate: copier update --vcs-ref=template/v1 --defaults --trust"
+            exit 1
+          fi
+          echo "current: $current"
+          # Resolve the target ref's actual SHA via the GitHub API so we can
+          # short-circuit the no-op case (current SHA == target SHA → no drift
+          # possible) without paying for a full mise+copier render.
+          target_sha=$(gh api "/repos/Rubio-Enterprises/standards/commits/${{ inputs.vcs-ref }}" --jq '.sha')
+          current_sha=$(gh api "/repos/Rubio-Enterprises/standards/commits/${current}" --jq '.sha' 2>/dev/null || echo "")
+          if [ "$current_sha" = "$target_sha" ]; then
+            echo "::notice::already at target SHA $target_sha — no drift possible"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "target=${{ inputs.vcs-ref }}" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Render against target and detect REAL drift
+        if: steps.resolve.outputs.skip != 'true'
+        id: drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Identical flags to copier-sync.yml's update step, so the rendered
+          # result is byte-for-byte what a sync PR would produce.
+          copier update \
+            --skip-answered \
+            --trust \
+            --defaults \
+            --conflict inline \
+            --overwrite \
+            --vcs-ref="${{ steps.resolve.outputs.target }}"
+          # REAL rendered drift = any change OTHER than .copier-answers.yml.
+          # The `:(exclude).copier-answers.yml` pathspec is the one deliberate
+          # divergence from copier-sync's bare `git diff --quiet`: the gate fires
+          # precisely in the SHA-differs window where the answers-file rewrite is
+          # always present, so it MUST be excluded to preserve the invariant
+          # "gate RED <=> copier-sync opens a real PR".
+          if git diff --quiet -- . ':(exclude).copier-answers.yml'; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no real rendered drift — only .copier-answers.yml would change; PASS"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            git diff --name-status -- . ':(exclude).copier-answers.yml' > /tmp/copier-check-drift.txt
+          fi
+
+      - name: Report / enforce
+        if: steps.resolve.outputs.skip != 'true' && steps.drift.outputs.drift == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Template drift detected"
+            echo
+            echo "This repo's rendered template state is behind \`${{ steps.resolve.outputs.target }}\`."
+            echo
+            echo "**Files that would change on sync:**"
+            echo '```'
+            cat /tmp/copier-check-drift.txt
+            echo '```'
+            echo
+            echo "**Remediate (pick one):**"
+            echo "1. Merge the open \`chore: copier update …\` PR (label \`standards-template-drift\`)."
+            echo "   The weekly copier-sync (Mon 08:00 UTC) or a manual \`workflow_dispatch\`"
+            echo "   of the \`standards\` workflow opens it."
+            echo "2. Or render locally and open the PR yourself:"
+            echo '   ```'
+            echo "   copier update --vcs-ref=${{ steps.resolve.outputs.target }} --defaults --trust --conflict inline --overwrite"
+            echo '   ```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ inputs.mode }}" = "advisory" ]; then
+            echo "::warning::template drift present (advisory mode — not failing this run). See job summary for remediation."
+            exit 0
+          fi
+          echo "::error::template drift present. Merge the copier-sync PR (label standards-template-drift) before this branch can be green. See job summary."
+          exit 1
