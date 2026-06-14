@@ -13,6 +13,11 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
+      "description": "Disable Renovate's built-in mise manager fleet-wide: consumer .mise.toml tool pins are TEMPLATE-OWNED (enforced by standards' normalize-mise-pins.sh against template/.mise.toml.jinja floors). Letting Renovate also bump .mise.toml created an infinite thrash (Renovate bumps up, copier-sync reverts to floor). Currency for these tools is driven from the template's .mise.toml.jinja via custom managers in the standards repo, so one reviewed bump propagates uniformly to the whole fleet. NOTE: does NOT affect the jdx/mise CLI pin below — that is a custom.regex manager (workflow YAML), a different manager.",
+      "matchManagers": ["mise"],
+      "enabled": false
+    },
+    {
       "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge is OFF org-wide on purpose: these repos have no required status checks beyond the org audit ruleset, and GitHub-native automerge waits only on REQUIRED checks - it would merge PRs whose tests or gitleaks are red. Renovate's own automerge engine merges only when the branch is green across ALL checks, at the cost of merges landing on Renovate runs (cron in .github-private renovate.yml).",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^0/",
