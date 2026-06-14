@@ -1,0 +1,57 @@
+name: floating-tag floor-check
+# Fail-closed invariant guard for the load-bearing floating major tag.
+#
+# release-please moves `v1` onto each release commit (see release-please.yml).
+# If that retag is ever skipped, reverted, or `v1` is hand-moved onto an
+# UNRELEASED main SHA (the historical failure mode: consumers were pinned to
+# raw main SHAs, so someone dragged `v1` forward by hand between releases,
+# silently and unguarded), then `v1` diverges from the release it must track
+# and every consumer's `# v1` Renovate pin becomes a lie. This gate catches it.
+#
+# Invariant: `v1` MUST point at the exact commit of the latest strict-semver
+# release `vX.Y.Z`. This is the INVERSE of the sister repo standards'
+# floor-check (which requires its floating tag STRICTLY AHEAD of the latest
+# release, because standards advances via a manual post-release tick). Here
+# release-please moves `v1` ONTO the release, so `v1` must EQUAL it.
+"on":
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC — periodic drift detection
+  workflow_dispatch: # on-demand re-check after a manual remediation
+
+permissions:
+  contents: read
+
+jobs:
+  floor-check:
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - name: Assert floating v1 == latest semver release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          # Latest strict-semver tag vN.M.P (no pre-release suffix), highest
+          # version. Pre-releases must not anchor the floor.
+          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+          if [ -z "$latest" ]; then
+            echo "::notice::no strict-semver release tags yet — nothing to check"
+            exit 0
+          fi
+          major="${latest%%.*}" # vN.M.P -> vN
+          if ! git rev-parse --verify --quiet "refs/tags/${major}^{commit}" >/dev/null; then
+            echo "::error::latest release ${latest} exists but floating tag ${major} does not"
+            exit 1
+          fi
+          float_sha="$(git rev-parse "refs/tags/${major}^{commit}")"
+          latest_sha="$(git rev-parse "refs/tags/${latest}^{commit}")"
+          if [ "$float_sha" != "$latest_sha" ]; then
+            echo "::error::floating tag ${major} (${float_sha}) does not point at the latest release ${latest} (${latest_sha})."
+            echo "::error::release-please must move ${major} onto each release commit; do NOT hand-move it onto unreleased SHAs."
+            echo "::error::remediate: git push origin \"+${latest_sha}:refs/tags/${major}\""
+            exit 1
+          fi
+          echo "::notice::OK — ${major} == ${latest} (${float_sha})"

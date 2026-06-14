@@ -53,3 +53,16 @@ jobs:
           # v1.2.3 -> v1; a future v2.0.0 moves v2 and leaves v1 alone.
           major="${TAG_NAME%%.*}"
           git push origin "+${RELEASE_SHA}:refs/tags/${major}"
+          # Verify the push actually moved the tag. A silent retag failure is
+          # exactly how the floating major drifts from the release it must
+          # track (Renovate's `# v1` pins then become lies), so fail loudly
+          # instead of fire-and-forget. The floating-tag-floor-check workflow
+          # is the periodic backstop; this is the inline release-time check.
+          git fetch --force origin "refs/tags/${major}:refs/tags/${major}"
+          got="$(git rev-parse "refs/tags/${major}^{commit}")"
+          want="$(git rev-parse "${RELEASE_SHA}^{commit}")"
+          if [ "$got" != "$want" ]; then
+            echo "::error::floating tag ${major} did not advance: ${got} != ${want}"
+            exit 1
+          fi
+          echo "::notice::floating tag ${major} verified at ${got}"
