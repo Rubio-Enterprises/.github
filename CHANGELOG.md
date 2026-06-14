@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3](https://github.com/Rubio-Enterprises/.github/compare/v1.3.2...v1.3.3) (2026-06-14)
+
+
+### Bug Fixes
+
+* mint workflow-scoped App token in copier-sync (push standards.yml) ([#33](https://github.com/Rubio-Enterprises/.github/issues/33)) ([9427f9a](https://github.com/Rubio-Enterprises/.github/commit/9427f9a77e405305672adcfa2a02e38461774819))
+
 ## [1.3.2](https://github.com/Rubio-Enterprises/.github/compare/v1.3.1...v1.3.2) (2026-06-14)
 
 
