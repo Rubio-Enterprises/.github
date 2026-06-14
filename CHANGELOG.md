@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/Rubio-Enterprises/.github/compare/v1.3.1...v1.3.2) (2026-06-14)
+
+
+### Bug Fixes
+
+* add Install uv step to copier-check reusable workflow ([#31](https://github.com/Rubio-Enterprises/.github/issues/31)) ([2bf06fc](https://github.com/Rubio-Enterprises/.github/commit/2bf06fc9157acb540f54f23af36126c03a68f600))
+
 ## [1.3.1](https://github.com/Rubio-Enterprises/.github/compare/v1.3.0...v1.3.1) (2026-06-14)
 
 
