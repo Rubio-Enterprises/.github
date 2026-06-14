@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/Rubio-Enterprises/.github/compare/v1.2.0...v1.3.0) (2026-06-14)
+
+
+### Features
+
+* add copier-check reusable workflow (blocking drift gate) ([#24](https://github.com/Rubio-Enterprises/.github/issues/24)) ([e557d55](https://github.com/Rubio-Enterprises/.github/commit/e557d55210aff7de21879b0eeac7997f6ec4c82d))
+
 ## [1.2.0](https://github.com/Rubio-Enterprises/.github/compare/v1.1.21...v1.2.0) (2026-06-10)
 
 
