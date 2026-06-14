@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.4](https://github.com/Rubio-Enterprises/.github/compare/v1.3.3...v1.3.4) (2026-06-14)
+
+
+### Bug Fixes
+
+* **copier-check:** drop invalid --overwrite flag from copier update ([#37](https://github.com/Rubio-Enterprises/.github/issues/37)) ([9da0413](https://github.com/Rubio-Enterprises/.github/commit/9da0413774a70f30942eb14678de7a755049d699))
+* **renovate:** disable mise manager — .mise.toml is template-owned ([#35](https://github.com/Rubio-Enterprises/.github/issues/35)) ([737d076](https://github.com/Rubio-Enterprises/.github/commit/737d076571fb65af2e07088859e2d7e4920323dd))
+
 ## [1.3.3](https://github.com/Rubio-Enterprises/.github/compare/v1.3.2...v1.3.3) (2026-06-14)
 
 
