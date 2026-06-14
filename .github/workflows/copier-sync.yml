@@ -32,13 +32,30 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # GITHUB_TOKEN (a GitHub App token) is REFUSED by GitHub when a push
+      # creates/updates a file under .github/workflows/ without the `workflows`
+      # permission — and `workflows` is not a grantable `permissions:` key. Since
+      # a copier-update of standards.yml itself (new jobs, reusable-SHA bumps) is
+      # exactly such a change, the default token can't push it. Mint a dedicated
+      # copier-sync App token (contents + pull-requests + workflows) and use it
+      # for checkout + push + PR-create. The App must be installed on the
+      # consumer repo and COPIER_SYNC_APP_ID / _PRIVATE_KEY available as secrets
+      # (org-level, passed via `secrets: inherit` from the caller's standards.yml).
+      - name: Mint copier-sync App token (workflow-scoped; GITHUB_TOKEN can't push standards.yml)
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.COPIER_SYNC_APP_ID }}
+          private-key: ${{ secrets.COPIER_SYNC_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Check out consumer (full history; copier needs the previous commit)
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          # The default GITHUB_TOKEN works for push + PR-create on the same
-          # repo; consumers needing cross-repo PRs override this via secret.
-          token: ${{ github.token }}
+          # App token (not GITHUB_TOKEN): persisted for the push below, which
+          # touches .github/workflows/standards.yml and needs `workflows` scope.
+          token: ${{ steps.app-token.outputs.token }}
 
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
@@ -202,4 +219,6 @@ jobs:
             --label dependencies \
             --label standards-template-drift
         env:
-          GH_TOKEN: ${{ github.token }}
+          # App token so the PR is authored by the copier-sync App and matches
+          # the credential that pushed the branch (the push needs workflows scope).
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
