@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.5](https://github.com/Rubio-Enterprises/.github/compare/v1.3.4...v1.3.5) (2026-06-14)
+
+
+### Bug Fixes
+
+* **copier-sync:** make sync-PR creation robust to missing labels ([#38](https://github.com/Rubio-Enterprises/.github/issues/38)) ([3cbcf02](https://github.com/Rubio-Enterprises/.github/commit/3cbcf024b3304a1b45d4d5151da74380347019e4))
+
 ## [1.3.4](https://github.com/Rubio-Enterprises/.github/compare/v1.3.3...v1.3.4) (2026-06-14)
 
 
