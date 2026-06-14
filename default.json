@@ -48,14 +48,6 @@
       "extractVersion": "^v?(?<version>.+)$"
     },
     {
-      "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows, tracked by the jdx/mise customManager below). Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
-      "matchManagers": ["custom.regex"],
-      "matchDepNames": ["jdx/mise"],
-      "groupName": "mise-cli",
-      "commitMessageTopic": "mise CLI",
-      "automerge": false
-    },
-    {
       "description": "KEEP LAST: overrides the blanket automerge rule above - template-drift PRs always get human review.",
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["Rubio-Enterprises/standards"],
@@ -75,16 +67,6 @@
       "depNameTemplate": "Rubio-Enterprises/standards",
       "datasourceTemplate": "github-tags",
       "extractVersionTemplate": "^template/(?<version>v\\d+\\.\\d+\\.\\d+)$"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
-      "matchStrings": [
-        "# renovate: datasource=github-releases depName=jdx/mise\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "jdx/mise",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)$"
     }
   ]
 }
