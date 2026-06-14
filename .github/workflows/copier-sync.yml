@@ -161,7 +161,7 @@ jobs:
             # Capture the affected file list for the PR body.
             git diff --name-status > /tmp/copier-sync-diff-namestatus.txt
             # Capture any conflict markers so the reviewer can spot them.
-            grep -rl '<<<<<<< before updating' . --exclude-dir=.git || true > /tmp/copier-sync-conflicts.txt
+            grep -rl '<<<<<<< before updating' . --exclude-dir=.git > /tmp/copier-sync-conflicts.txt || true
           fi
 
       - name: Open PR
@@ -211,13 +211,27 @@ jobs:
             echo
             echo "_Automated by \`copier-sync.yml\` reusable workflow._"
           } > /tmp/copier-sync-pr-body.md
-          gh pr create \
+          # Create the PR FIRST, WITHOUT labels. `gh pr create --label X`
+          # aborts the ENTIRE creation when X doesn't exist, and fleet
+          # consumers don't all carry `standards-template-drift` (webfetch
+          # didn't — the bootstrap canary surfaced this). The copier-sync App
+          # token also lacks `issues: write`, so label management can fail even
+          # when the label exists. The PR is the load-bearing artifact; labels
+          # are advisory. Attach them best-effort AFTER creation so a missing
+          # label or a label-permission gap can never block a sync PR.
+          pr_url=$(gh pr create \
             --base "$base" \
             --head "$branch" \
             --title "chore: copier update ${{ steps.resolve.outputs.current }} -> ${{ steps.resolve.outputs.target }}" \
-            --body-file /tmp/copier-sync-pr-body.md \
-            --label dependencies \
-            --label standards-template-drift
+            --body-file /tmp/copier-sync-pr-body.md)
+          echo "::notice::opened sync PR $pr_url"
+          # Best-effort labels: ensure they exist, then attach. Each call is
+          # tolerant — `gh label create --force` is idempotent but needs
+          # issues:write (the App may lack it), and the attach may 403; none of
+          # that must fail the run now that the PR already exists.
+          gh label create dependencies --color 0366d6 --description "Dependency updates" --force >/dev/null 2>&1 || true
+          gh label create standards-template-drift --color c5def5 --description "rubio-standards template drift" --force >/dev/null 2>&1 || true
+          gh pr edit "$pr_url" --add-label dependencies --add-label standards-template-drift >/dev/null 2>&1 || true
         env:
           # App token so the PR is authored by the copier-sync App and matches
           # the credential that pushed the branch (the push needs workflows scope).
