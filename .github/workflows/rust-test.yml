@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   rust-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
       - uses: actions/checkout@v6

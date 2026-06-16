@@ -35,6 +35,7 @@ permissions:
   contents: read
 jobs:
   e2e:
+    # TODO: route to RUNNER_GLUE once the glue runner image carries Playwright browser deps
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
