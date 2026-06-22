@@ -71,16 +71,16 @@ jobs:
             ( cd "$dir" && npm ci --dry-run --ignore-scripts )
           done
       - name: Deterministic baseline
-        run: bash .standards/scripts/check.sh
+        run: bash .standards/skills/audit-standards/scripts/check.sh
       - name: JSON Schema validation (intra-document rules)
         shell: bash
         run: |
           set -euo pipefail
           if [ -f package.json ]; then
-            check-jsonschema --schemafile .standards/schemas/package-json.schema.json package.json
+            check-jsonschema --schemafile .standards/skills/audit-standards/schemas/package-json.schema.json package.json
           fi
           if [ -f pyproject.toml ]; then
-            check-jsonschema --schemafile .standards/schemas/pyproject.schema.json pyproject.toml
+            check-jsonschema --schemafile .standards/skills/audit-standards/schemas/pyproject.schema.json pyproject.toml
           fi
       - name: Conftest policies (relational + cross-file rules only)
         shell: bash
@@ -100,8 +100,8 @@ jobs:
           # the shell aborts the step before conftest is even considered.
           if [ ${#inputs[@]} -gt 0 ]; then
             conftest test --combine \
-              --policy .standards/policy \
-              --data   .standards/data/base \
+              --policy .standards/skills/audit-standards/policy \
+              --data   .standards/skills/audit-standards/data/base \
               "${inputs[@]}"
           else
             echo "no conftest inputs (biome.json/ruff.toml/.golangci.yml/package.json/deno.json/deno.jsonc all absent); skipping"
