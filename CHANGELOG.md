@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.7](https://github.com/Rubio-Enterprises/.github/compare/v1.3.6...v1.3.7) (2026-06-23)
+
+
+### Bug Fixes
+
+* **secret-scan:** run trufflehog via CLI binary instead of the docker action ([#43](https://github.com/Rubio-Enterprises/.github/issues/43)) ([752038e](https://github.com/Rubio-Enterprises/.github/commit/752038e37d0020434d40919ec712e09e0c20a9a0))
+
 ## [1.3.6](https://github.com/Rubio-Enterprises/.github/compare/v1.3.5...v1.3.6) (2026-06-23)
 
 
