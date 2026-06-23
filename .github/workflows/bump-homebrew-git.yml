@@ -1,0 +1,58 @@
+name: bump-homebrew-git (reusable)
+# Bump a :git-strategy Homebrew formula in the tap to the tag that triggered the
+# caller. These formulae build from source — `url "git@…", using: :git, tag:,
+# revision:` — so there is no release tarball or sha256 to update, only the tag and
+# the commit it points at. This replaces mislav/bump-homebrew-formula-action, which
+# only rewrites url+sha256 tarball formulae and 404s on a private repo's archive.
+#
+# `on:` is quoted to satisfy yaml[truthy] (YAML 1.1 folds bare `on` into `On`).
+"on":
+  workflow_call:
+    inputs:
+      formula-name:
+        description: Formula basename in the tap, i.e. Formula/<formula-name>.rb
+        type: string
+        required: true
+      tap:
+        description: owner/repo of the Homebrew tap to update
+        type: string
+        default: Rubio-Enterprises/homebrew-tap
+    secrets:
+      tap-token:
+        description: PAT with contents:write on the tap (used to push the bump)
+        required: true
+permissions:
+  contents: read
+jobs:
+  bump:
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.tap }}
+          token: ${{ secrets.tap-token }}
+      - name: Rewrite formula tag + revision
+        env:
+          FORMULA: ${{ inputs.formula-name }}
+          TAP: ${{ inputs.tap }}
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9][0-9A-Za-z.+~_-]*$ ]] || { echo "::error::unexpected tag '${TAG}'"; exit 1; }
+          f="Formula/${FORMULA}.rb"
+          test -f "$f" || { echo "::error::${f} not found in ${TAP}"; exit 1; }
+          grep -q 'using: :git' "$f" || { echo "::error::${f} is not a :git formula"; exit 1; }
+          # tag: and revision: live on the `using: :git, …` line; update both in place.
+          sed -i -E "s/(tag:[[:space:]]*\")[^\"]*(\")/\1${TAG}\2/" "$f"
+          sed -i -E "s/(revision:[[:space:]]*\")[0-9a-f]*(\")/\1${SHA}\2/" "$f"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$f"
+          if git diff --cached --quiet; then
+            echo "::notice::${FORMULA} already at ${TAG}; nothing to bump"
+          else
+            git commit -m "chore(${FORMULA}): bump to ${TAG}"
+            git push
+          fi
