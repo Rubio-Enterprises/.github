@@ -29,6 +29,7 @@ jobs:
           repository: Rubio-Enterprises/standards
           ref: audit/v1   # floating audit/v1 stream (see standards/RELEASES.md)
           path: .standards
+          persist-credentials: false   # read-only checkout; don't leave a token in .standards/.git
       # One observable answer to "what standards version is the fleet running?".
       # audit/v1 floats, so the run summary records the exact commit this run
       # executed (the same ref secret-scan.yml now resolves — no pin asymmetry).
