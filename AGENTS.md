@@ -13,8 +13,8 @@ git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
 the *delivery vehicle*: `standards` defines the rules, **this repo runs them in CI**, and
 `dot-github-private` enforces repo settings. The macro architecture (the three repos, the
 `standards` content layers and release streams, and the four propagation paths) is documented
-canonically in `standards/AGENTS.md` → "How changes propagate to the fleet"; this file covers
-only what is specific to working *inside* `dot-github`.
+canonically in the sibling `standards` repo's `AGENTS.md` → "How changes propagate to the
+fleet"; this file covers only what is specific to working *inside* `dot-github`.
 
 This is a **bootstrap repo**: not rendered from the Copier template, not standards-onboarded,
 and excluded from its own audit. Consequence: there is **no `.mise.toml`, no `lefthook.yml`,
