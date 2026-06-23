@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/Rubio-Enterprises/.github/compare/v1.3.7...v1.4.0) (2026-06-23)
+
+
+### Features
+
+* **workflows:** add bump-homebrew-git reusable for :git formulae ([#49](https://github.com/Rubio-Enterprises/.github/issues/49)) ([8b1fbad](https://github.com/Rubio-Enterprises/.github/commit/8b1fbadd2c37cf6792b4ea46cac3a28627b00c64))
+
+
+### Bug Fixes
+
+* **secret-scan:** pin trufflehog installer script to the release tag ([#46](https://github.com/Rubio-Enterprises/.github/issues/46)) ([788477b](https://github.com/Rubio-Enterprises/.github/commit/788477bbc1b4027e812563ec8e27f9aca76fa1c7))
+
 ## [1.3.7](https://github.com/Rubio-Enterprises/.github/compare/v1.3.6...v1.3.7) (2026-06-23)
 
 
