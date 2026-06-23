@@ -6,11 +6,17 @@ name: lint hooks (reusable)
 # tooling regressions (PATH issues, version pins) escape until they break
 # someone's commit locally.
 #
+# Runner routing: a cheap `detect` job reads the consumer's `.copier-answers.yml`
+# archetype and sends the lint-hooks job to macOS for `swift-*` archetypes —
+# swiftformat/swiftlint need sourcekitd, which the Linux glue runner lacks, so
+# there they die with `swiftformat_linux: not found` / `Loading
+# libsourcekitdInProc.so failed`. Every other archetype stays on RUNNER_GLUE.
+#
 # Consumer thin-callers invoke this via `uses:`. The `pull_request:` trigger is
 # required so GitHub's org-ruleset `required_workflows` validator accepts the
 # workflow (422 otherwise — same precedent as audit.yml). On PRs against
 # `.github` itself the pull_request path is a no-op (this is a reusable, not a
-# project workflow) — enforced by the job-level `if:` guard below, since the
+# project workflow) — enforced by the job-level `if:` guards below, since the
 # `.github` repo doesn't ship a `.mise.toml` or `lefthook.yml` and would fail
 # the `mise exec -- lefthook` invocation otherwise.
 "on":
@@ -19,14 +25,44 @@ name: lint hooks (reusable)
 permissions:
   contents: read
 jobs:
+  detect:
+    # Resolve the runner from the consumer's archetype: swift-* needs macOS
+    # (sourcekitd); everything else uses the glue/ubuntu-slim tier. Reading
+    # .copier-answers.yml tracks the authoritative archetype rather than
+    # file-sniffing for Package.swift.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'Rubio-Enterprises/.github'
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - name: Sparse-checkout the consumer's .copier-answers.yml
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .copier-answers.yml
+          sparse-checkout-cone-mode: false
+      - name: Pick runner from archetype
+        id: pick
+        env:
+          MACOS_RUNNER: ${{ vars.RUNNER_MACOS || '["macos-15"]' }}
+          GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
+        shell: bash
+        run: |
+          if grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
+            printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
+          else
+            printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
+          fi
   lint-hooks:
+    needs: detect
     # Skip when running as the `pull_request` no-op on the `.github` repo
     # itself. Consumer thin-callers invoke via `workflow_call`, where
     # `github.event_name` is `workflow_call` and this guard passes.
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@v6
