@@ -90,8 +90,8 @@ change: merge it via a conventionally-titled PR and let the release automation r
   together (human-merge only — see below). Keep the marker when you add a job.
 - **`RUNNER_GLUE` runner selection.** Glue-tier jobs use
   `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}` (org var, defaults to
-  `ubuntu-slim`). Heavier jobs (`e2e`, `lint-hooks`, `copier-check`, `rust-test`) use
-  `ubuntu-latest`.
+  `ubuntu-slim`) — now including `lint-hooks`, `copier-check`, and `rust-test`. Only `e2e`
+  still uses `ubuntu-latest`.
 - **App-token for `standards.yml` pushes.** `copier-sync.yml` mints a dedicated GitHub App
   token (`COPIER_SYNC_APP_ID` / `COPIER_SYNC_APP_PRIVATE_KEY`, passed via `secrets: inherit`)
   because the default `GITHUB_TOKEN` can't push changes under `.github/workflows/` (the
