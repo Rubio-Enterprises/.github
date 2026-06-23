@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/Rubio-Enterprises/.github/compare/v1.4.2...v1.4.3) (2026-06-23)
+
+
+### Bug Fixes
+
+* **secret-scan:** float standards ref to audit/v1 to remove pin asymmetry ([#54](https://github.com/Rubio-Enterprises/.github/issues/54)) ([99f965d](https://github.com/Rubio-Enterprises/.github/commit/99f965d1a2f7f2ab351ffc3daeeab77c8fff4271))
+
 ## [1.4.2](https://github.com/Rubio-Enterprises/.github/compare/v1.4.1...v1.4.2) (2026-06-23)
 
 
