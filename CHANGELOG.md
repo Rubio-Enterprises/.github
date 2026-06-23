@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.6](https://github.com/Rubio-Enterprises/.github/compare/v1.3.5...v1.3.6) (2026-06-23)
+
+
+### Bug Fixes
+
+* point the audit reusable at relocated skills/audit-standards paths ([#41](https://github.com/Rubio-Enterprises/.github/issues/41)) ([ecebd74](https://github.com/Rubio-Enterprises/.github/commit/ecebd747c477045b6c5b5a28832da87d50b0035e))
+
 ## [1.3.5](https://github.com/Rubio-Enterprises/.github/compare/v1.3.4...v1.3.5) (2026-06-14)
 
 
