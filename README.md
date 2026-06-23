@@ -13,14 +13,14 @@ Org-level reusable GitHub Actions workflows for `Rubio-Enterprises`. Every consu
 
 ## Standards dependency
 
-`audit.yml` and `secret-scan.yml` check out `Rubio-Enterprises/standards` at a pinned tag and execute its audit-side content there. The pin is on the **audit stream only** — `audit/v1.X.Y` (or floating `audit/v1`):
+`audit.yml` and `secret-scan.yml` check out `Rubio-Enterprises/standards` at the floating **`audit/v1`** and execute its audit-side content there. The ref is on the **audit stream only**:
 
 - `audit/vX.Y.Z` advances only when files in `standards/scripts/`, `standards/schemas/`, `standards/policy/`, `standards/data/`, or audit-side `.mise.toml` change.
 - Template-side changes in `standards/template/` and `standards/copier.yml` advance the **template stream** (`template/vX.Y.Z`) and **do not require a `.github` release**. They reach consumers via `copier update`, not via `.github`.
 
 See [`standards/RELEASES.md`](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md) for the full dual-layer model.
 
-When the audit pin here changes, cut a new `.github` tag (`vX.Y.Z` + advance moving `v1`). Renovate then bumps the consumer-side SHA pin on its next pass.
+Because the ref floats, new audit-rule **content** reaches consumers when `standards` advances `audit/v1` — **no `.github` release needed**. A `.github` release (`vX.Y.Z` + release-please moves `v1`) is needed only when a **reusable workflow's own code** changes; Renovate then bumps the consumer-side SHA pin on its next pass.
 
 ## scripts/
 
