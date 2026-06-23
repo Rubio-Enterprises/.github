@@ -12,8 +12,9 @@ git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
 `.github/workflows/standards.yml` thin-calls. In the three-repo governance system it is
 the *delivery vehicle*: `standards` defines the rules, **this repo runs them in CI**, and
 `dot-github-private` enforces repo settings. The macro architecture (the three repos, the
-four `standards` layers and their independent tag streams) lives in `Governance/CLAUDE.md`
-one level up — this file covers only what is specific to working *inside* `dot-github`.
+`standards` content layers and release streams, and the four propagation paths) is documented
+canonically in `standards/AGENTS.md` → "How changes propagate to the fleet"; this file covers
+only what is specific to working *inside* `dot-github`.
 
 This is a **bootstrap repo**: not rendered from the Copier template, not standards-onboarded,
 and excluded from its own audit. Consequence: there is **no `.mise.toml`, no `lefthook.yml`,
