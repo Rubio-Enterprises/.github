@@ -29,7 +29,7 @@ Consumer-facing reusables, invoked via `uses:` / `workflow_call` from a consumer
 | Workflow | What it does | Standards pin |
 |---|---|---|
 | `audit.yml` | Standards Layer A (`check.sh`) + B (`check-jsonschema`) + C (Conftest `--combine`), plus npm-lockfile integrity and the managed-content strict gate (`check-managed-content.sh`) | floating **`audit/v1`** |
-| `secret-scan.yml` | `mode: gitleaks` (PR-diff scan) or `mode: trufflehog` (scheduled full-history); `.trufflehogignore` opt-out | pinned **`audit/v1.4.0`** |
+| `secret-scan.yml` | `mode: gitleaks` (PR-diff scan) or `mode: trufflehog` (scheduled full-history); `.trufflehogignore` opt-out | floating **`audit/v1`** |
 | `e2e.yml` | Playwright harness; detects `scripts.e2e`, then runs `mise run e2e` / `npm run e2e`. Does **not** start a dev server (see the dev-server contract in its header) | — |
 | `lint-hooks.yml` | `lefthook run pre-commit --all-files` + a commit-msg smoke test against the consumer | — |
 | `rust-test.yml` | Swatinem cache + `mise run test` (nextest JUnit) | — |
@@ -37,9 +37,10 @@ Consumer-facing reusables, invoked via `uses:` / `workflow_call` from a consumer
 
 `bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). It needs a `tap-token` secret (PAT with `contents:write` on the tap). **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
 
-**Pin asymmetry (gotcha):** `audit.yml` tracks the *floating* `audit/v1`; `secret-scan.yml`
-pins an *exact* `audit/v1.X.Y`. They are deliberately not kept in lockstep — read the actual
-`ref:` before reasoning about which `standards` content a given reusable executes.
+**Both audit reusables track the floating `audit/v1`.** (Historically `secret-scan.yml` froze
+an *exact* `audit/v1.X.Y` while `audit.yml` floated — that pin asymmetry was removed in `v1.4.3`.)
+Moving `standards`' `audit/v1` therefore reaches *both* on each consumer's next run. Still read
+the actual `ref:` before reasoning about which `standards` content a given reusable executes.
 
 `copier-sync.yml` and `copier-check.yml` are also consumer-called reusables, but they
 orchestrate consumer-side `copier update` rather than running `standards` audit content
@@ -55,12 +56,16 @@ never collide with the Copier-rendered `standards.yml` / `e2e` job names. They r
 
 This is the single most important thing to get right in this repo.
 
-1. The audit reusables check out `standards` at an `audit/*` pin. **Editing `standards`'
-   audit layer does NOT reach the fleet until that pin advances** — which is the entire
-   reason this repo cuts releases.
-2. When you bump an `audit/*` ref (e.g. `secret-scan.yml`'s `audit/v1.4.0` → a newer tag),
-   you must **cut a new `.github` release**. Consumers pin these reusables by SHA with a
-   trailing `# v1` comment; Renovate bumps that SHA only when the floating `v1` tag moves.
+1. The audit reusables check out `standards` at the **floating `audit/v1`**. So audit-rule
+   **content** reaches the fleet when `standards` moves `audit/v1` — on each consumer's next
+   run, with **no `.github` release** (the safety gate for that propagation is `standards`'
+   pre-flight `audit-canary`, not a release here). A `.github` release is needed only for the
+   **plumbing**: a change to a reusable's own logic/steps, or **repointing** a reusable to a
+   different ref (e.g. `audit/v1` → `audit/v2`) — because consumers pin the reusable *file* by SHA.
+2. To ship such a reusable-code change: consumers pin these reusables by SHA with a trailing
+   `# v1` comment, and Renovate bumps that SHA only when the floating `v1` tag moves (which only
+   release-please does — next point). So `standards`' floating tags gate the *content*; the
+   `.github` release gates the *workflow code* that runs it.
 3. Releases are automated by **release-please** (`release-please.yml`, `release-type: simple`,
    manifest `.release-please-manifest.json`). It opens/updates a release PR on every push to
    `main`; the **PR title** is the Conventional-Commit that decides the version bump. On merge
@@ -72,7 +77,7 @@ This is the single most important thing to get right in this repo.
    advances its tag manually post-release; here release-please moves `v1` *onto* the release).
 
 **Never create or move `v1` by hand** — release-please owns it; a hand-moved `v1` on an
-unreleased SHA is exactly the drift the floor-check exists to catch. To ship an audit-pin
+unreleased SHA is exactly the drift the floor-check exists to catch. To ship a reusable-workflow
 change: merge it via a conventionally-titled PR and let the release automation retag.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
