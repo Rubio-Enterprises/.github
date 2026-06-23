@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/Rubio-Enterprises/.github/compare/v1.4.1...v1.4.2) (2026-06-23)
+
+
+### Bug Fixes
+
+* **lint-hooks:** route swift-* archetypes to macOS so swift linters run ([#52](https://github.com/Rubio-Enterprises/.github/issues/52)) ([66858dd](https://github.com/Rubio-Enterprises/.github/commit/66858dd3cc53bdd648d7a5ece8a0fdbed392cbf5))
+
 ## [1.4.1](https://github.com/Rubio-Enterprises/.github/compare/v1.4.0...v1.4.1) (2026-06-23)
 
 
