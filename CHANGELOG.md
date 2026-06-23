@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/Rubio-Enterprises/.github/compare/v1.4.0...v1.4.1) (2026-06-23)
+
+
+### Bug Fixes
+
+* **workflows:** rename bump-homebrew-git reusable to bump-brew ([#50](https://github.com/Rubio-Enterprises/.github/issues/50)) ([35e5dcf](https://github.com/Rubio-Enterprises/.github/commit/35e5dcf0ec856a13337ab9fea593bb41c2ccc960))
+
 ## [1.4.0](https://github.com/Rubio-Enterprises/.github/compare/v1.3.7...v1.4.0) (2026-06-23)
 
 
