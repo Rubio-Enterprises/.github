@@ -10,4 +10,4 @@ This policy covers code in any `Rubio-Enterprises/*` repo. Forks of upstream OSS
 
 ## Secrets
 
-Encrypted secrets follow the sops + age model documented in `standards-design.md` §6.10. If you find a leaked secret in any repo's git history, please report via the advisory flow above so we can rotate.
+Org secrets are provided to CI via GitHub Actions secrets (and GitHub Environment secrets with required reviewers where stronger gating is warranted); there is no fleet-wide encryption-at-rest scheme. If you find a leaked secret in any repo's git history, please report via the advisory flow above so we can rotate.
