@@ -68,7 +68,7 @@ jobs:
         uses: jdx/mise-action@v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.9"
+          version: "2026.6.11"
 
       - name: Ensure copier is on PATH (belt-and-braces; template also pins pipx:copier)
         shell: bash
