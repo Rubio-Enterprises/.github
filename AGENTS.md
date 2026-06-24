@@ -129,7 +129,10 @@ These run *consumer-side* `copier update` against `standards`' **template** stre
   `extends: ["github>Rubio-Enterprises/.github"]`, which resolves to this file — so editing it
   changes Renovate behavior fleet-wide. Key rules: built-in **`mise` manager disabled**
   (consumer `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against
-  copier-sync); **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only**
+  copier-sync); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
+  (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
+  exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
+  **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only**
   for the `jdx/mise` CLI pin and `Rubio-Enterprises/standards` template-drift (the two `KEEP LAST`
   rules). Two `customManagers` track non-standard pins: `.copier-answers.yml`
   `_commit: template/vX.Y.Z` → standards template tags, and the `# renovate: … jdx/mise`
