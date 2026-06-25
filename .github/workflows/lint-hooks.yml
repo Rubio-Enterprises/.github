@@ -122,12 +122,21 @@ jobs:
           : > "$files"
 
           if git rev-parse --verify --quiet HEAD^1 >/dev/null && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
-            git diff --name-only --diff-filter=ACMR HEAD^1...HEAD^2 > "$files"
+            # GitHub checks out pull_request workflow_call jobs at a synthetic
+            # merge commit. Diff the merge result against the base parent; this
+            # needs only fetch-depth: 2 and avoids an unfetched merge base.
+            git diff --name-only --diff-filter=ACMR HEAD^1 HEAD > "$files"
           elif [ -n "${GITHUB_BASE_REF:-}" ]; then
-            git fetch --no-tags --depth=1 origin "refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-            git diff --name-only --diff-filter=ACMR "origin/${GITHUB_BASE_REF}...HEAD" > "$files"
+            git fetch --no-tags --depth=50 origin "refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            if git merge-base "origin/${GITHUB_BASE_REF}" HEAD >/dev/null; then
+              git diff --name-only --diff-filter=ACMR "origin/${GITHUB_BASE_REF}...HEAD" > "$files"
+            elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+              git diff --name-only --diff-filter=ACMR HEAD^ HEAD > "$files"
+            else
+              git ls-files > "$files"
+            fi
           elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
-            git diff --name-only --diff-filter=ACMR HEAD^ > "$files"
+            git diff --name-only --diff-filter=ACMR HEAD^ HEAD > "$files"
           else
             # Last-resort fallback for an unusual single-commit checkout: check
             # tracked files rather than silently skipping hook coverage.
