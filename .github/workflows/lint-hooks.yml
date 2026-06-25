@@ -1,10 +1,9 @@
 name: lint hooks (reusable)
-# CI gate that runs the consumer's lefthook commands across all repo files (not
-# just staged diffs). Validates that the hook-tool surface (lefthook + the
-# pinned tools backing each command) actually executes end-to-end. Without this,
-# `lefthook run pre-commit` only ever exercises on a dev's staged changes —
-# tooling regressions (PATH issues, version pins) escape until they break
-# someone's commit locally.
+# CI gate that runs the consumer's lefthook commands. Normal repos run across
+# all files, validating the hook-tool surface (lefthook + the pinned tools
+# backing each command) end-to-end. Forks run only against the PR's changed
+# files: inherited upstream debt should not block a standards migration, but
+# changed fork files still need the same hook coverage.
 #
 # Runner routing: a cheap `detect` job reads the consumer's `.copier-answers.yml`
 # archetype and sends the lint-hooks job to macOS for `swift-*` archetypes —
@@ -36,6 +35,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
+      is_fork: ${{ steps.pick.outputs.is_fork }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@v6
@@ -54,6 +54,11 @@ jobs:
           else
             printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
           fi
+          if grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
+            printf 'is_fork=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'is_fork=false\n' >> "$GITHUB_OUTPUT"
+          fi
   lint-hooks:
     needs: detect
     # Skip when running as the `pull_request` no-op on the `.github` repo
@@ -66,6 +71,11 @@ jobs:
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@v6
+        with:
+          # Fork-mode linting needs the PR merge commit's parents (or enough
+          # history to merge-base against the base ref) to compute changed
+          # files. Non-fork all-files mode is unaffected by the extra commit.
+          fetch-depth: 2
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
@@ -95,12 +105,44 @@ jobs:
         run: pnpm install --frozen-lockfile
         shell: bash
       - name: Run lefthook pre-commit across all files
+        if: needs.detect.outputs.is_fork != 'true'
         # MISE_ENV=ci is forwarded so any mise env-conditional config behaves
         # the same as the audit job. `--all-files` walks the repo tree rather
         # than the empty staged-diff set CI checkouts present.
         env:
           MISE_ENV: ci
         run: mise exec -- lefthook run pre-commit --all-files
+      - name: Run lefthook pre-commit on changed fork files
+        if: needs.detect.outputs.is_fork == 'true'
+        env:
+          MISE_ENV: ci
+        run: |
+          set -euo pipefail
+          files=/tmp/lefthook-changed-files.txt
+          : > "$files"
+
+          if git rev-parse --verify --quiet HEAD^1 >/dev/null && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            git diff --name-only --diff-filter=ACMR HEAD^1...HEAD^2 > "$files"
+          elif [ -n "${GITHUB_BASE_REF:-}" ]; then
+            git fetch --no-tags --depth=1 origin "refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+            git diff --name-only --diff-filter=ACMR "origin/${GITHUB_BASE_REF}...HEAD" > "$files"
+          elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+            git diff --name-only --diff-filter=ACMR HEAD^ > "$files"
+          else
+            # Last-resort fallback for an unusual single-commit checkout: check
+            # tracked files rather than silently skipping hook coverage.
+            git ls-files > "$files"
+          fi
+
+          if [ ! -s "$files" ]; then
+            echo "::notice::fork PR has no added/copied/modified/renamed files for lefthook to check"
+            exit 0
+          fi
+
+          echo "Fork-mode lefthook file list:"
+          sed 's/^/  /' "$files"
+          mise exec -- lefthook run pre-commit --files-from-stdin < "$files"
+        shell: bash
       - name: Validate commit-msg hook accepts a conventional commit
         # Writes a well-formed conventional-commit message and runs the
         # commit-msg hook against it. Smokes the commitlint config + the
