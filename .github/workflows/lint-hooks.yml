@@ -38,7 +38,7 @@ jobs:
       is_fork: ${{ steps.pick.outputs.is_fork }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           sparse-checkout: .copier-answers.yml
           sparse-checkout-cone-mode: false
@@ -70,7 +70,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}
     steps:
       - name: Check out the consumer repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           # Fork-mode linting needs the PR merge commit's parents (or enough
           # history to merge-base against the base ref) to compute changed
@@ -93,7 +93,7 @@ jobs:
         # `packageManager` from package.json for version pinning, avoiding
         # the corepack keyring drift documented in e2e.yml's adjacent block.
         if: hashFiles('pnpm-lock.yaml') != ''
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - name: Install JS deps (so lefthook.local.yml pnpm hooks resolve workspace packages)
         # pnpm/action-setup@v4 installs the pnpm binary but does NOT populate
         # node_modules. Consumer lefthook.local.yml hooks like `pnpm exec sherif`

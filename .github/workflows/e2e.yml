@@ -38,7 +38,7 @@ jobs:
     # TODO: route to RUNNER_GLUE once the glue runner image carries Playwright browser deps
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
@@ -83,7 +83,7 @@ jobs:
       # version without going through corepack. The step is a no-op when
       # `pnpm-lock.yaml` is absent.
       - if: steps.detect.outputs.skip != 'true' && hashFiles('pnpm-lock.yaml') != ''
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
       - name: Install JS deps (lockfile-aware)
         if: steps.detect.outputs.skip != 'true'
         run: |

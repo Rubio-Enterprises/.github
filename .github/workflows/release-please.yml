@@ -39,7 +39,7 @@ jobs:
       # is a tag-hijack vector here. persist-credentials stays at its default
       # (true) on purpose — the tag push below authenticates with it, and no
       # artifacts are uploaded that could leak it.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         if: ${{ steps.release.outputs.release_created }}
         with:
           fetch-depth: 0

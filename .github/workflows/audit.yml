@@ -22,9 +22,9 @@ jobs:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     steps:
       - name: Check out the consumer repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Check out standards (pinned)
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: Rubio-Enterprises/standards
           ref: audit/v1   # floating audit/v1 stream (see standards/RELEASES.md)
