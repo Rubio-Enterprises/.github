@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.4](https://github.com/Rubio-Enterprises/.github/compare/v1.4.3...v1.4.4) (2026-06-25)
+
+
+### Bug Fixes
+
+* **lint-hooks:** scope fork checks to changed files ([#64](https://github.com/Rubio-Enterprises/.github/issues/64)) ([e285bb7](https://github.com/Rubio-Enterprises/.github/commit/e285bb7d2bb09dc1ab9f37b68eb734d63e7900b8))
+* **renovate:** freeze template-owned action pins in rendered standards.yml ([#61](https://github.com/Rubio-Enterprises/.github/issues/61)) ([758df14](https://github.com/Rubio-Enterprises/.github/commit/758df14c5c5a9061382714c189af7919b6c300b7))
+
 ## [1.4.3](https://github.com/Rubio-Enterprises/.github/compare/v1.4.2...v1.4.3) (2026-06-23)
 
 
