@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.5](https://github.com/Rubio-Enterprises/.github/compare/v1.4.4...v1.4.5) (2026-06-25)
+
+
+### Bug Fixes
+
+* **lint-hooks:** avoid fork diff merge-base lookup ([#65](https://github.com/Rubio-Enterprises/.github/issues/65)) ([0009863](https://github.com/Rubio-Enterprises/.github/commit/0009863785b4893f939283c720dc40676659f397))
+
 ## [1.4.4](https://github.com/Rubio-Enterprises/.github/compare/v1.4.3...v1.4.4) (2026-06-25)
 
 
