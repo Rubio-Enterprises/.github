@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.6](https://github.com/Rubio-Enterprises/.github/compare/v1.4.5...v1.4.6) (2026-06-26)
+
+
+### Bug Fixes
+
+* scope homebrew formula revision bumps ([#67](https://github.com/Rubio-Enterprises/.github/issues/67)) ([54f8465](https://github.com/Rubio-Enterprises/.github/commit/54f84651d503d1b026d59c48063f8049d3f6fc8a))
+
 ## [1.4.5](https://github.com/Rubio-Enterprises/.github/compare/v1.4.4...v1.4.5) (2026-06-25)
 
 
