@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/Rubio-Enterprises/.github/compare/v1.4.6...v1.5.0) (2026-06-28)
+
+
+### Features
+
+* read standards via standards-reader app token (private-repo prep) ([3c417b5](https://github.com/Rubio-Enterprises/.github/commit/3c417b572e1c43d1f46c5c65820a87fcca932848))
+
 ## [1.4.6](https://github.com/Rubio-Enterprises/.github/compare/v1.4.5...v1.4.6) (2026-06-26)
 
 
