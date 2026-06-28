@@ -49,6 +49,31 @@ jobs:
           private-key: ${{ secrets.COPIER_SYNC_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
+      # standards is private: a SEPARATE read-only standards-reader token for the
+      # `gh api` SHA resolve and copier's clone (the copier-sync App above is for
+      # the consumer push, not for reading standards). Org secrets arrive via the
+      # consumer's `secrets: inherit`.
+      - name: Mint standards-reader token (read-only on standards)
+        id: standards-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: standards
+          permission-contents: read
+
+      # Route copier's clone of gh:Rubio-Enterprises/standards through the reader
+      # token, scoped to the standards repo only (the consumer remote keeps the
+      # copier-sync App token persisted by the checkout below).
+      - name: Authenticate copier's standards clone
+        env:
+          STANDARDS_TOKEN: ${{ steps.standards-token.outputs.token }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${STANDARDS_TOKEN}@github.com/Rubio-Enterprises/standards".insteadOf \
+            "https://github.com/Rubio-Enterprises/standards"
+
       - name: Check out consumer (full history; copier needs the previous commit)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -122,7 +147,8 @@ jobs:
             echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
           fi
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Reader token: the `gh api` calls only ever hit …/standards/commits/…
+          GH_TOKEN: ${{ steps.standards-token.outputs.token }}
 
       - name: Run copier update
         if: steps.resolve.outputs.skip != 'true'

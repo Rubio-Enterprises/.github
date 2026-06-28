@@ -49,6 +49,30 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
+      # standards is private: mint a read-only standards-reader App token for the
+      # `gh api` SHA resolve and copier's clone (org secrets arrive via the
+      # consumer's `secrets: inherit`).
+      - name: Mint standards-reader token (read-only on standards)
+        id: standards-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: standards
+          permission-contents: read
+
+      # Route copier's clone of gh:Rubio-Enterprises/standards through the reader
+      # token. Scoped to the standards repo only, so the consumer's own remote
+      # (authenticated by the checkout above) is untouched.
+      - name: Authenticate copier's standards clone
+        env:
+          STANDARDS_TOKEN: ${{ steps.standards-token.outputs.token }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${STANDARDS_TOKEN}@github.com/Rubio-Enterprises/standards".insteadOf \
+            "https://github.com/Rubio-Enterprises/standards"
+
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
       # which cold runners' bootstrap pip (< 26) rejects — the pipx:copier
       # install hard-fails. Mirrors copier-sync.yml. uv also backs the
@@ -96,7 +120,8 @@ jobs:
             echo "target=${{ inputs.vcs-ref }}" >> "$GITHUB_OUTPUT"
           fi
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Reader token: the `gh api` calls only ever hit …/standards/commits/…
+          GH_TOKEN: ${{ steps.standards-token.outputs.token }}
 
       - name: Render against target and detect REAL drift
         if: steps.resolve.outputs.skip != 'true'
