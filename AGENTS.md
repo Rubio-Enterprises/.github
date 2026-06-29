@@ -30,7 +30,7 @@ Consumer-facing reusables, invoked via `uses:` / `workflow_call` from a consumer
 | Workflow | What it does | Standards pin |
 |---|---|---|
 | `audit.yml` | Standards Layer A (`check.sh`) + B (`check-jsonschema`) + C (Conftest `--combine`), plus npm-lockfile integrity and the managed-content strict gate (`check-managed-content.sh`) | floating **`audit/v1`** |
-| `secret-scan.yml` | `mode: gitleaks` (PR-diff scan) or `mode: trufflehog` (scheduled full-history); `.trufflehogignore` opt-out | floating **`audit/v1`** |
+| `secret-scan.yml` | `mode: gitleaks` (PR-diff scan) or `mode: trufflehog` (scheduled full-history, `--results=verified`) | floating **`audit/v1`** |
 | `e2e.yml` | Playwright harness; detects `scripts.e2e`, then runs `mise run e2e` / `npm run e2e`. Does **not** start a dev server (see the dev-server contract in its header) | — |
 | `lint-hooks.yml` | `lefthook run pre-commit --all-files` + a commit-msg smoke test against the consumer | — |
 | `rust-test.yml` | Swatinem cache + `mise run test` (nextest JUnit) | — |
