@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/Rubio-Enterprises/.github/compare/v1.5.0...v1.6.0) (2026-06-29)
+
+
+### Features
+
+* **secret-scan:** verified-only trufflehog, remove path-suppression opt-out ([#71](https://github.com/Rubio-Enterprises/.github/issues/71)) ([8850f59](https://github.com/Rubio-Enterprises/.github/commit/8850f591cfdefa674b9db52602848d27e520dcb7))
+
 ## [1.5.0](https://github.com/Rubio-Enterprises/.github/compare/v1.4.6...v1.5.0) (2026-06-28)
 
 
