@@ -59,13 +59,14 @@
       "enabled": false
     },
     {
-      "description": "Exception to the disable above: the Rubio-Enterprises/.github reusable-workflow `uses:` digests in standards.yml ARE meant to advance via Renovate -- that is the `# v1` SHA-pin contract (helpers:pinGitHubActionDigests owns and forward-moves the SHA; this is path C of the standards propagation model). Re-enable + automerge just that dep so a `.github` release still reaches consumers hands-off. Must come AFTER the disable rule (later rules win).",
+      "description": "Exception to the disable above: the Rubio-Enterprises/.github reusable-workflow `uses:` digests in standards.yml ARE meant to advance via Renovate -- that is the `# v1` SHA-pin contract (helpers:pinGitHubActionDigests owns and forward-moves the SHA; this is path C of the standards propagation model). Re-enable + automerge just that dep so a `.github` release still reaches consumers hands-off. minimumReleaseAge:0 exempts this FIRST-PARTY reusable from the global 7-day supply-chain soak: that soak guards against just-published THIRD-PARTY versions, but the org publishes its own `.github` releases deliberately (release-please), so there is nothing to vet -- without this, every `# v1` digest bump sits on `renovate/stability-days` for 7 days before automerging, stalling path C fleet-wide. Must come AFTER the disable rule (later rules win).",
       "matchManagers": ["github-actions"],
       "matchFileNames": [".github/workflows/standards.yml"],
       "matchDepNames": ["Rubio-Enterprises/.github"],
       "enabled": true,
       "automerge": true,
-      "platformAutomerge": false
+      "platformAutomerge": false,
+      "minimumReleaseAge": "0 days"
     },
     {
       "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows, tracked by the jdx/mise customManager below). Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
