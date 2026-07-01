@@ -48,10 +48,12 @@ orchestrate consumer-side `copier update` rather than running `standards` audit 
 (see their own section below). `release-please.yml` and `floating-tag-floor-check.yml` are
 this repo's own ops, not reusables.
 
-`workflow-templates/` holds the org "New workflow" picker starters, for **non-Copier repos
-only**. Names are suffixed `-starter` (`standards-audit-starter`, `e2e-starter`) so they
-never collide with the Copier-rendered `standards.yml` / `e2e` job names. They reference
-`@v1` (the floating major), which resolves only once a `v1` release exists.
+There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
+The two starters that once lived there (`standards-audit-starter`, `e2e-starter`) were
+removed: zero repos ever adopted them, and the audit one silently broke when `standards`
+went private (a picker-copied caller passes no `secrets: inherit`, so the standards-reader
+token mint fails). Repos join the fleet via Copier (`/onboard-repo`), which renders
+`standards.yml` directly. Don't reintroduce starters without wiring the secrets contract.
 
 ## The load-bearing release ritual
 

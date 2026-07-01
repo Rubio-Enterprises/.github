@@ -1,6 +1,0 @@
-{
-  "name": "End-to-end tests",
-  "description": "Runs the Rubio-Enterprises e2e contract (mise run e2e + JUnit reporter).",
-  "iconName": "octicon beaker",
-  "categories": ["Continuous integration"]
-}
