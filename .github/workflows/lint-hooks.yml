@@ -86,7 +86,7 @@ jobs:
         uses: jdx/mise-action@v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.11"
+          version: "2026.6.14"
       - name: Install pnpm (for lefthook.local.yml hooks invoking pnpm)
         # Mirrors the pattern in e2e.yml — gated on pnpm-lock.yaml presence
         # so python/swift consumers (no Node) get a free no-op. Reads
