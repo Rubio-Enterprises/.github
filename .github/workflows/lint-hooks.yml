@@ -87,6 +87,43 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.6.11"
+      # Consumers whose go.mod replaces a dependency with a private org fork
+      # declare the fork repo name(s) in the repo variable
+      # GO_PRIVATE_MODULE_REPOS (comma-separated, e.g. "scaleset").
+      # golangci-lint's typecheck loads the full package graph, so `go` must
+      # be able to fetch those modules; GITHUB_TOKEN is repo-scoped and can't.
+      # Mint a short-lived read-only token via the org standards-audit App
+      # (installation covers all repos) — the same pattern audit.yml uses for
+      # the private standards checkout. Both steps are no-ops when the
+      # variable is unset.
+      - name: Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)
+        if: vars.GO_PRIVATE_MODULE_REPOS != ''
+        id: go-private-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ vars.GO_PRIVATE_MODULE_REPOS }}
+          permission-contents: read
+      - name: Route private Go module fetches through the App token
+        if: vars.GO_PRIVATE_MODULE_REPOS != ''
+        env:
+          TOKEN: ${{ steps.go-private-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPOS: ${{ vars.GO_PRIVATE_MODULE_REPOS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra repos <<< "$REPOS"
+          for repo in "${repos[@]}"; do
+            repo="${repo// /}"
+            [ -n "$repo" ] || continue
+            git config --global \
+              url."https://x-access-token:${TOKEN}@github.com/${OWNER}/${repo}".insteadOf \
+              "https://github.com/${OWNER}/${repo}"
+          done
+          echo "GOPRIVATE=github.com/${OWNER}/*" >> "$GITHUB_ENV"
       - name: Install pnpm (for lefthook.local.yml hooks invoking pnpm)
         # Mirrors the pattern in e2e.yml — gated on pnpm-lock.yaml presence
         # so python/swift consumers (no Node) get a free no-op. Reads
