@@ -16,17 +16,17 @@ jobs:
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
       # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.6.11"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: mise run test
       - if: always()
-        uses: mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@d9f48fc87bc235f7e214acf696ca5abc0a986f16 # v6
         with: { report_paths: 'target/nextest/ci/junit.xml' }
       - if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: rust-test-reports-${{ github.run_id }}
           path: target/nextest/ci/
