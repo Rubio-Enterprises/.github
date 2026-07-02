@@ -19,7 +19,7 @@ jobs:
       - uses: jdx/mise-action@v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.11"
+          version: "2026.6.14"
       - uses: Swatinem/rust-cache@v2
       - run: mise run test
       - if: always()
