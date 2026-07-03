@@ -141,6 +141,24 @@ These run *consumer-side* `copier update` against `standards`' **template** stre
   workflow `version:` markers.
 - **`renovate.json`** is *this repo's own* config and merely `extends` the preset above.
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues; external PRs are not a triage request surface. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default mattpocock/skills triage labels: `needs-triage`, `needs-info`,
+`ready-for-agent`, `ready-for-human`, and `wontfix`. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo: use root `CONTEXT.md` and root `docs/adr/` when they
+exist. See `docs/agents/domain.md`.
+
 ## Conventions
 
 Conventional Commits, enforced by review + release-please (release-please reads the **PR
