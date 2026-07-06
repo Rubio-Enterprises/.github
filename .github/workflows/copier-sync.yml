@@ -179,13 +179,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet; then
+          # Stage EVERYTHING first: bare `git diff` (and `commit -am` below)
+          # only see TRACKED paths, so a template release that CREATES files
+          # rendered them correctly but never shipped them — the 2026-07
+          # template/v1.55.0 wave delivered every sync PR with the old files
+          # DELETED and the new scripts/*-shim.sh + scripts/common/ cores
+          # silently missing (fleet-wide). Staging up front makes drift
+          # detection, the PR-body file list, and the commit all see the same
+          # complete change, additions included.
+          git add -A
+          if git diff --cached --quiet; then
             echo "::notice::no rendered drift — answers file alone would update; exiting clean"
             echo "drift=false" >> "$GITHUB_OUTPUT"
           else
             echo "drift=true" >> "$GITHUB_OUTPUT"
             # Capture the affected file list for the PR body.
-            git diff --name-status > /tmp/copier-sync-diff-namestatus.txt
+            git diff --cached --name-status > /tmp/copier-sync-diff-namestatus.txt
             # Capture any conflict markers so the reviewer can spot them.
             grep -rl '<<<<<<< before updating' . --exclude-dir=.git > /tmp/copier-sync-conflicts.txt || true
           fi
@@ -204,9 +213,12 @@ jobs:
           short_sha=$(echo "${{ steps.resolve.outputs.target_sha }}" | cut -c1-7)
           branch="chore/copier-update-${isodate}-${short_sha}"
           git checkout -b "$branch"
+          # Plain `commit -m` — the FULL change set (additions included) was
+          # staged by the drift step; `-a` would silently re-narrow the commit
+          # to tracked-file edits and drop newly created files.
           git -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
               -c user.name='github-actions[bot]' \
-              commit -am "chore: copier update ${{ steps.resolve.outputs.current }} -> ${{ steps.resolve.outputs.target }} ($short_sha)"
+              commit -m "chore: copier update ${{ steps.resolve.outputs.current }} -> ${{ steps.resolve.outputs.target }} ($short_sha)"
           git push origin "$branch"
           # PR body: source bump, files changed (from `git diff --name-status`),
           # link to release notes between old/new, and a conflict-marker call-out

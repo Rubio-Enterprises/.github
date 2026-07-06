@@ -145,16 +145,21 @@ jobs:
             --vcs-ref="${{ steps.resolve.outputs.target }}"
           # REAL rendered drift = any change OTHER than .copier-answers.yml.
           # The `:(exclude).copier-answers.yml` pathspec is the one deliberate
-          # divergence from copier-sync's bare `git diff --quiet`: the gate fires
+          # divergence from copier-sync's drift gate: this gate fires
           # precisely in the SHA-differs window where the answers-file rewrite is
           # always present, so it MUST be excluded to preserve the invariant
           # "gate RED <=> copier-sync opens a real PR".
-          if git diff --quiet -- . ':(exclude).copier-answers.yml'; then
+          # `git add -A` first: bare `git diff` only sees TRACKED paths, so a
+          # template release that CREATES files (template/v1.55.0's shims +
+          # scripts/common/ cores) read as "no drift" in repos missing them.
+          # Staging makes additions count as drift, mirroring copier-sync.
+          git add -A
+          if git diff --cached --quiet -- . ':(exclude).copier-answers.yml'; then
             echo "drift=false" >> "$GITHUB_OUTPUT"
             echo "::notice::no real rendered drift — only .copier-answers.yml would change; PASS"
           else
             echo "drift=true" >> "$GITHUB_OUTPUT"
-            git diff --name-status -- . ':(exclude).copier-answers.yml' > /tmp/copier-check-drift.txt
+            git diff --cached --name-status -- . ':(exclude).copier-answers.yml' > /tmp/copier-check-drift.txt
           fi
 
       - name: Report / enforce
