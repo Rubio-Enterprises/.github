@@ -210,7 +210,7 @@ jobs:
             base=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
           fi
           isodate=$(date -u +%Y-%m-%d)
-          short_sha=$(echo "${{ steps.resolve.outputs.target_sha }}" | cut -c1-7)
+          short_sha=$(echo "$TARGET_SHA" | cut -c1-7)
           branch="chore/copier-update-${isodate}-${short_sha}"
           git checkout -b "$branch"
           # Plain `commit -m` — the FULL change set (additions included) was
@@ -218,16 +218,16 @@ jobs:
           # to tracked-file edits and drop newly created files.
           git -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
               -c user.name='github-actions[bot]' \
-              commit -m "chore: copier update ${{ steps.resolve.outputs.current }} -> ${{ steps.resolve.outputs.target }} ($short_sha)"
+              commit -m "chore: copier update $CUR -> $TGT ($short_sha)"
           git push origin "$branch"
-          # PR body: source bump, files changed (from `git diff --name-status`),
+          # PR body: source bump, files changed (from `git diff --cached --name-status`),
           # link to release notes between old/new, and a conflict-marker call-out
           # if any inline markers were left by --conflict inline.
           {
             echo "## Template-bump sync"
             echo
-            cur='${{ steps.resolve.outputs.current }}'
-            tgt='${{ steps.resolve.outputs.target }}'
+            cur="$CUR"
+            tgt="$TGT"
             echo "**Source:** \`${cur}\` → \`${tgt}\` (\`$short_sha\`)"
             echo
             cmp="https://github.com/Rubio-Enterprises/standards/compare/${cur}...${tgt}"
@@ -260,7 +260,7 @@ jobs:
           pr_url=$(gh pr create \
             --base "$base" \
             --head "$branch" \
-            --title "chore: copier update ${{ steps.resolve.outputs.current }} -> ${{ steps.resolve.outputs.target }}" \
+            --title "chore: copier update $CUR -> $TGT" \
             --body-file /tmp/copier-sync-pr-body.md)
           echo "::notice::opened sync PR $pr_url"
           # Best-effort labels: ensure they exist, then attach. Each call is
@@ -274,3 +274,11 @@ jobs:
           # App token so the PR is authored by the copier-sync App and matches
           # the credential that pushed the branch (the push needs workflows scope).
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Resolve outputs enter the shell via env, never inline `${{ }}` in
+          # `run:` — CUR is read from the consumer's .copier-answers.yml (repo
+          # content), so direct template expansion into the script would let
+          # shell metacharacters in a crafted answers file execute here
+          # (zizmor template-injection).
+          CUR: ${{ steps.resolve.outputs.current }}
+          TGT: ${{ steps.resolve.outputs.target }}
+          TARGET_SHA: ${{ steps.resolve.outputs.target_sha }}
