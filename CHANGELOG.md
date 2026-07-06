@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/Rubio-Enterprises/.github/compare/v1.6.0...v1.7.0) (2026-07-06)
+
+
+### Features
+
+* **lint-hooks:** support private Go module forks via app-token fetch routing ([#76](https://github.com/Rubio-Enterprises/.github/issues/76)) ([3791fb0](https://github.com/Rubio-Enterprises/.github/commit/3791fb097d198ad98b0ac6568d74871b7bdf8cc5))
+* **lint-hooks:** support private Go module forks via app-token fetch routing ([#79](https://github.com/Rubio-Enterprises/.github/issues/79)) ([15abe6c](https://github.com/Rubio-Enterprises/.github/commit/15abe6c85fdc68958f7d370b5f677bdb13cf159e))
+
+
+### Bug Fixes
+
+* **copier-sync:** stage newly created files so template additions ship in sync PRs ([#81](https://github.com/Rubio-Enterprises/.github/issues/81)) ([3acb337](https://github.com/Rubio-Enterprises/.github/commit/3acb337f5c7905bda588781bf5b2de91193ad15b))
+
 ## [1.6.0](https://github.com/Rubio-Enterprises/.github/compare/v1.5.0...v1.6.0) (2026-06-29)
 
 
