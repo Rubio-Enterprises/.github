@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.8.1](https://github.com/Rubio-Enterprises/.github/compare/v1.8.0...v1.8.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **gates:** exclude all rendered js-family configs from lint-format inputs ([#88](https://github.com/Rubio-Enterprises/.github/issues/88)) ([f0abf3b](https://github.com/Rubio-Enterprises/.github/commit/f0abf3bdc3a0011442148b38161cc95b9af7b209))
+* **gates:** exclude the consumer biome config from lint-format inputs ([#85](https://github.com/Rubio-Enterprises/.github/issues/85)) ([31be31c](https://github.com/Rubio-Enterprises/.github/commit/31be31c54f69c7584c842a56032a6dbfb07ca077))
+* **gates:** honor Pattern-D consumer lint configs in lint-format; timeout lint-hooks ([#89](https://github.com/Rubio-Enterprises/.github/issues/89)) ([c926a1c](https://github.com/Rubio-Enterprises/.github/commit/c926a1cf30b4192e866a366f55bf0c879cdb278e))
+
 ## [1.8.0](https://github.com/Rubio-Enterprises/.github/compare/v1.7.0...v1.8.0) (2026-07-07)
 
 
