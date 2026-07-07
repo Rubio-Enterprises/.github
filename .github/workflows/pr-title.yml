@@ -1,0 +1,139 @@
+name: pr-title (gate)
+# Required Governance Workflow — the `gate-pr-title` family. Injected by a
+# Terraform org ruleset targeting the `gate-pr-title` custom property; GitHub
+# auto-triggers it on `pull_request` / `merge_group` and ignores event filters.
+# It lints the PR title as a Conventional Commit using the commitlint config
+# resolved from `standards@<channel>` (NOT from the consumer) — so the allowed
+# types/rules track standards content and propagate on the next run with no
+# workflow release. This replaces the inline `commitlint-pr-title` job that the
+# template previously rendered into each consumer's standards.yml.
+"on":
+  pull_request:
+    # `edited` re-runs the check when a contributor fixes a bad title. Ruleset
+    # injection ignores these filters for consumer runs; they matter only when
+    # this file runs as a normal workflow (e.g. a PR against `.github` itself).
+    types: [opened, edited, synchronize, reopened]
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  pr-title:
+    # No PR title exists on a merge_group event — the bucket job reports the
+    # green notice for that case; this real job only runs on pull_request.
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Resolve standards channel from the repo `ring` property
+        # Same channel resolution as the lint-format gate: `ring == canary`
+        # resolves `standards@canary`, else `standards@stable`. Fail-safe to
+        # stable on any read error.
+        id: channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ring="$(gh api "/repos/${{ github.repository }}/properties/values" \
+            --jq '.[] | select(.property_name == "ring") | .value' 2>/dev/null || true)"
+          if [ "$ring" = "canary" ]; then
+            channel=canary
+          else
+            channel=stable
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "::notice::resolved standards channel '$channel' (ring='${ring:-<unset>}')"
+
+      # standards is private: mint a read-only standards-reader App token to clone
+      # it for the commitlint config. Fork PRs on public repos get no secrets and
+      # this fails visibly (accepted per the security model).
+      - name: Mint standards-reader token (read-only on standards)
+        id: standards-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: standards
+          permission-contents: read
+
+      - name: Check out standards@channel
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: Rubio-Enterprises/standards
+          ref: ${{ steps.channel.outputs.channel }}
+          path: .standards
+          token: ${{ steps.standards-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Echo resolved standards ref
+        shell: bash
+        run: echo "standards \`${{ steps.channel.outputs.channel }}\` resolved to \`$(git -C .standards rev-parse HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # uv on PATH routes mise's pipx-backend installs through uvx (standards'
+      # .mise.toml pins pipx-backed tools alongside the npm commitlint pins).
+      - name: Install uv (routes mise pipx installs through uvx)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Install standards commitlint (pinned in standards/.mise.toml)
+        uses: jdx/mise-action@v4
+        with:
+          working_directory: .standards
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.6.11"
+
+      - name: Lint the PR title against the standards commitlint config
+        # The PR title is untrusted input — pass it via env, never interpolate it
+        # into the shell. Written to a file and fed to `commitlint --edit`.
+        #
+        # standards/commitlint.config.cjs `extends @commitlint/config-conventional`.
+        # commitlint's cli + config-conventional are pinned as SIBLING mise npm
+        # installs, so cosmiconfig's resolveExtends can't find config-conventional
+        # from the cli's roots — NODE_PATH bridges it. This mirrors the proven
+        # commit-msg hook in template/lefthook.yml.jinja exactly.
+        working-directory: .standards
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
+          # SC2016: the single-quoted `sh -c` body is intentional — $conf_dir /
+          # $NODE_PATH / $1 must expand in the INNER shell, not the outer one
+          # (mirrors template/lefthook.yml.jinja's commit-msg hook).
+          # shellcheck disable=SC2016
+          mise exec -- sh -c '
+            conf_dir=$(mise where npm:@commitlint/config-conventional 2>/dev/null)/lib/node_modules
+            NODE_PATH="${NODE_PATH:+$NODE_PATH:}$conf_dir" exec commitlint --edit "$1"
+          ' _ "$RUNNER_TEMP/pr-title.txt"
+
+  gate:
+    # Bucket job — always reports so the required check never hangs "Expected".
+    # On merge_group the `pr-title` job is skipped (no title to lint); a skipped
+    # dependency is not a failure, so the gate passes with a notice.
+    needs: [pr-title]
+    if: always()
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Aggregate gate result
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          EVENT: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dependency results: $RESULTS"
+          if [ "$EVENT" = "merge_group" ]; then
+            echo "::notice::merge_group event has no PR title to lint — pr-title gate passes"
+          fi
+          for r in $RESULTS; do
+            case "$r" in
+              failure|cancelled)
+                echo "::error::pr-title gate failed (a dependency reported '$r')"
+                exit 1
+                ;;
+            esac
+          done
+          echo "pr-title gate passed"
