@@ -124,6 +124,33 @@ jobs:
               "https://github.com/${OWNER}/${repo}"
           done
           echo "GOPRIVATE=github.com/${OWNER}/*" >> "$GITHUB_ENV"
+      # Post-cutover the consumer's lefthook.yml is a `remotes:` stub pointing
+      # at the PRIVATE standards repo (standards governance-propagation-
+      # architecture.md, Layer 3b). lefthook's remote fetch shells out to git,
+      # so route that clone through a read-only App token — same pattern as the
+      # Go-private-module steps above, but unconditional: every governed
+      # consumer carries the stub after the re-render wave, and for a pre-wave
+      # consumer with a fully rendered lefthook.yml the insteadOf rule is
+      # simply inert (nothing fetches the URL).
+      - name: Mint standards read token (lefthook remotes fetch)
+        id: standards-remote-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: standards
+          permission-contents: read
+      - name: Route the lefthook standards remote through the App token
+        env:
+          TOKEN: ${{ steps.standards-remote-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global \
+            url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
+            "https://github.com/${OWNER}/standards"
       - name: Install pnpm (for lefthook.local.yml hooks invoking pnpm)
         # Mirrors the pattern in e2e.yml — gated on pnpm-lock.yaml presence
         # so python/swift consumers (no Node) get a free no-op. Reads

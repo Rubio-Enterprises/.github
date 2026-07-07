@@ -1,33 +1,85 @@
 name: rust test (reusable)
-on:
+# Consumer-called reusable (Swatinem cache + `mise run test`, nextest JUnit) AND
+# the ruleset-injected `gate-rust-tests` Required Governance Workflow. The direct
+# `pull_request` / `merge_group` triggers are what let a Terraform org ruleset
+# target it at rust-* repos; ruleset injection auto-triggers those events and
+# ignores event filters, so there are no path/branch filters. The `detect` guard
+# keeps the gate green (defensive) if it is ever attached to a non-Rust repo.
+"on":
   workflow_call:
     inputs:
       timeout-minutes: { type: number, default: 20 }
+  pull_request:
+  merge_group:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   rust-test:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
-    timeout-minutes: ${{ inputs.timeout-minutes }}
+    # `inputs.timeout-minutes` is empty on a direct pull_request / merge_group
+    # (no workflow_call inputs), so fall back to the same 20-minute default.
+    timeout-minutes: ${{ inputs.timeout-minutes || 20 }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
-      # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
-      # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
-      # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-      - uses: jdx/mise-action@v4
+      - name: Detect Rust project
+        # No Cargo.toml (a mis-targeted repo, or .github itself) -> skip the test
+        # steps and pass with a notice. Consumers that call this via workflow_call
+        # always carry Cargo.toml, so they run normally.
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f Cargo.toml ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no Cargo.toml — repo is not a Rust archetype; rust-test gate passes (defensive)"
+          fi
+      # uv on PATH routes mise's pipx-backend installs through uvx (see the other
+      # mise-based reusables for the full rationale).
+      - if: steps.detect.outputs.rust == 'true'
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - if: steps.detect.outputs.rust == 'true'
+        uses: jdx/mise-action@v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.6.11"
-      - uses: Swatinem/rust-cache@v2
-      - run: mise run test
-      - if: always()
+      - if: steps.detect.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
+      - if: steps.detect.outputs.rust == 'true'
+        run: mise run test
+      - if: always() && steps.detect.outputs.rust == 'true'
         uses: mikepenz/action-junit-report@v6
         with: { report_paths: 'target/nextest/ci/junit.xml' }
-      - if: always()
+      - if: always() && steps.detect.outputs.rust == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: rust-test-reports-${{ github.run_id }}
           path: target/nextest/ci/
           retention-days: 14
+
+  gate:
+    # Bucket job — always reports so the required check never hangs "Expected".
+    needs: [rust-test]
+    if: always()
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Aggregate gate result
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dependency results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              failure|cancelled)
+                echo "::error::rust-test gate failed (a dependency reported '$r')"
+                exit 1
+                ;;
+            esac
+          done
+          echo "rust-test gate passed"

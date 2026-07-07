@@ -1,0 +1,121 @@
+name: test-py (gate)
+# Required Governance Workflow — the `gate-python-tests` family. Injected by a
+# Terraform org ruleset targeting the `gate-python-tests` custom property; GitHub
+# auto-triggers it on `pull_request` / `merge_group` and ignores event filters.
+# It runs the consumer's Python unit tests. Extracted from the inline `test` job
+# the template rendered into each py-* consumer's standards.yml; its semantics
+# are preserved verbatim, including the `uv run pytest` (not `mise run test`)
+# choice — consumers can extend the composite `test` task with a non-Python half
+# (an embedded-web vitest sub-task) and this Python-only runner installs no Node
+# toolchain, so it pins the gate to pytest rather than the composite.
+"on":
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  test:
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Check out the consumer repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Install uv (routes mise pipx installs through uvx)
+        # setup-uv BEFORE mise-action; also backs the `uv sync` / `uv run`
+        # invocations below.
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Install the template-pinned Python
+        # Install only python (the detector imports tomllib via `python`);
+        # avoids installing every .mise.toml tool on the skip paths. On a repo
+        # with no .mise.toml (e.g. .github itself) this is a no-op.
+        uses: jdx/mise-action@v4
+        with:
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.6.11"
+          install_args: python
+
+      - name: Detect pyproject.toml
+        # Defensive skip: no pyproject.toml (non-py repo, py-script, or a
+        # mis-targeted repo) -> gate passes with a notice. A uv workspace with no
+        # root pytest config also skips (the repo's own CI runs the member tests).
+        id: pyproject
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f pyproject.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            workspace_without_root_tests="$(python - <<'PY'
+          import pathlib
+          import tomllib
+
+          data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          tool = data.get("tool", {})
+          uv_workspace = bool(tool.get("uv", {}).get("workspace", {}).get("members"))
+          pytest_config = "pytest" in tool
+          root_tests = pathlib.Path("tests").is_dir()
+          print("true" if uv_workspace and not pytest_config and not root_tests else "false")
+          PY
+            )"
+            if [ "$workspace_without_root_tests" = "true" ]; then
+              echo "run-tests=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::uv workspace: no root pytest config; skipping root gate (repo CI runs workspace tests)"
+            else
+              echo "run-tests=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "run-tests=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No pyproject.toml found; Python test gate passes (defensive)"
+          fi
+
+      - name: Install project + dev deps (pytest resolves from the uv venv)
+        if: steps.pyproject.outputs.run-tests == 'true'
+        env:
+          MISE_ENV: ci
+        run: uv sync
+
+      - name: Unit tests (pytest)
+        # Run the canonical py [tasks.test] command via `mise exec` (mise's
+        # resolved Python + env, honoring MISE_ENV=ci) rather than the overridable
+        # `mise run test` composite. pytest exit 5 = "no tests collected" is
+        # tolerated so a py-* repo that hasn't written tests yet isn't hard-failed;
+        # a real failure (exit 1) fails the gate.
+        if: steps.pyproject.outputs.run-tests == 'true'
+        env:
+          MISE_ENV: ci
+        shell: bash
+        run: |
+          ec=0
+          mise exec -- uv run pytest --strict-markers --junitxml=reports/unit/junit.xml || ec=$?
+          if [ "$ec" -eq 5 ]; then
+            echo "::notice::pytest collected no tests — gate is a no-op until tests are added"
+          elif [ "$ec" -ne 0 ]; then
+            exit "$ec"
+          fi
+
+  gate:
+    # Bucket job — always reports so the required check never hangs "Expected".
+    needs: [test]
+    if: always()
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Aggregate gate result
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dependency results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              failure|cancelled)
+                echo "::error::test-py gate failed (a dependency reported '$r')"
+                exit 1
+                ;;
+            esac
+          done
+          echo "test-py gate passed"

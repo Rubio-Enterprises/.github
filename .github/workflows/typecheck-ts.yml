@@ -1,0 +1,114 @@
+name: typecheck-ts (gate)
+# Required Governance Workflow — the `gate-typescript` family. Injected by a
+# Terraform org ruleset targeting the `gate-typescript` custom property; GitHub
+# auto-triggers it on `pull_request` / `merge_group` and ignores event filters.
+# It runs the consumer's `mise run typecheck` task (strict `tsc --noEmit`, or
+# `astro check` for astro repos — the task delegates to scripts.typecheck).
+# Extracted from the inline `typecheck` job the template rendered into each
+# consumer's standards.yml. Property targeting should only attach this to ts-*
+# repos; the defensive "no typecheck task -> pass" branch keeps it green if it
+# is ever attached to a repo that has no such task.
+"on":
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  typecheck:
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Check out the consumer repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      # uv on PATH routes mise's pipx-backend installs through uvx; without it
+      # mise >= 2026.6.2 falls back to pip's --uploaded-prior-to which cold
+      # runners' bootstrap pip (< 26) rejects.
+      - name: Install uv (routes mise pipx installs through uvx)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Install consumer-repo runtimes
+        uses: jdx/mise-action@v4
+        with:
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.6.11"
+
+      - name: Detect the typecheck task
+        # `mise tasks info` exits non-zero when the task is absent (non-ts repo,
+        # or a repo with no .mise.toml at all — e.g. .github itself). Defensive:
+        # property targeting should prevent this, but a mis-targeted repo passes
+        # green with a notice rather than failing on a missing task.
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if mise tasks info typecheck >/dev/null 2>&1; then
+            echo "has_typecheck=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_typecheck=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no 'typecheck' mise task — repo is not a TypeScript archetype; typecheck gate passes (defensive)"
+          fi
+
+      - name: Install pnpm (avoids corepack keyring drift)
+        # Mirrors the inline typecheck job: stand pnpm up via action-setup (reads
+        # packageManager) rather than corepack, whose bundled pnpm signing-key
+        # store crashes with `Cannot find matching keyid`. No-op without a
+        # pnpm-lock.
+        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Install JS deps
+        # Type-checking needs node_modules (typescript, @types/*, astro). mise
+        # installs the toolchain but not the workspace. Lockfile-aware and
+        # frozen: a package.json without a committed lockfile is a hard error,
+        # not a lenient install. Mirrors the inline typecheck job.
+        if: steps.detect.outputs.has_typecheck == 'true'
+        env:
+          MISE_ENV: ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package.json ]; then
+            if   [ -f pnpm-lock.yaml ];               then pnpm install --frozen-lockfile
+            elif [ -f yarn.lock ];                    then corepack yarn install --frozen-lockfile
+            elif [ -f bun.lock ] || [ -f bun.lockb ]; then bun install --frozen-lockfile
+            elif [ -f package-lock.json ];            then npm ci
+            else echo "::error::package.json without a lockfile — commit one"; exit 1
+            fi
+          fi
+
+      - name: Type-check (mise run typecheck)
+        if: steps.detect.outputs.has_typecheck == 'true'
+        env:
+          MISE_ENV: ci
+          # Conservative CI concurrency floor for monorepo build tools (a turbo
+          # `typecheck` spawns one tsc per package; at turbo's default a large
+          # workspace can OOM the runner). tsc/astro ignore it; turbo honors it;
+          # a repo's explicit --concurrency overrides it.
+          TURBO_CONCURRENCY: "2"
+        run: mise run typecheck
+
+  gate:
+    # Bucket job — always reports so the required check never hangs "Expected".
+    needs: [typecheck]
+    if: always()
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Aggregate gate result
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dependency results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              failure|cancelled)
+                echo "::error::typecheck-ts gate failed (a dependency reported '$r')"
+                exit 1
+                ;;
+            esac
+          done
+          echo "typecheck-ts gate passed"
