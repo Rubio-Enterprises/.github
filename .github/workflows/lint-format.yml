@@ -283,14 +283,33 @@ jobs:
           fi
 
           # --- ruff (py-* archetypes) ---
+          # ruff.toml is Pattern D in standards' copier.yml `_skip_if_exists`
+          # ("consumer-tuned over time"): the consumer owns the rule shape;
+          # audit Layer C polices how far it may drift from the floor. So when
+          # the consumer has a committed ruff config, lint with it — run
+          # config-less so ruff's hierarchical discovery governs (root
+          # ruff.toml, pyproject [tool.ruff], AND nested sub-project configs),
+          # exactly like the local dev loop. Enforcing the bare floor render
+          # here contradicted that ownership split and failed repos on
+          # violations their sanctioned config suppresses (fleet-live on the
+          # template/v1.55.2 re-render wave: 220 T201s across 4 repos, every
+          # one covered by a committed per-file-ignore). The floor render
+          # remains the fallback for repos with no ruff config at all.
           case "$archetype" in
             py-*)
               mapfile -t pyfiles < <(select_files '*.py')
               if [ "${#pyfiles[@]}" -gt 0 ]; then
-                echo "== ruff check =="
-                mise exec -- ruff check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
-                echo "== ruff format --check =="
-                mise exec -- ruff format --check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
+                if [ -f ruff.toml ] || [ -f .ruff.toml ]; then
+                  echo "== ruff check (consumer config) =="
+                  mise exec -- ruff check -- "${pyfiles[@]}" || fail=1
+                  echo "== ruff format --check (consumer config) =="
+                  mise exec -- ruff format --check -- "${pyfiles[@]}" || fail=1
+                else
+                  echo "== ruff check (floor render) =="
+                  mise exec -- ruff check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
+                  echo "== ruff format --check (floor render) =="
+                  mise exec -- ruff format --check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
+                fi
               else
                 echo "no Python files to lint; skipping ruff"
               fi
@@ -304,30 +323,42 @@ jobs:
           esac
           [ "$has_embedded_web" = "true" ] && run_biome=true
           if [ "$run_biome" = "true" ]; then
-            # Exclude the consumer's OWN biome config from the lint inputs:
-            # biome validates config-shaped input files against the CLI's
-            # schema version, so a rendered biome.json whose $schema lags the
-            # mise-pinned CLI (normal between template re-renders) turns into
-            # a deserialize ERROR — observed fleet-live on riveroaks-scraper
-            # PR #110 at cutover (schema 2.4.15 vs CLI 2.5.0). The file is
-            # template-managed rendered residue; the canonical render in
-            # $RENDER_DIR is what this gate enforces, so linting the
-            # consumer's copy is circular anyway.
-            # Exclude ALL template-rendered js-family config files, not just
-            # biome.json: they are centrally-owned rendered residue (the
-            # canonical render in $RENDER_DIR is what this gate enforces), and
-            # biome both schema-validates config-shaped inputs and demands its
-            # own formatting of them — e.g. .markdownlint-cli2.jsonc format
-            # errors observed on riveroaks-scraper PR #110 after the
-            # biome.json-only exclusion. Consumer-authored code is the gate's
-            # jurisdiction; rendered-file conformance is the audit's.
+            # Exclude lint/tooling config files from the lint INPUTS (this is
+            # about what gets linted, not which config governs — see below):
+            # biome schema-validates config-shaped input files against the
+            # CLI's schema version, so a biome.json whose $schema lags the
+            # mise-pinned CLI turns into a deserialize ERROR — observed
+            # fleet-live on riveroaks-scraper PR #110 at cutover (schema
+            # 2.4.15 vs CLI 2.5.0) — and biome demands its own formatting of
+            # them (.markdownlint-cli2.jsonc format errors, same PR).
+            # .markdownlint-cli2.jsonc / commitlint.config.cjs / renovate.json
+            # are template-rendered residue (conformance is the audit's
+            # jurisdiction); biome.json(c) is consumer-owned (Pattern D) but
+            # equally noise as a lint input.
             mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc' \
               | grep -vE '(^|/)(biome\.jsonc?|\.markdownlint-cli2\.jsonc|commitlint\.config\.cjs|renovate\.json)$' || true)
             if [ "${#jsfiles[@]}" -gt 0 ]; then
-              echo "== biome check =="
-              mise exec -- biome check \
-                --config-path "$RENDER_DIR" \
-                --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
+              # biome.json is Pattern D in standards' copier.yml
+              # `_skip_if_exists` ("rule shape is consumer-owned"): same
+              # ownership split as ruff above. When the consumer has a
+              # committed biome config, run config-less so biome's own
+              # discovery uses it (fleet-live on the v1.55.2 wave: repos with
+              # sanctioned overrides/file-scope in their biome.json failed on
+              # 190+ diagnostics the floor render surfaced). Config-less also
+              # matches the local lefthook loop, including its failure modes
+              # (a consumer biome.json whose $schema lags the mise-pinned CLI
+              # is the consumer's own drift to fix — same as local). Floor
+              # render remains the fallback for repos with no biome config.
+              if [ -f biome.json ] || [ -f biome.jsonc ]; then
+                echo "== biome check (consumer config) =="
+                mise exec -- biome check \
+                  --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
+              else
+                echo "== biome check (floor render) =="
+                mise exec -- biome check \
+                  --config-path "$RENDER_DIR" \
+                  --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
+              fi
             else
               echo "biome applies but no JS/TS/JSON files to lint; skipping"
             fi
