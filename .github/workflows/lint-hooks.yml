@@ -68,6 +68,15 @@ jobs:
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
     runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}
+    # Backstop for hook-time hangs. Fleet-live on the template/v1.55.2 wave: a
+    # consumer branch carrying the new lefthook `remotes:` stub thin-called an
+    # old pin of this workflow (no standards-reader token), and the anonymous
+    # clone of the private standards repo left git-credential-manager waiting
+    # on an interactive prompt — 65-83 min of silence per job, wedging the
+    # whole macOS Tart pool until the 2h30m runner reaper fired. Hooks on the
+    # largest repos finish well inside 30 minutes; an auth gap should fail in
+    # minutes, not hours.
+    timeout-minutes: 30
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
