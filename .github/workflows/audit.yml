@@ -23,6 +23,30 @@ jobs:
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      # Content resolution: read the consumer's `ring` custom property with the
+      # run's own token and pick the standards channel branch. `ring == canary`
+      # resolves `standards@canary`; everything else (fleet / unset / unreadable)
+      # resolves `standards@stable`. Fail-safe: any read error falls through to
+      # `stable`. Replaces the frozen `audit/v1` clone pin (retired after the
+      # sweep); the audit content at channel tip equals the old `audit/v1`
+      # content at cutover, so behavior is identical apart from the ref. Same
+      # pattern as the lint-format / pr-title / secret-scan gates.
+      - name: Resolve standards channel from the repo `ring` property
+        id: channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ring="$(gh api "/repos/${{ github.repository }}/properties/values" \
+            --jq '.[] | select(.property_name == "ring") | .value' 2>/dev/null || true)"
+          if [ "$ring" = "canary" ]; then
+            channel=canary
+          else
+            channel=stable
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "::notice::resolved standards channel '$channel' (ring='${ring:-<unset>}')"
       # standards is private: mint a read-only standards-reader App token to clone
       # it. The org secrets reach this reusable via the consumer's `secrets: inherit`
       # (rendered into standards.yml by the template).
@@ -35,19 +59,21 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: standards
           permission-contents: read
-      - name: Check out standards (pinned)
+      - name: Check out standards@channel
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: Rubio-Enterprises/standards
-          ref: audit/v1   # floating audit/v1 stream (see standards/RELEASES.md)
+          ref: ${{ steps.channel.outputs.channel }}
           path: .standards
           token: ${{ steps.standards-token.outputs.token }}
           persist-credentials: false   # read-only checkout; don't leave a token in .standards/.git
       # One observable answer to "what standards version is the fleet running?".
-      # audit/v1 floats, so the run summary records the exact commit this run
-      # executed (the same ref secret-scan.yml now resolves — no pin asymmetry).
+      # The channel branch floats, so the run summary records the exact commit
+      # this run executed (the same channel secret-scan.yml now resolves — no pin
+      # asymmetry). This resolved-SHA echo is load-bearing for the Layer 5
+      # convergence dashboard.
       - name: Echo resolved standards ref
-        run: echo "standards \`audit/v1\` resolved to \`$(git -C .standards rev-parse HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "standards \`${{ steps.channel.outputs.channel }}\` resolved to \`$(git -C .standards rev-parse HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,

@@ -30,8 +30,14 @@ jobs:
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          # Fork-mode linting (below) needs the PR merge commit's parents (or
+          # enough history to merge-base against the base ref) to compute the
+          # PR's changed files. Non-fork all-files mode is unaffected by the
+          # extra commit. Mirrors lint-hooks.yml's fetch-depth: 2.
+          fetch-depth: 2
 
-      - name: Detect standards onboarding
+      - name: Detect onboarding and fork status
         # Fail-open for repos that carry the gate property but have no
         # `.copier-answers.yml` (a brand-new repo targeted before onboarding
         # completes). The whole gate short-circuits to a green notice rather than
@@ -44,8 +50,18 @@ jobs:
           if [ ! -f .copier-answers.yml ]; then
             echo "::notice::no .copier-answers.yml — repo is not standards-onboarded; lint-format gate passes (fail-open)"
             echo "onboarded=false" >> "$GITHUB_OUTPUT"
+            echo "is_fork=false" >> "$GITHUB_OUTPUT"
           else
             echo "onboarded=true" >> "$GITHUB_OUTPUT"
+            # Fork detection keyed on the SAME `is_fork` answer (identical grep)
+            # as lint-hooks.yml, so an upstream-derived repo lints only its PR's
+            # changed files below and never blocks on inherited upstream lint
+            # debt — behavior matches the current fleet exactly.
+            if grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
+              echo "is_fork=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_fork=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Resolve standards channel from the repo `ring` property
@@ -112,9 +128,10 @@ jobs:
 
       - name: Install consumer-repo runtimes (copier + pinned linters)
         # The consumer's own .mise.toml pins copier, yq, markdownlint-cli2,
-        # yamllint, gitleaks (universal) plus ruff (py-*) / biome (ts-* /
-        # embedded-web). Running the render + linters through mise pins tool
-        # versions identically to the consumer's local hooks.
+        # yamllint (universal) plus ruff (py-*) / biome (ts-* / embedded-web).
+        # Running the render + linters through mise pins tool versions
+        # identically to the consumer's local hooks. Secret scanning (gitleaks)
+        # is owned exclusively by the gate-secret-scan family — never run here.
         if: steps.detect.outputs.onboarded == 'true'
         uses: jdx/mise-action@v4
         with:
@@ -123,11 +140,12 @@ jobs:
 
       - name: Render canonical lint configs from standards@channel
         # copier renders the WHOLE template into a scratch dir driven by the
-        # consumer's own answers; the `_tasks` merge hooks produce the final
-        # `.markdownlint-cli2.jsonc` / `.yamllint`. `_migrations` do NOT run on
-        # `copier copy` (only on update), so the divergence-detector can't abort
-        # this render. The `_`-prefixed metadata keys are stripped from the
-        # answers so copier only sees question answers.
+        # consumer's own answers; the `_tasks` merge hooks merge the seeded
+        # consumer `.local` sidecars into the final `.markdownlint-cli2.jsonc` /
+        # `.yamllint` (floor ⊕ local). `_migrations` do NOT run on `copier copy`
+        # (only on update), so the divergence-detector can't abort this render.
+        # The `_`-prefixed metadata keys are stripped from the answers so copier
+        # only sees question answers.
         if: steps.detect.outputs.onboarded == 'true'
         id: render
         env:
@@ -137,6 +155,23 @@ jobs:
           set -euo pipefail
           mise exec -- yq 'with_entries(select(.key | test("^_") | not))' \
             .copier-answers.yml > "$RUNNER_TEMP/answers.yml"
+          # Seed the consumer's committed `.local` config sidecars into the
+          # scratch destination BEFORE copier runs, so the `_tasks` merge hooks
+          # (merge-yamllint.sh / merge-markdownlint.sh) compose floor ⊕ local
+          # exactly as a real consumer render does. Without this the render is
+          # floor-only, so a consumer's legitimately-declared relaxations (extra
+          # `ignore`/`ignores` globs or rule overrides in `.yamllint.local` /
+          # `.markdownlint-cli2.jsonc.local`) would fail CI while passing locally.
+          # These two are the ONLY lint-config sidecars the merge hooks consume;
+          # the template renders them nowhere (they sit in `_skip_if_exists`), so
+          # seeding them into the non-empty dest is conflict-free.
+          mkdir -p "$RENDER_DIR"
+          for sidecar in .markdownlint-cli2.jsonc.local .yamllint.local; do
+            if [ -f "$sidecar" ]; then
+              cp "$sidecar" "$RENDER_DIR/$sidecar"
+              echo "seeded consumer sidecar $sidecar into the scratch render"
+            fi
+          done
           # `--vcs-ref=HEAD` is LOAD-BEARING: copier defaults --vcs-ref to the
           # latest git TAG, which would render an old tagged template instead of
           # the checked-out channel-branch tip. HEAD pins the render to the exact
@@ -151,71 +186,113 @@ jobs:
 
       - name: Run linters against the consumer tree
         # Which linters apply is derived from the archetype (mirrors the
-        # per-archetype lefthook.yml.jinja hooks): markdownlint / yamllint /
-        # gitleaks are universal; ruff for py-*; biome for ts-* (unless
-        # linter_floor=oxc) OR any archetype with has_embedded_web. Each linter
-        # uses the rendered config via its explicit config flag. Failures are
-        # collected so every linter reports, not just the first to fail.
+        # per-archetype lefthook.yml.jinja hooks): markdownlint / yamllint are
+        # universal; ruff for py-*; biome for ts-* (unless linter_floor=oxc) OR
+        # any archetype with has_embedded_web. Each linter uses the rendered
+        # config via its explicit config flag. Failures are collected so every
+        # linter reports, not just the first to fail. Secret scanning (gitleaks)
+        # is owned by the gate-secret-scan family — not run here.
         # shellcheck / clippy / gofmt / rustfmt / prettier / pyright / deno /
         # swift* are intentionally NOT centralized here — they have no
         # config-path flag and are not run centrally today (they stay in the
         # lefthook/local surface); this gate does not invent that scope.
+        #
+        # File scope: non-fork repos lint ALL tracked files (git ls-files);
+        # fork (upstream-derived) repos lint ONLY the PR's changed files, so
+        # inherited upstream lint debt never blocks a fork PR. The changed-file
+        # resolution is ported verbatim from lint-hooks.yml (same base...head
+        # logic, same fetch-depth: 2 requirement on the checkout above).
         if: steps.detect.outputs.onboarded == 'true'
         env:
           RENDER_DIR: ${{ runner.temp }}/render
+          IS_FORK: ${{ steps.detect.outputs.is_fork }}
         shell: bash
         run: |
           set -uo pipefail
           archetype="$(mise exec -- yq -r '.archetype' .copier-answers.yml)"
           linter_floor="$(mise exec -- yq -r '.linter_floor // ""' .copier-answers.yml)"
           has_embedded_web="$(mise exec -- yq -r '.has_embedded_web // false' .copier-answers.yml)"
-          echo "archetype=$archetype linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web"
+          echo "archetype=$archetype linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web is_fork=$IS_FORK"
+
+          # Fork repos restrict every linter to the PR's changed files. Resolve
+          # that set once, with the SAME base...head logic lint-hooks.yml uses
+          # (needs the fetch-depth: 2 checkout for the synthetic merge commit's
+          # parents). Non-fork repos never enter this block.
+          CHANGED="$RUNNER_TEMP/lint-format-changed.txt"
+          if [ "$IS_FORK" = "true" ]; then
+            : > "$CHANGED"
+            if git rev-parse --verify --quiet HEAD^1 >/dev/null && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+              # pull_request synthetic merge commit: diff the merge result against
+              # the base parent. Needs only fetch-depth: 2 and avoids an
+              # unfetched merge base.
+              git diff --name-only --diff-filter=ACMR HEAD^1 HEAD > "$CHANGED"
+            elif [ -n "${GITHUB_BASE_REF:-}" ]; then
+              git fetch --no-tags --depth=50 origin "refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+              if git merge-base "origin/${GITHUB_BASE_REF}" HEAD >/dev/null; then
+                git diff --name-only --diff-filter=ACMR "origin/${GITHUB_BASE_REF}...HEAD" > "$CHANGED"
+              elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+                git diff --name-only --diff-filter=ACMR HEAD^ HEAD > "$CHANGED"
+              else
+                git ls-files > "$CHANGED"
+              fi
+            elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+              git diff --name-only --diff-filter=ACMR HEAD^ HEAD > "$CHANGED"
+            else
+              # Last-resort fallback for an unusual single-commit checkout: lint
+              # tracked files rather than silently skipping coverage.
+              git ls-files > "$CHANGED"
+            fi
+            echo "fork repo: linting changed files only ($(grep -c . "$CHANGED" || true) candidate paths)"
+          fi
+
+          # Emit the applicable tracked files for the given git pathspecs. On a
+          # fork, intersect the tracked matches with the changed-file set so only
+          # PR-touched files are linted; on a non-fork, list all tracked matches
+          # (parity with lefthook's git-aware `--all-files`). git owns the glob
+          # matching in both modes; untracked .standards / .venv / node_modules
+          # are never listed, so they are excluded automatically.
+          select_files() {
+            if [ "$IS_FORK" = "true" ]; then
+              git ls-files -- "$@" | { grep -Fxf "$CHANGED" || true; }
+            else
+              git ls-files -- "$@"
+            fi
+          }
 
           fail=0
 
-          # --- markdownlint (universal) — tracked files only, for parity with
-          #     lefthook's git-aware `--all-files`. The rendered config's
-          #     `ignores` (CHANGELOG.md, node_modules, dist, …) still apply to the
-          #     explicit set; untracked .standards / .venv / node_modules are
-          #     never listed by git ls-files, so they are excluded automatically. ---
-          mapfile -t mdfiles < <(git ls-files '*.md')
+          # --- markdownlint (universal). The rendered config's `ignores`
+          #     (CHANGELOG.md, node_modules, dist, plus any consumer `.local`
+          #     additions) still apply to the explicit set. ---
+          mapfile -t mdfiles < <(select_files '*.md')
           if [ "${#mdfiles[@]}" -gt 0 ]; then
             echo "== markdownlint-cli2 (${#mdfiles[@]} files) =="
             mise exec -- markdownlint-cli2 \
               --config "$RENDER_DIR/.markdownlint-cli2.jsonc" "${mdfiles[@]}" || fail=1
           else
-            echo "no markdown files; skipping markdownlint"
+            echo "no markdown files to lint; skipping markdownlint"
           fi
 
           # --- yamllint (universal) ---
-          mapfile -t yfiles < <(git ls-files '*.yml' '*.yaml')
+          mapfile -t yfiles < <(select_files '*.yml' '*.yaml')
           if [ "${#yfiles[@]}" -gt 0 ]; then
             echo "== yamllint (${#yfiles[@]} files) =="
             mise exec -- yamllint -c "$RENDER_DIR/.yamllint" -- "${yfiles[@]}" || fail=1
           else
-            echo "no YAML files; skipping yamllint"
+            echo "no YAML files to lint; skipping yamllint"
           fi
-
-          # --- gitleaks (universal) — git-mode scan of the consumer repo; the
-          #     nested .standards checkout has its own .git and is untracked, so
-          #     it is never scanned. gate-secret-scan owns the comprehensive
-          #     diff-range scan; this is the lint-floor mirror of the lefthook
-          #     gitleaks hook. ---
-          echo "== gitleaks =="
-          mise exec -- gitleaks detect --source . \
-            --config "$RENDER_DIR/.gitleaks.toml" --redact --no-banner || fail=1
 
           # --- ruff (py-* archetypes) ---
           case "$archetype" in
             py-*)
-              mapfile -t pyfiles < <(git ls-files '*.py')
+              mapfile -t pyfiles < <(select_files '*.py')
               if [ "${#pyfiles[@]}" -gt 0 ]; then
                 echo "== ruff check =="
                 mise exec -- ruff check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
                 echo "== ruff format --check =="
                 mise exec -- ruff format --check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
               else
-                echo "no Python files; skipping ruff"
+                echo "no Python files to lint; skipping ruff"
               fi
               ;;
           esac
@@ -227,14 +304,14 @@ jobs:
           esac
           [ "$has_embedded_web" = "true" ] && run_biome=true
           if [ "$run_biome" = "true" ]; then
-            mapfile -t jsfiles < <(git ls-files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc')
+            mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc')
             if [ "${#jsfiles[@]}" -gt 0 ]; then
               echo "== biome check =="
               mise exec -- biome check \
                 --config-path "$RENDER_DIR" \
                 --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
             else
-              echo "biome applies but no JS/TS/JSON files; skipping"
+              echo "biome applies but no JS/TS/JSON files to lint; skipping"
             fi
           fi
 
