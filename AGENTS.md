@@ -8,13 +8,16 @@ working with code in this repository. `CLAUDE.md` is a symlink to this file — 
 
 `Rubio-Enterprises/.github` (local dir `Governance/dot-github`, remote `origin =
 git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
-**reusable GitHub Actions workflows** that every consumer's
-`.github/workflows/standards.yml` thin-calls. In the three-repo governance system it is
-the *delivery vehicle*: `standards` defines the rules, **this repo runs them in CI**, and
-`dot-github-private` enforces repo settings. The macro architecture (the three repos, the
-`standards` content layers and release streams, and the four propagation paths) is documented
-canonically in the sibling `standards` repo's `AGENTS.md` → "How changes propagate to the
-fleet"; this file covers only what is specific to working *inside* `dot-github`.
+**GitHub Actions workflows** that run the fleet's PR gates — the seven
+property-targeted gate workflows the org rulesets **inject** into consumer PRs,
+plus the handful of reusables a consumer's `.github/workflows/standards.yml` still
+thin-calls. In the three-repo governance system it is the *delivery vehicle*:
+`standards` defines the rules, **this repo runs them in CI**, and
+`dot-github-private` enforces repo settings. The macro architecture (the three
+repos, the `standards` content layers, the channel release model, and the four
+propagation paths) is documented canonically in the sibling `standards` repo's
+`AGENTS.md` → "How changes propagate to the fleet"; this file covers only what is
+specific to working *inside* `dot-github`.
 
 This is a **bootstrap repo**: not rendered from the Copier template, not standards-onboarded,
 and excluded from its own audit. Consequence: there is **no `.mise.toml`, no `lefthook.yml`,
@@ -25,28 +28,48 @@ local check for the workflow files before pushing. Otherwise validation happens 
 
 ## The reusable workflows (`.github/workflows/`)
 
-Consumer-facing reusables, invoked via `uses:` / `workflow_call` from a consumer's `standards.yml`:
+Two delivery mechanisms live here now.
 
-| Workflow | What it does | Standards pin |
+**Gate workflows — the seven property-targeted Required Governance Workflows.** A
+repo runs one iff it carries the matching `gate-*` custom property (set in
+`.github-private` Terraform); the org gate rulesets **inject** them into the
+consumer's PR checks. They are **not** thin-called from `standards.yml`. The
+content-bearing gates resolve their `standards` content at runtime from the
+repo's channel — `canary` for ring repos, `stable` for the fleet (read from the
+`ring` custom property). The ruleset pins the workflow *file* to the
+Terraform-managed `gates/wf-v1` tag; the *content* floats on the channel.
+
+| Gate workflow | Gate Family | What it does | Standards content |
+|---|---|---|---|
+| `audit.yml` | `gate-audit` | Layer A (`check.sh`) + B (`check-jsonschema`) + C (Conftest `--combine`) + npm-lockfile integrity + managed-content strict gate | channel (`canary`/`stable`), runtime-resolved |
+| `lint-format.yml` | `gate-lint-format` | runtime-renders the canonical lint configs from the channel and runs the config-flag linters (markdownlint, yamllint, ruff, biome) | channel, runtime-resolved |
+| `secret-scan.yml` | `gate-secret-scan` | `mode: gitleaks` (PR diff) / `mode: trufflehog` (scheduled full-history, `--results=verified`) | channel, runtime-resolved |
+| `pr-title.yml` | `gate-pr-title` | commitlint on the PR title with rules from the channel (not a hardcoded types list) | channel, runtime-resolved |
+| `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (ts-* archetypes), graceful no-task notice | — |
+| `test-py.yml` | `gate-python-tests` | `uv run pytest` (py-* + `has_test`) | — |
+| `rust-test.yml` | `gate-rust-tests` | Swatinem cache + `mise run test` (nextest JUnit); Cargo.toml guard + bucket job | — |
+
+**Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
+consumer's rendered `standards.yml` (or a release workflow):
+
+| Workflow | What it does | Pin |
 |---|---|---|
-| `audit.yml` | Standards Layer A (`check.sh`) + B (`check-jsonschema`) + C (Conftest `--combine`), plus npm-lockfile integrity and the managed-content strict gate (`check-managed-content.sh`) | floating **`audit/v1`** |
-| `secret-scan.yml` | `mode: gitleaks` (PR-diff scan) or `mode: trufflehog` (scheduled full-history, `--results=verified`) | floating **`audit/v1`** |
+| `lint-hooks.yml` | `lefthook run pre-commit --all-files` + a commit-msg smoke test — the CI floor for tools with no config-path flag (shellcheck, pyright, clippy…) that `gate-lint-format` doesn't cover; **stays rendered in `standards.yml`** | — |
 | `e2e.yml` | Playwright harness; detects `scripts.e2e`, then runs `mise run e2e` / `npm run e2e`. Does **not** start a dev server (see the dev-server contract in its header) | — |
-| `lint-hooks.yml` | `lefthook run pre-commit --all-files` + a commit-msg smoke test against the consumer | — |
-| `rust-test.yml` | Swatinem cache + `mise run test` (nextest JUnit) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
 
 `bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). It needs a `tap-token` secret (PAT with `contents:write` on the tap). **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
 
-**Both audit reusables track the floating `audit/v1`.** (Historically `secret-scan.yml` froze
-an *exact* `audit/v1.X.Y` while `audit.yml` floated — that pin asymmetry was removed in `v1.4.3`.)
-Moving `standards`' `audit/v1` therefore reaches *both* on each consumer's next run. Still read
-the actual `ref:` before reasoning about which `standards` content a given reusable executes.
+**The content gates resolve `standards` content by channel, not by a frozen
+`audit/v1` pin.** `audit.yml` and `secret-scan.yml` were moved off the frozen
+`audit/v1` clone to channel resolution in the sweep (a repo's `ring` property
+picks `canary` vs `stable` at runtime). Still read the actual `ref:` a gate
+resolves before reasoning about which `standards` content it runs.
 
-`copier-sync.yml` and `copier-check.yml` are also consumer-called reusables, but they
-orchestrate consumer-side `copier update` rather than running `standards` audit content
-(see their own section below). `release-please.yml` and `floating-tag-floor-check.yml` are
-this repo's own ops, not reusables.
+`copier-sync.yml` / `copier-check.yml` are **gone** — the consumer template-drift
+ritual is replaced by Renovate's native copier manager (auto-merged re-render
+PRs; see the Renovate section). `release-please.yml` and
+`floating-tag-floor-check.yml` are this repo's own ops, not reusables.
 
 There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
 The two starters that once lived there (`standards-audit-starter`, `e2e-starter`) were
@@ -57,31 +80,37 @@ token mint fails). Repos join the fleet via Copier (`/onboard-repo`), which rend
 
 ## The load-bearing release ritual
 
-This is the single most important thing to get right in this repo.
+This is the single most important thing to get right in this repo. Three pins
+coexist, and they move differently.
 
-1. The audit reusables check out `standards` at the **floating `audit/v1`**. So audit-rule
-   **content** reaches the fleet when `standards` moves `audit/v1` — on each consumer's next
-   run, with **no `.github` release** (the safety gate for that propagation is `standards`'
-   pre-flight `audit-canary`, not a release here). A `.github` release is needed only for the
-   **plumbing**: a change to a reusable's own logic/steps, or **repointing** a reusable to a
-   different ref (e.g. `audit/v1` → `audit/v2`) — because consumers pin the reusable *file* by SHA.
-2. To ship such a reusable-code change: consumers pin these reusables by SHA with a trailing
-   `# v1` comment, and Renovate bumps that SHA only when the floating `v1` tag moves (which only
-   release-please does — next point). So `standards`' floating tags gate the *content*; the
-   `.github` release gates the *workflow code* that runs it.
-3. Releases are automated by **release-please** (`release-please.yml`, `release-type: simple`,
-   manifest `.release-please-manifest.json`). It opens/updates a release PR on every push to
-   `main`; the **PR title** is the Conventional-Commit that decides the version bump. On merge
-   it tags `vX.Y.Z`, creates the release, then **moves the floating major tag `v1` onto the
-   release commit** and verifies the push landed.
-4. `floating-tag-floor-check.yml` (daily cron) is the backstop invariant: **`v1` MUST equal
-   the latest strict-semver release commit.** This is the *inverse* of the sister `standards`
-   repo's floor-check (which requires its floating tag strictly *ahead*, because `standards`
-   advances its tag manually post-release; here release-please moves `v1` *onto* the release).
+1. **Gate content resolves by channel, not by an `audit/v1` pin.** The
+   content-bearing gate workflows (`audit.yml`, `lint-format.yml`,
+   `secret-scan.yml`, `pr-title.yml`) clone `standards@<channel>` at runtime —
+   `canary` for ring repos, `stable` for the fleet (the repo's `ring` property
+   picks). So an audit-rule **content** change reaches the fleet when `standards`
+   promotes `canary` → `stable` (see `standards` `RELEASES.md`), with **no
+   `.github` release**. There is no `audit/v1` tag to move any more.
+2. **The gate workflow *files* are pinned by the org rulesets to `gates/wf-v1`.**
+   That tag is Terraform-managed in `.github-private`. A change to a gate
+   workflow's own code (steps/logic) is *plumbing*: land it here, soak it via a
+   temporary evaluate-mode duplicate ruleset at `refs/heads/main`, then advance
+   `gates/wf-v1` to the new SHA via a **TF PR** in `.github-private` (and remove
+   the duplicate). release-please does **not** own `gates/wf-v1`.
+3. **Thin-called reusables (`lint-hooks`, `e2e`, `bump-brew`) still ride the
+   `.github` release + floating `v1`.** Consumers pin them by SHA with a trailing
+   `# v1`; Renovate bumps that SHA when the floating `v1` moves. Releases are
+   automated by **release-please** (`release-please.yml`, `release-type: simple`,
+   manifest `.release-please-manifest.json`): the release PR's **title** decides
+   the bump; on merge it tags `vX.Y.Z`, creates the release, then **moves `v1`
+   onto the release commit** and verifies the push landed.
+4. `floating-tag-floor-check.yml` (daily cron) is the backstop for point 3:
+   **`v1` MUST equal the latest strict-semver release commit.** (Its sister
+   invariant in `standards` no longer exists — `standards` releases by channel
+   now, not by advancing a floating tag.)
 
-**Never create or move `v1` by hand** — release-please owns it; a hand-moved `v1` on an
-unreleased SHA is exactly the drift the floor-check exists to catch. To ship a reusable-workflow
-change: merge it via a conventionally-titled PR and let the release automation retag.
+**Never create or move `v1` or `gates/wf-v1` by hand** — release-please owns
+`v1`; Terraform owns `gates/wf-v1`. A hand-moved tag on an unreleased SHA is
+exactly the drift these checks exist to catch.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
 
@@ -101,44 +130,27 @@ change: merge it via a conventionally-titled PR and let the release automation r
   together (human-merge only — see below). Keep the marker when you add a job.
 - **`RUNNER_GLUE` runner selection.** Glue-tier jobs use
   `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}` (org var, defaults to
-  `ubuntu-slim`) — now including `lint-hooks`, `copier-check`, and `rust-test`. Only `e2e`
+  `ubuntu-slim`) — including `lint-hooks` and `rust-test`. Only `e2e`
   still uses `ubuntu-latest`.
-- **App-token for `standards.yml` pushes.** `copier-sync.yml` mints a dedicated GitHub App
-  token (`COPIER_SYNC_APP_ID` / `COPIER_SYNC_APP_PRIVATE_KEY`, passed via `secrets: inherit`)
-  because the default `GITHUB_TOKEN` can't push changes under `.github/workflows/` (the
-  un-grantable `workflows` permission), and a copier update that rewrites `standards.yml`
-  needs exactly that.
-
-## copier-sync / copier-check (consumer template-drift reusables)
-
-These run *consumer-side* `copier update` against `standards`' **template** stream (default
-`template/v1`), independent of the audit pin:
-
-- `copier-sync.yml` — opens a `chore: copier update …` PR when a consumer's rendered template
-  state drifts. Reads the consumer's current template ref from **`_rubio_template_version`** in
-  `.copier-answers.yml` (standards `template/v1.24.0`+; Copier's built-in `_commit` is no longer
-  consulted). Creates the PR *first, without labels*, then attaches them best-effort — labels
-  are advisory, the PR is the load-bearing artifact.
-- `copier-check.yml` — the blocking gate counterpart. **RED ⟺ copier-sync can open a real PR.**
-  Drift = any `git diff` after `copier update` **excluding `.copier-answers.yml`**. It
-  deliberately does NOT use `copier check-update` (tag comparison would stay permanently red as
-  `template/v1` floats forward). Neither workflow uses `--overwrite` (that flag is `copier copy`
-  only; `copier update` rejects it with exit 2).
 
 ## Renovate config — two files, two roles
 
 - **`default.json`** is the **org-wide shared preset**. Every consumer's `renovate.json` does
   `extends: ["github>Rubio-Enterprises/.github"]`, which resolves to this file — so editing it
-  changes Renovate behavior fleet-wide. Key rules: built-in **`mise` manager disabled**
-  (consumer `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against
-  copier-sync); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
+  changes Renovate behavior fleet-wide. Key rules: the **native `copier` manager enabled with
+  trust** (Layer 3c — reads `_commit`/`_src_path` from `.copier-answers.yml`, tracks the
+  `standards` template `template/vX.Y.Z` tags, and ships an **auto-merged** full `copier update`
+  re-render inside its own PR — this replaces the retired `copier-sync`/`copier-check` ritual and
+  the old `_commit` regex customManager); built-in **`mise` manager disabled** (consumer
+  `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against the copier
+  re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
-  **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only**
-  for the `jdx/mise` CLI pin and `Rubio-Enterprises/standards` template-drift (the two `KEEP LAST`
-  rules). Two `customManagers` track non-standard pins: `.copier-answers.yml`
-  `_commit: template/vX.Y.Z` → standards template tags, and the `# renovate: … jdx/mise`
-  workflow `version:` markers.
+  **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only** for the
+  `jdx/mise` CLI pin (`KEEP LAST`), while the `Rubio-Enterprises/standards` template re-render
+  auto-merges through Renovate's own merge engine (waits for all checks green). One `customManager`
+  remains — the `# renovate: … jdx/mise` workflow `version:` markers; the standards re-render is
+  the native `copier` manager above, not a regex manager.
 - **`renovate.json`** is *this repo's own* config and merely `extends` the preset above.
 
 ## Agent skills
