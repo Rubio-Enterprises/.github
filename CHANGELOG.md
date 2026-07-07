@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0](https://github.com/Rubio-Enterprises/.github/compare/v1.7.0...v1.8.0) (2026-07-07)
+
+
+### Features
+
+* **gates:** add required governance gate workflows ([#82](https://github.com/Rubio-Enterprises/.github/issues/82)) ([aeffb55](https://github.com/Rubio-Enterprises/.github/commit/aeffb555de02ebacda00a5ce4b0b02637f1a79be))
+* **renovate:** replace legacy copier regex manager with native copier manager ([#83](https://github.com/Rubio-Enterprises/.github/issues/83)) ([ba96a02](https://github.com/Rubio-Enterprises/.github/commit/ba96a02e5f990c6cd171923ed29d68a9566b5a19))
+
 ## [1.7.0](https://github.com/Rubio-Enterprises/.github/compare/v1.6.0...v1.7.0) (2026-07-06)
 
 
