@@ -304,7 +304,16 @@ jobs:
           esac
           [ "$has_embedded_web" = "true" ] && run_biome=true
           if [ "$run_biome" = "true" ]; then
-            mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc')
+            # Exclude the consumer's OWN biome config from the lint inputs:
+            # biome validates config-shaped input files against the CLI's
+            # schema version, so a rendered biome.json whose $schema lags the
+            # mise-pinned CLI (normal between template re-renders) turns into
+            # a deserialize ERROR — observed fleet-live on riveroaks-scraper
+            # PR #110 at cutover (schema 2.4.15 vs CLI 2.5.0). The file is
+            # template-managed rendered residue; the canonical render in
+            # $RENDER_DIR is what this gate enforces, so linting the
+            # consumer's copy is circular anyway.
+            mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc' | grep -vE '(^|/)biome\.jsonc?$' || true)
             if [ "${#jsfiles[@]}" -gt 0 ]; then
               echo "== biome check =="
               mise exec -- biome check \
