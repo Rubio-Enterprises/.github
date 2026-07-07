@@ -11,6 +11,10 @@
   "rangeStrategy": "bump",
   "minimumReleaseAge": "7 days",
   "labels": ["dependencies"],
+  "copier": {
+    "description": "Trusted-template half of the copier re-render trust switch. Renovate's copier manager appends `--trust` to `copier update` ONLY when GlobalConfig.allowScripts is true AND !ignoreScripts (see renovate lib/modules/manager/copier/artifacts.ts). `allowScripts` is self-hosted/global-only and lives in the runner's config.js (Rubio-Enterprises/.github-private renovate/config.js); `ignoreScripts` defaults to true, so it MUST be flipped to false here to let the standards template's _tasks (post-render scripts) and _migrations run. Scoped to the copier manager on purpose so npm/composer/bun install-scripts stay ignored everywhere else.",
+    "ignoreScripts": false
+  },
   "packageRules": [
     {
       "description": "Disable Renovate's built-in mise manager fleet-wide: consumer .mise.toml tool pins are TEMPLATE-OWNED (enforced by standards' normalize-mise-pins.sh against template/.mise.toml.jinja floors). Letting Renovate also bump .mise.toml created an infinite thrash (Renovate bumps up, copier-sync reverts to floor). Currency for these tools is driven from the template's .mise.toml.jinja via custom managers in the standards repo, so one reviewed bump propagates uniformly to the whole fleet. NOTE: does NOT affect the jdx/mise CLI pin below — that is a custom.regex manager (workflow YAML), a different manager.",
@@ -77,26 +81,20 @@
       "automerge": false
     },
     {
-      "description": "KEEP LAST: overrides the blanket automerge rule above - template-drift PRs always get human review.",
-      "matchManagers": ["custom.regex"],
-      "matchDepNames": ["Rubio-Enterprises/standards"],
-      "groupName": "rubio-standards-template",
-      "labels": ["dependencies", "standards-template-drift"],
+      "description": "KEEP LAST: the standards Copier template re-render, tracked by Renovate's NATIVE copier manager (replaces the retired `_commit` regex customManager). The manager reads `_commit`/`_src_path` from each consumer's `.copier-answers.yml`, resolves the standards template repo's git tags, and ships a full `copier update` re-render inside its own PR - this is Layer 3c of the governance propagation architecture (auto-merged rendered residue), replacing the copier-sync/copier-check drift ritual. versioning=regex isolates the `template/vX.Y.Z` tag stream (filtering out the audit/*, plugin/*, and legacy bare v* tags git-tags also returns) AND preserves the full tag string as the written value, so the resulting `copier update --vcs-ref template/vX.Y.Z` stays a valid ref (a bare extractVersion would strip the prefix and break the ref). automerge runs through Renovate's OWN merge engine (platformAutomerge:false, matching the org default): it waits for ALL checks green, which is stronger than GitHub-native auto-merge's required-only wait and safe by construction now that the injected gate rulesets are the required checks. minimumReleaseAge:0 exempts this FIRST-PARTY dep from the global 7-day supply-chain soak - the standards canary ring already soaked the promoted SHA before its `template/vX.Y.(Z+1)` tag was stamped, so there is nothing to vet (same rationale as the Rubio-Enterprises/.github reusable-workflow exception above). prPriority high so the re-render wins PR slots during a full-fleet promotion wave. matchDepNames is a regex so it keeps matching whether `_src_path` is the `gh:` shorthand or a full https URL.",
+      "matchManagers": ["copier"],
+      "matchDepNames": ["/Rubio-Enterprises\\/standards/"],
+      "versioning": "regex:^template/v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false,
+      "prPriority": 10,
+      "minimumReleaseAge": "0 days",
       "commitMessageTopic": "rubio-standards template",
-      "automerge": false
+      "labels": ["dependencies", "standards-template"]
     }
   ],
   "customManagers": [
-    {
-      "customType": "regex",
-      "fileMatch": ["(^|/)\\.copier-answers\\.yml$"],
-      "matchStrings": [
-        "_commit:\\s*template/(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
-      ],
-      "depNameTemplate": "Rubio-Enterprises/standards",
-      "datasourceTemplate": "github-tags",
-      "extractVersionTemplate": "^template/(?<version>v\\d+\\.\\d+\\.\\d+)$"
-    },
     {
       "customType": "regex",
       "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
