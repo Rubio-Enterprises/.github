@@ -313,7 +313,16 @@ jobs:
             # template-managed rendered residue; the canonical render in
             # $RENDER_DIR is what this gate enforces, so linting the
             # consumer's copy is circular anyway.
-            mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc' | grep -vE '(^|/)biome\.jsonc?$' || true)
+            # Exclude ALL template-rendered js-family config files, not just
+            # biome.json: they are centrally-owned rendered residue (the
+            # canonical render in $RENDER_DIR is what this gate enforces), and
+            # biome both schema-validates config-shaped inputs and demands its
+            # own formatting of them — e.g. .markdownlint-cli2.jsonc format
+            # errors observed on riveroaks-scraper PR #110 after the
+            # biome.json-only exclusion. Consumer-authored code is the gate's
+            # jurisdiction; rendered-file conformance is the audit's.
+            mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc' \
+              | grep -vE '(^|/)(biome\.jsonc?|\.markdownlint-cli2\.jsonc|commitlint\.config\.cjs|renovate\.json)$' || true)
             if [ "${#jsfiles[@]}" -gt 0 ]; then
               echo "== biome check =="
               mise exec -- biome check \
