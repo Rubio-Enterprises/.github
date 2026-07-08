@@ -84,13 +84,13 @@ jobs:
         uses: jdx/mise-action@v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.11"
+          version: "2026.6.14"
       - name: Install audit-side tools (gitleaks, conftest, check-jsonschema)
         uses: jdx/mise-action@v4
         with:
           working_directory: .standards
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.11"
+          version: "2026.6.14"
       - name: Verify lockfile integrity (npm)
         # Defense-in-depth complement to the `NPM-LOCKFILE-PRESENT` audit
         # rule (scripts/check.sh, §6.6) and the template's `lockfile-drift`

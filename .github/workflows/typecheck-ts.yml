@@ -33,7 +33,7 @@ jobs:
         uses: jdx/mise-action@v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.11"
+          version: "2026.6.14"
 
       - name: Detect the typecheck task
         # `mise tasks info` exits non-zero when the task is absent (non-ts repo,

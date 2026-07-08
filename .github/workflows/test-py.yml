@@ -35,7 +35,7 @@ jobs:
         uses: jdx/mise-action@v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.11"
+          version: "2026.6.14"
           install_args: python
 
       - name: Detect pyproject.toml
