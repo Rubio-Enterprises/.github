@@ -10,100 +10,63 @@
   "prConcurrentLimit": 20,
   "rangeStrategy": "bump",
   "minimumReleaseAge": "7 days",
-  "labels": [
-    "dependencies"
-  ],
+  "labels": ["dependencies"],
   "copier": {
     "description": "Trusted-template half of the copier re-render trust switch. Renovate's copier manager appends `--trust` to `copier update` ONLY when GlobalConfig.allowScripts is true AND !ignoreScripts (see renovate lib/modules/manager/copier/artifacts.ts). `allowScripts` is self-hosted/global-only and lives in the runner's config.js (Rubio-Enterprises/.github-private renovate/config.js); `ignoreScripts` defaults to true, so it MUST be flipped to false here to let the standards template's _tasks (post-render scripts) and _migrations run. Scoped to the copier manager on purpose so npm/composer/bun install-scripts stay ignored everywhere else.",
     "ignoreScripts": false
   },
   "packageRules": [
     {
-      "description": "Disable Renovate's built-in mise manager fleet-wide: consumer .mise.toml tool pins are TEMPLATE-OWNED (enforced by standards' normalize-mise-pins.sh against template/.mise.toml.jinja floors). Letting Renovate also bump .mise.toml created an infinite thrash (Renovate bumps up, copier-sync reverts to floor). Currency for these tools is driven from the template's .mise.toml.jinja via custom managers in the standards repo, so one reviewed bump propagates uniformly to the whole fleet. NOTE: does NOT affect the jdx/mise CLI pin below \u2014 that is a custom.regex manager (workflow YAML), a different manager.",
-      "matchManagers": [
-        "mise"
-      ],
+      "description": "Disable Renovate's built-in mise manager fleet-wide: consumer .mise.toml tool pins are TEMPLATE-OWNED (enforced by standards' normalize-mise-pins.sh against template/.mise.toml.jinja floors). Letting Renovate also bump .mise.toml created an infinite thrash (Renovate bumps up, copier-sync reverts to floor). Currency for these tools is driven from the template's .mise.toml.jinja via custom managers in the standards repo, so one reviewed bump propagates uniformly to the whole fleet. NOTE: does NOT affect the jdx/mise CLI pin below — that is a custom.regex manager (workflow YAML), a different manager.",
+      "matchManagers": ["mise"],
       "enabled": false
     },
     {
       "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge is OFF org-wide on purpose: these repos have no required status checks beyond the org audit ruleset, and GitHub-native automerge waits only on REQUIRED checks - it would merge PRs whose tests or gitleaks are red. Renovate's own automerge engine merges only when the branch is green across ALL checks, at the cost of merges landing on Renovate runs (cron in .github-private renovate.yml).",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "digest"
-      ],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^0/",
       "automerge": true,
       "platformAutomerge": false
     },
     {
       "description": "Lockfile maintenance only refreshes transitive resolution inside existing ranges - the lowest-risk update class.",
-      "matchUpdateTypes": [
-        "lockFileMaintenance"
-      ],
+      "matchUpdateTypes": ["lockFileMaintenance"],
       "automerge": true,
       "platformAutomerge": false
     },
     {
-      "matchManagers": [
-        "npm"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
       "groupName": "all non-major npm dependencies",
       "groupSlug": "npm-non-major"
     },
     {
       "description": "Same per-repo consolidation as npm: one rolling PR per repo for non-major crate bumps instead of one PR per crate (vibe-kanban alone accumulated 100+ individual crate PRs).",
-      "matchManagers": [
-        "cargo"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
       "groupName": "all non-major cargo dependencies",
       "groupSlug": "cargo-non-major"
     },
     {
-      "matchManagers": [
-        "github-actions"
-      ],
+      "matchManagers": ["github-actions"],
       "groupName": "github-actions"
     },
     {
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchDepNames": [
-        "aquasecurity/trivy-action"
-      ],
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["aquasecurity/trivy-action"],
       "extractVersion": "^v?(?<version>.+)$"
     },
     {
       "description": "standards.yml is fully template-rendered (Rubio-Enterprises/standards -> template/.github/workflows/standards.yml.jinja); its action pins (actions/checkout, astral-sh/setup-uv, jdx/mise-action, amannn/action-semantic-pull-request, pnpm/action-setup, ...) are TEMPLATE-OWNED. A per-consumer github-actions bump there drifts against copier-check (Renovate bumps the pin up, the next copier update re-renders it back to the template value -> drift gate red). Same thrash the disabled mise manager above fixes for .mise.toml. So disable the github-actions manager for this one rendered file fleet-wide; these pins move via a standards template release + copier-sync. The re-enable rule below keeps the ONE exception live.",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchFileNames": [
-        ".github/workflows/standards.yml"
-      ],
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/standards.yml"],
       "enabled": false
     },
     {
-      "description": "Exception to the disable above: the Rubio-Enterprises/.github reusable-workflow `uses:` digests in standards.yml ARE meant to advance via Renovate -- that is the `# v1` SHA-pin contract (helpers:pinGitHubActionDigests owns and forward-moves the SHA; this is path C of the standards propagation model). Re-enable + automerge just that dep so a `.github` release still reaches consumers hands-off. minimumReleaseAge:0 exempts this FIRST-PARTY reusable from the global 7-day supply-chain soak: that soak guards against just-published THIRD-PARTY versions, but the org publishes its own `.github` releases deliberately (release-please), so there is nothing to vet -- without this, every `# v1` digest bump sits on `renovate/stability-days` for 7 days before automerging, stalling path C fleet-wide. Must come AFTER the disable rule (later rules win). groupName isolates this dep in its OWN branch: without it, consumer-side github-actions grouping bundles the first-party digest with third-party bumps, and the GROUP then waits on the third parties' 7-day stability -- observed on vibetunnel#128, where the urgent lint-hooks credential-fix pin sat behind renovate/stability-days during the v1.55.2 wave.",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchFileNames": [
-        ".github/workflows/standards.yml"
-      ],
-      "matchDepNames": [
-        "Rubio-Enterprises/.github"
-      ],
+      "description": "Exception to the disable above: the Rubio-Enterprises/.github reusable-workflow `uses:` digests in standards.yml ARE meant to advance via Renovate -- that is the `# v1` SHA-pin contract (helpers:pinGitHubActionDigests owns and forward-moves the SHA; this is path C of the standards propagation model). Re-enable + automerge just that dep so a `.github` release still reaches consumers hands-off. minimumReleaseAge:0 exempts this FIRST-PARTY reusable from the global 7-day supply-chain soak: that soak guards against just-published THIRD-PARTY versions, but the org publishes its own `.github` releases deliberately (release-please), so there is nothing to vet -- without this, every `# v1` digest bump sits on `renovate/stability-days` for 7 days before automerging, stalling path C fleet-wide. Must come AFTER the disable rule (later rules win). groupName isolates this dep in its OWN branch: without it, consumer-side github-actions grouping bundles the first-party digest with third-party bumps, and the GROUP then waits on the third parties' 7-day stability — observed on vibetunnel#128, where the urgent lint-hooks credential-fix pin sat behind renovate/stability-days during the v1.55.2 wave.",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/standards.yml"],
+      "matchDepNames": ["Rubio-Enterprises/.github"],
       "groupName": "first-party reusable workflows",
       "enabled": true,
       "automerge": true,
@@ -112,24 +75,16 @@
     },
     {
       "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows, tracked by the jdx/mise customManager below). Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "jdx/mise"
-      ],
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["jdx/mise"],
       "groupName": "mise-cli",
       "commitMessageTopic": "mise CLI",
       "automerge": false
     },
     {
       "description": "KEEP LAST: the standards Copier template re-render, tracked by Renovate's NATIVE copier manager (replaces the retired `_commit` regex customManager). The manager reads `_commit`/`_src_path` from each consumer's `.copier-answers.yml`, resolves the standards template repo's git tags, and ships a full `copier update` re-render inside its own PR - this is Layer 3c of the governance propagation architecture (auto-merged rendered residue), replacing the copier-sync/copier-check drift ritual. versioning=regex isolates the `template/vX.Y.Z` tag stream (filtering out the audit/*, plugin/*, and legacy bare v* tags git-tags also returns) AND preserves the full tag string as the written value, so the resulting `copier update --vcs-ref template/vX.Y.Z` stays a valid ref (a bare extractVersion would strip the prefix and break the ref). automerge runs through Renovate's OWN merge engine (platformAutomerge:false, matching the org default): it waits for ALL checks green, which is stronger than GitHub-native auto-merge's required-only wait and safe by construction now that the injected gate rulesets are the required checks. minimumReleaseAge:0 exempts this FIRST-PARTY dep from the global 7-day supply-chain soak - the standards canary ring already soaked the promoted SHA before its `template/vX.Y.(Z+1)` tag was stamped, so there is nothing to vet (same rationale as the Rubio-Enterprises/.github reusable-workflow exception above). prPriority high so the re-render wins PR slots during a full-fleet promotion wave. matchDepNames is a regex so it keeps matching whether `_src_path` is the `gh:` shorthand or a full https URL.",
-      "matchManagers": [
-        "copier"
-      ],
-      "matchDepNames": [
-        "/Rubio-Enterprises\\/standards/"
-      ],
+      "matchManagers": ["copier"],
+      "matchDepNames": ["/Rubio-Enterprises\\/standards/"],
       "versioning": "regex:^template/v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
       "automerge": true,
       "automergeType": "pr",
@@ -137,18 +92,13 @@
       "prPriority": 10,
       "minimumReleaseAge": "0 days",
       "commitMessageTopic": "rubio-standards template",
-      "labels": [
-        "dependencies",
-        "standards-template"
-      ]
+      "labels": ["dependencies", "standards-template"]
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
-        "^\\.github/workflows/[^/]+\\.ya?ml$"
-      ],
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
       "matchStrings": [
         "# renovate: datasource=github-releases depName=jdx/mise\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
       ],
