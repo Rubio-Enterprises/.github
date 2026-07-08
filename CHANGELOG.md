@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/Rubio-Enterprises/.github/compare/v1.8.1...v2.0.0) (2026-07-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **workflows:** remove copier-sync and copier-check reusables ([#87](https://github.com/Rubio-Enterprises/.github/issues/87))
+
+### Miscellaneous Chores
+
+* **workflows:** remove copier-sync and copier-check reusables ([#87](https://github.com/Rubio-Enterprises/.github/issues/87)) ([b3084db](https://github.com/Rubio-Enterprises/.github/commit/b3084dba482f38a064b168f94977622c06f6e132))
+
 ## [1.8.1](https://github.com/Rubio-Enterprises/.github/compare/v1.8.0...v1.8.1) (2026-07-07)
 
 
