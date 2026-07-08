@@ -27,9 +27,20 @@ jobs:
   release-please:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     steps:
+      # App token so the release PR triggers workflows. PRs created with the
+      # default GITHUB_TOKEN fire NO events (Actions loop-prevention) — the
+      # ruleset-injected gates (pr-title, secret-scan) never ran on release
+      # PRs, leaving every one BLOCKED until a human close/reopened it
+      # (needed for both 1.8.1 and 2.0.0 on 2026-07-07/08).
+      - uses: actions/create-github-app-token@v3
+        id: rp-token
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
+          token: ${{ steps.rp-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
       # fetch-depth: 0 so the release commit is guaranteed present locally
