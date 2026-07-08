@@ -133,7 +133,7 @@ jobs:
         # identically to the consumer's local hooks. Secret scanning (gitleaks)
         # is owned exclusively by the gate-secret-scan family — never run here.
         if: steps.detect.outputs.onboarded == 'true'
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.6.11"

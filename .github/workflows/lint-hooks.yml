@@ -92,7 +92,7 @@ jobs:
       - name: Install uv (routes mise pipx installs through uvx)
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Install consumer-repo runtimes (lefthook + pinned hook tools)
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.6.11"
