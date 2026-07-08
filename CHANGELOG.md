@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.1](https://github.com/Rubio-Enterprises/.github/compare/v2.0.0...v2.0.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **release:** mint an App token so release PRs trigger the injected gates ([#91](https://github.com/Rubio-Enterprises/.github/issues/91)) ([0e19d88](https://github.com/Rubio-Enterprises/.github/commit/0e19d88046031ce8cdfb934100ff2a5e0a04e174))
+* **release:** pin the app-token action by sha and drop the unused pr grant ([#95](https://github.com/Rubio-Enterprises/.github/issues/95)) ([058a55f](https://github.com/Rubio-Enterprises/.github/commit/058a55f7ea1fd494b0bb150aa6cc44e9690652f1))
+* **renovate:** isolate the first-party reusable digest in its own group ([#92](https://github.com/Rubio-Enterprises/.github/issues/92)) ([1bae953](https://github.com/Rubio-Enterprises/.github/commit/1bae953133f9e4994cb421e7112fc76b62cac6fb))
+
 ## [2.0.0](https://github.com/Rubio-Enterprises/.github/compare/v1.8.1...v2.0.0) (2026-07-08)
 
 
