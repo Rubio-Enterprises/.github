@@ -21,7 +21,8 @@ name: release-please
 
 permissions:
   contents: write # tag + create release + move the floating major tag
-  pull-requests: write # open / update the release PR
+  # NOTE: no pull-requests grant — the release PR is opened/updated with the
+  # RELEASE_PLEASE App token (minted below), not GITHUB_TOKEN.
 
 jobs:
   release-please:
@@ -32,7 +33,10 @@ jobs:
       # ruleset-injected gates (pr-title, secret-scan) never ran on release
       # PRs, leaving every one BLOCKED until a human close/reopened it
       # (needed for both 1.8.1 and 2.0.0 on 2026-07-07/08).
-      - uses: actions/create-github-app-token@v3
+      # SHA-pinned like every other step in this file: the job holds
+      # contents:write and this step mints a token with the App's full grants,
+      # so a hijacked floating tag here is a credential-theft vector.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: rp-token
         with:
           app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
