@@ -136,7 +136,7 @@ jobs:
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         with:
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.11"
+          version: "2026.6.14"
 
       - name: Render canonical lint configs from standards@channel
         # copier renders the WHOLE template into a scratch dir driven by the
