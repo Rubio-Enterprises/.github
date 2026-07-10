@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/Rubio-Enterprises/.github/compare/v2.0.1...v2.1.0) (2026-07-10)
+
+
+### Features
+
+* mint the tap push token from the rubio-tap-push app ([#97](https://github.com/Rubio-Enterprises/.github/issues/97)) ([54d4e68](https://github.com/Rubio-Enterprises/.github/commit/54d4e68ea2b1166435727b7809fa37ea4f812bc0))
+
 ## [2.0.1](https://github.com/Rubio-Enterprises/.github/compare/v2.0.0...v2.0.1) (2026-07-08)
 
 
