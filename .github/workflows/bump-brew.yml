@@ -20,20 +20,58 @@ name: bump-homebrew-git (reusable)
         type: string
         default: Rubio-Enterprises/homebrew-tap
     secrets:
+      TAP_PUSH_APP_ID:
+        description: >-
+          rubio-tap-push App id (org secret; reaches this reusable via
+          `secrets: inherit`). Preferred: mints a per-run token scoped to the
+          tap, contents:write, expiring with the job.
+        required: false
+      TAP_PUSH_APP_PRIVATE_KEY:
+        description: rubio-tap-push App private key (org secret)
+        required: false
       tap-token:
-        description: PAT with contents:write on the tap (used to push the bump)
-        required: true
+        description: >-
+          LEGACY fallback — PAT with contents:write on the tap. Used only when
+          the TAP_PUSH_APP_* pair is absent; retire callers to
+          `secrets: inherit` + the App.
+        required: false
 permissions:
   contents: read
 jobs:
   bump:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    env:
+      TAP_APP_CONFIGURED: ${{ secrets.TAP_PUSH_APP_ID != '' && secrets.TAP_PUSH_APP_PRIVATE_KEY != '' }}
+      TAP_TOKEN_PROVIDED: ${{ secrets.tap-token != '' }}
     steps:
+      - name: Require a push credential
+        if: env.TAP_APP_CONFIGURED != 'true' && env.TAP_TOKEN_PROVIDED != 'true'
+        run: |
+          echo "::error::no tap push credential: pass the TAP_PUSH_APP_* org secrets (secrets: inherit) or the legacy tap-token PAT" >&2
+          exit 1
+      - name: Derive tap repo name
+        if: env.TAP_APP_CONFIGURED == 'true'
+        id: tap-repo
+        env:
+          TAP: ${{ inputs.tap }}
+        run: echo "name=${TAP##*/}" >> "$GITHUB_OUTPUT"
+      # Scoped per-run mint: token is contents:write on the tap repo ONLY and
+      # expires with the job — replaces the long-lived tap-push PAT.
+      - name: Mint tap-push App token
+        if: env.TAP_APP_CONFIGURED == 'true'
+        id: tap-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.TAP_PUSH_APP_ID }}
+          private-key: ${{ secrets.TAP_PUSH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.tap-repo.outputs.name }}
+          permission-contents: write
       - name: Checkout tap
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: ${{ inputs.tap }}
-          token: ${{ secrets.tap-token }}
+          token: ${{ steps.tap-app.outputs.token || secrets.tap-token }}
       - name: Rewrite formula tag + revision
         env:
           FORMULA: ${{ inputs.formula-name }}
