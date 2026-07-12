@@ -82,7 +82,7 @@ jobs:
         with:
           working_directory: .standards
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.14"
+          version: "2026.7.5"
 
       - name: Lint the PR title against the standards commitlint config
         # The PR title is untrusted input — pass it via env, never interpolate it
