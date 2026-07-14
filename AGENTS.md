@@ -8,7 +8,7 @@ working with code in this repository. `CLAUDE.md` is a symlink to this file — 
 
 `Rubio-Enterprises/.github` (local dir `Governance/dot-github`, remote `origin =
 git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
-**GitHub Actions workflows** that run the fleet's PR gates — the seven
+**GitHub Actions workflows** that run the fleet's PR gates — the eight
 property-targeted gate workflows the org rulesets **inject** into consumer PRs,
 plus the handful of reusables a consumer's `.github/workflows/standards.yml` still
 thin-calls. In the three-repo governance system it is the *delivery vehicle*:
@@ -30,7 +30,7 @@ local check for the workflow files before pushing. Otherwise validation happens 
 
 Two delivery mechanisms live here now.
 
-**Gate workflows — the seven property-targeted Required Governance Workflows.** A
+**Gate workflows — the eight property-targeted Required Governance Workflows.** A
 repo runs one iff it carries the matching `gate-*` custom property (set in
 `.github-private` Terraform); the org gate rulesets **inject** them into the
 consumer's PR checks. They are **not** thin-called from `standards.yml`. The
@@ -48,6 +48,7 @@ Terraform-managed `gates/wf-v1` tag; the *content* floats on the channel.
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (ts-* archetypes), graceful no-task notice | — |
 | `test-py.yml` | `gate-python-tests` | `uv run pytest` (py-* + `has_test`) | — |
 | `rust-test.yml` | `gate-rust-tests` | Swatinem cache + `mise run test` (nextest JUnit); Cargo.toml guard + bucket job | — |
+| `tests.yml` | `gate-tests` | explicit-opt-in, stack-blind `mise run test`; missing task fails closed; lockfile-aware JS deps, optional `test-setup`, reports/coverage/JUnit artifacts, and a stable bucket job | — |
 
 **Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
 consumer's rendered `standards.yml` (or a release workflow):
@@ -125,13 +126,14 @@ exactly the drift these checks exist to catch.
   `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
   routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip
   (< 26) rejects → hard fail. Copy this step into any new mise-based reusable.
-- **mise CLI pin.** The `version: "2026.6.9"` on each `jdx/mise-action` carries a
+- **mise CLI pin.** The `version: "2026.6.14"` on each `jdx/mise-action` carries a
   `# renovate: datasource=github-releases depName=jdx/mise` marker so Renovate bumps them
   together (human-merge only — see below). Keep the marker when you add a job.
-- **`RUNNER_GLUE` runner selection.** Glue-tier jobs use
+- **Runner selection.** Glue-tier jobs use
   `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}` (org var, defaults to
-  `ubuntu-slim`) — including `lint-hooks` and `rust-test`. Only `e2e`
-  still uses `ubuntu-latest`.
+  `ubuntu-slim`) — including `lint-hooks` and `rust-test`. The generalized `tests` gate first
+  honors `RUNNER_TESTS`, then falls back to `RUNNER_GLUE` / `ubuntu-slim`; its
+  `TEST_TIMEOUT_MINUTES` override defaults to 30. Only `e2e` still uses `ubuntu-latest`.
 
 ## Renovate config — two files, two roles
 

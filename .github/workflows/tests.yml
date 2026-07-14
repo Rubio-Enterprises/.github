@@ -1,0 +1,230 @@
+name: tests (gate)
+# Required Governance Workflow — the `gate-tests` family. Injected by a
+# Terraform org ruleset targeting the `gate-tests` custom property; GitHub
+# auto-triggers it on `pull_request` / `merge_group` and ignores event filters.
+# This gate is explicit-opt-in only. Once attached, the consumer MUST expose a
+# working `mise run test` task; a missing task is a configuration error, not a
+# defensive pass. Repositories may optionally expose `mise run test-setup`.
+"on":
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  test:
+    # The direct pull_request trigger is required by GitHub's organization-
+    # ruleset validator. Skip the consumer-shaped job on PRs against this
+    # bootstrap .github repo itself.
+    if: >-
+      github.repository != 'Rubio-Enterprises/.github'
+    # Test-heavy repos can opt into a dedicated runner pool. Otherwise use the
+    # ordinary glue routing, with ubuntu-slim only when neither variable exists.
+    runs-on: ${{ fromJSON(vars.RUNNER_TESTS || vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: ${{ fromJSON(vars.TEST_TIMEOUT_MINUTES || '30') }}
+    steps:
+      - name: Check out the consumer repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      # uv on PATH routes mise's pipx-backend installs through uvx; without it
+      # mise >= 2026.6.2 falls back to pip's --uploaded-prior-to which cold
+      # runners' bootstrap pip (< 26) rejects.
+      - name: Install uv (routes mise pipx installs through uvx)
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+
+      - name: Install all consumer-repo runtimes
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        with:
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.6.14"
+
+      - name: Require the canonical test task
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! task_info="$(mise tasks info test 2>&1)"; then
+            echo "::error::gate-tests is enabled, but 'mise tasks info test' failed"
+            {
+              echo "## tests gate contract failure"
+              echo
+              echo "This repository opted into \`gate-tests\`, but it does not expose the required \`mise run test\` task."
+              echo
+              echo "\`mise tasks info test\` output:"
+              echo
+              echo '```text'
+              printf '%s\n' "$task_info"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          {
+            echo "## tests gate contract"
+            echo
+            echo "- Task: \`mise run test\`"
+            echo "- Optional setup: \`mise run test-setup\` when present"
+            echo
+            echo '<details><summary><code>mise tasks info test</code></summary>'
+            echo
+            echo '```text'
+            printf '%s\n' "$task_info"
+            echo '```'
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore stack-blind dependency caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            **/target
+            ~/.npm
+            ~/.cache/yarn
+            ~/.yarn/berry/cache
+            ~/.local/share/pnpm/store
+            **/.yarn/cache
+            ~/.bun/install/cache
+            ~/.cache/uv
+          key: >-
+            ${{ format('tests-{0}-{1}-{2}', runner.os, runner.arch,
+            hashFiles('**/*.lock','**/*.lockb','**/*-lock.json','**/*-lock.yaml','**/npm-shrinkwrap.json')) }}
+          restore-keys: |
+            tests-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install pnpm (avoids corepack keyring drift)
+        # Reads packageManager for the pinned pnpm version. No-op without a
+        # pnpm lockfile; npm, Yarn, and Bun use the mise-installed runtimes.
+        if: hashFiles('pnpm-lock.yaml') != ''
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Install JS dependencies (lockfile-aware)
+        # Mirrors typecheck-ts.yml: a package.json without a committed lockfile
+        # is a hard error. Non-JS repositories skip this step naturally.
+        env:
+          MISE_ENV: ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package.json ]; then
+            if   [ -f pnpm-lock.yaml ];               then pnpm install --frozen-lockfile
+            elif [ -f yarn.lock ];                    then corepack yarn install --frozen-lockfile
+            elif [ -f bun.lock ] || [ -f bun.lockb ]; then bun install --frozen-lockfile
+            elif [ -f package-lock.json ];            then npm ci
+            else echo "::error::package.json without a lockfile — commit one"; exit 1
+            fi
+          fi
+
+      - name: Run optional test setup
+        id: setup
+        env:
+          MISE_ENV: ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          if mise tasks info test-setup >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            mise run test-setup
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no optional 'test-setup' mise task; continuing"
+          fi
+
+      - name: Run tests
+        id: run-tests
+        env:
+          MISE_ENV: ci
+        run: mise run test
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            reports/**
+            **/reports/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            coverage/**
+            **/coverage/**
+            htmlcov/**
+            **/htmlcov/**
+            coverage.xml
+            **/coverage.xml
+            lcov.info
+            **/lcov.info
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload JUnit reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-junit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            **/junit*.xml
+            **/test-results/**/*.xml
+            **/surefire-reports/*.xml
+            **/failsafe-reports/*.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summarize task and runner
+        if: always()
+        env:
+          RUNNER_SELECTOR: ${{ vars.RUNNER_TESTS || vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
+          SETUP_PRESENT: ${{ steps.setup.outputs.present }}
+          TEST_OUTCOME: ${{ steps.run-tests.outcome }}
+          TIMEOUT_MINUTES: ${{ vars.TEST_TIMEOUT_MINUTES || '30' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo
+            echo "## tests gate execution"
+            echo
+            echo "- Task: \`mise run test\`"
+            echo "- Task outcome: \`${TEST_OUTCOME:-not-run}\`"
+            echo "- Optional test-setup present: \`${SETUP_PRESENT:-unknown}\`"
+            echo "- Runner selector: \`$RUNNER_SELECTOR\`"
+            echo "- Actual runner: \`${RUNNER_NAME} (${RUNNER_OS}/${RUNNER_ARCH})\`"
+            echo "- Timeout: \`${TIMEOUT_MINUTES} minutes\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  gate:
+    # Stable bucket job — always reports on consumer runs so the required check
+    # never hangs "Expected". The self-PR no-op guard intentionally skips it.
+    name: gate
+    needs: [test]
+    if: >-
+      always() &&
+      (github.repository != 'Rubio-Enterprises/.github')
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    steps:
+      - name: Aggregate gate result
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dependency results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              success) ;;
+              *)
+                echo "::error::tests gate failed (a dependency reported '$r')"
+                exit 1
+                ;;
+            esac
+          done
+          echo "tests gate passed"
