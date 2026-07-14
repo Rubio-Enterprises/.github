@@ -43,6 +43,8 @@ jobs:
           version: "2026.6.14"
 
       - name: Require the canonical test task
+        env:
+          MISE_ENV: ci
         shell: bash
         run: |
           set -euo pipefail
@@ -118,6 +120,124 @@ jobs:
             else echo "::error::package.json without a lockfile — commit one"; exit 1
             fi
           fi
+
+      - name: Validate private Go module repository list
+        if: vars.GO_PRIVATE_MODULE_REPOS != ''
+        env:
+          REPOS: ${{ vars.GO_PRIVATE_MODULE_REPOS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          IFS=',' read -ra repos <<< "$REPOS"
+          for repo in "${repos[@]}"; do
+            repo="${repo// /}"
+            [ -n "$repo" ] || continue
+            if [[ "$repo" == *[!A-Za-z0-9._-]* ]]; then
+              echo "::error::invalid repository name in GO_PRIVATE_MODULE_REPOS"
+              exit 1
+            fi
+            count=$((count + 1))
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::GO_PRIVATE_MODULE_REPOS does not contain a repository name"
+            exit 1
+          fi
+
+      - name: Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)
+        if: vars.GO_PRIVATE_MODULE_REPOS != ''
+        id: go-private-token
+        # Keep the action's post-job revocation enabled as a fallback if the
+        # runner stops before the dedicated prefetch step can revoke it.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ vars.GO_PRIVATE_MODULE_REPOS }}
+          permission-contents: read
+
+      - name: Prefetch private Go modules with ephemeral credentials
+        if: vars.GO_PRIVATE_MODULE_REPOS != ''
+        env:
+          TOKEN: ${{ steps.go-private-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPOS: ${{ vars.GO_PRIVATE_MODULE_REPOS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git_config="${RUNNER_TEMP}/go-private-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.gitconfig"
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if ! rm -f -- "$git_config"; then
+              echo "::error::failed to remove the temporary private-module Git config"
+              status=1
+            fi
+            unset GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GOPRIVATE
+            if ! curl --fail --silent --show-error --request DELETE \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/installation/token"; then
+              echo "::error::failed to revoke the private-module App token immediately"
+              status=1
+            fi
+            unset TOKEN
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          umask 077
+          : > "$git_config"
+          chmod 600 "$git_config"
+          export GIT_CONFIG_GLOBAL="$git_config"
+          export GIT_CONFIG_NOSYSTEM=1
+          export GOPRIVATE="github.com/${OWNER}/*"
+          IFS=',' read -ra repos <<< "$REPOS"
+          for repo in "${repos[@]}"; do
+            repo="${repo// /}"
+            [ -n "$repo" ] || continue
+            if [[ "$repo" == *[!A-Za-z0-9._-]* ]]; then
+              echo "::error::invalid repository name in GO_PRIVATE_MODULE_REPOS"
+              exit 1
+            fi
+            git config --file "$git_config" \
+              url."https://x-access-token:${TOKEN}@github.com/${OWNER}/${repo}".insteadOf \
+              "https://github.com/${OWNER}/${repo}"
+          done
+          go mod download
+
+      - name: Verify private Go credentials are cleared
+        if: vars.GO_PRIVATE_MODULE_REPOS != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          git_config="${RUNNER_TEMP}/go-private-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.gitconfig"
+          if [ -e "$git_config" ]; then
+            echo "::error::temporary private-module Git config still exists"
+            exit 1
+          fi
+          if [ -n "${TOKEN:-}" ] || [ -n "${GIT_CONFIG_GLOBAL:-}" ] || [ -n "${GIT_CONFIG_NOSYSTEM:-}" ]; then
+            echo "::error::private-module credentials leaked into the step environment"
+            exit 1
+          fi
+          if git config --global --list 2>/dev/null | grep -Fq 'x-access-token:'; then
+            echo "::error::private-module credentials leaked into global Git config"
+            exit 1
+          fi
+          if git config --local --list 2>/dev/null | grep -Fq 'x-access-token:'; then
+            echo "::error::private-module credentials leaked into local Git config"
+            exit 1
+          fi
+          gomodcache="$(go env GOMODCACHE)"
+          shopt -s nullglob
+          for config in "$gomodcache"/cache/vcs/*/config; do
+            if grep -Fq 'x-access-token:' "$config"; then
+              echo "::error::private-module credentials leaked into the Go module cache"
+              exit 1
+            fi
+          done
 
       - name: Run optional test setup
         id: setup
