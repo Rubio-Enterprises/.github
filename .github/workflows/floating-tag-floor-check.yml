@@ -1,18 +1,21 @@
 name: floating-tag floor-check
-# Fail-closed invariant guard for the load-bearing floating major tag.
+# Fail-closed invariant guard for the load-bearing floating major tags.
 #
-# release-please moves `v1` onto each release commit (see release-please.yml).
-# If that retag is ever skipped, reverted, or `v1` is hand-moved onto an
-# UNRELEASED main SHA (the historical failure mode: consumers were pinned to
-# raw main SHAs, so someone dragged `v1` forward by hand between releases,
-# silently and unguarded), then `v1` diverges from the release it must track
-# and every consumer's `# v1` Renovate pin becomes a lie. This gate catches it.
+# release-please moves the floating major tag (`v1`, `v2`, …) onto each release
+# commit (see release-please.yml). If that retag is ever skipped, reverted, or a
+# floating tag is hand-moved onto an UNRELEASED main SHA (the historical failure
+# mode: consumers were pinned to raw main SHAs, so someone dragged `v1` forward
+# by hand between releases, silently and unguarded), then the floating tag
+# diverges from the release it must track and every consumer's `# vN` Renovate
+# pin becomes a lie. This gate catches it.
 #
-# Invariant: `v1` MUST point at the exact commit of the latest strict-semver
-# release `vX.Y.Z`. This is the INVERSE of the sister repo standards'
-# floor-check (which requires its floating tag STRICTLY AHEAD of the latest
-# release, because standards advances via a manual post-release tick). Here
-# release-please moves `v1` ONTO the release, so `v1` must EQUAL it.
+# Invariant: every floating major tag `vN` that exists here MUST point at the
+# exact commit of the latest strict-semver release `vN.Y.Z` in its OWN major
+# line. Consumers pin these reusables by SHA with a trailing `# vN` comment, and
+# more than one major stays live at once while consumers migrate between them —
+# so each major is checked independently rather than only the newest. The newest
+# major must exist (release-please just released into it); an older major whose
+# floating tag has been deleted is a deliberate retirement and is skipped.
 "on":
   schedule:
     - cron: "0 7 * * *" # daily 07:00 UTC — periodic drift detection
@@ -28,30 +31,47 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
-      - name: Assert floating v1 == latest semver release
+      - name: Assert every floating vN == latest semver release in its line
         shell: bash
         run: |
           set -euo pipefail
           git fetch --force --tags origin
-          # Latest strict-semver tag vN.M.P (no pre-release suffix), highest
-          # version. Pre-releases must not anchor the floor.
-          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
-          if [ -z "$latest" ]; then
+          # All strict-semver tags vN.M.P (no pre-release suffix), ascending.
+          # Pre-releases must not anchor the floor. The `|| true` keeps grep's
+          # no-match exit 1 from tripping `set -o pipefail` before the empty
+          # check below can report it — without it that branch is unreachable.
+          releases="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' \
+            | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V)"
+          if [ -z "$releases" ]; then
             echo "::notice::no strict-semver release tags yet — nothing to check"
             exit 0
           fi
-          major="${latest%%.*}" # vN.M.P -> vN
-          if ! git rev-parse --verify --quiet "refs/tags/${major}^{commit}" >/dev/null; then
-            echo "::error::latest release ${latest} exists but floating tag ${major} does not"
-            exit 1
-          fi
-          float_sha="$(git rev-parse "refs/tags/${major}^{commit}")"
-          latest_sha="$(git rev-parse "refs/tags/${latest}^{commit}")"
-          if [ "$float_sha" != "$latest_sha" ]; then
-            echo "::error::floating tag ${major} (${float_sha}) does not point at the latest release ${latest} (${latest_sha})."
-            echo "::error::release-please must move ${major} onto each release commit; do NOT hand-move it onto unreleased SHAs."
-            echo "::error::remediate: git push origin \"+${latest_sha}:refs/tags/${major}\""
-            exit 1
-          fi
-          echo "::notice::OK — ${major} == ${latest} (${float_sha})"
+          newest_major="$(printf '%s\n' "$releases" | tail -1)"
+          newest_major="${newest_major%%.*}" # vN.M.P -> vN
+          rc=0
+          # Every major line that has ever been released, ascending.
+          majors="$(printf '%s\n' "$releases" | sed -E 's/^(v[0-9]+)\..*/\1/' | sort -V -u)"
+          for major in $majors; do
+            # Latest release within THIS major line. `^vN\.` cannot match vNM.
+            latest="$(printf '%s\n' "$releases" | grep -E "^${major}\." | tail -1)"
+            if ! git rev-parse --verify --quiet "refs/tags/${major}^{commit}" >/dev/null; then
+              if [ "$major" = "$newest_major" ]; then
+                echo "::error::latest release ${latest} exists but floating tag ${major} does not"
+                rc=1
+              else
+                echo "::notice::${major} absent — major line retired, skipping"
+              fi
+              continue
+            fi
+            float_sha="$(git rev-parse "refs/tags/${major}^{commit}")"
+            latest_sha="$(git rev-parse "refs/tags/${latest}^{commit}")"
+            if [ "$float_sha" != "$latest_sha" ]; then
+              echo "::error::floating tag ${major} (${float_sha}) does not point at the latest ${major}.x release ${latest} (${latest_sha})."
+              echo "::error::release-please must move ${major} onto each release commit; do NOT hand-move it onto unreleased SHAs."
+              echo "::error::remediate: git push origin \"+${latest_sha}:refs/tags/${major}\""
+              rc=1
+              continue
+            fi
+            echo "::notice::OK — ${major} == ${latest} (${float_sha})"
+          done
+          exit "$rc"

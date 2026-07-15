@@ -55,7 +55,7 @@
       "extractVersion": "^v?(?<version>.+)$"
     },
     {
-      "description": "standards.yml is fully template-rendered (Rubio-Enterprises/standards -> template/.github/workflows/standards.yml.jinja); its action pins (actions/checkout, astral-sh/setup-uv, jdx/mise-action, amannn/action-semantic-pull-request, pnpm/action-setup, ...) are TEMPLATE-OWNED. A per-consumer github-actions bump there drifts against copier-check (Renovate bumps the pin up, the next copier update re-renders it back to the template value -> drift gate red). Same thrash the disabled mise manager above fixes for .mise.toml. So disable the github-actions manager for this one rendered file fleet-wide; these pins move via a standards template release + copier-sync. The re-enable rule below keeps the ONE exception live.",
+      "description": "standards.yml is fully template-rendered (Rubio-Enterprises/standards -> template/.github/workflows/standards.yml.jinja); its action pins (actions/checkout, astral-sh/setup-uv, jdx/mise-action, amannn/action-semantic-pull-request, pnpm/action-setup, ...) are TEMPLATE-OWNED. A per-consumer github-actions bump there just thrashes: Renovate bumps the pin up, then the next template re-render restores the template's own value and the bump is undone. Same thrash the disabled mise manager above fixes for .mise.toml. So disable the github-actions manager for this one rendered file fleet-wide; these pins advance with a standards template release instead, reaching consumers through the re-render PRs opened by the native copier manager below (KEEP LAST rule). The re-enable rule below keeps the ONE exception live.",
       "matchManagers": ["github-actions"],
       "matchFileNames": [".github/workflows/standards.yml"],
       "enabled": false
