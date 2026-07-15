@@ -124,7 +124,7 @@ jobs:
       # the pipx:copier / pipx:yamllint / pipx:ruff installs hard-fail.
       - name: Install uv (routes mise pipx installs through uvx)
         if: steps.detect.outputs.onboarded == 'true'
-        uses: astral-sh/setup-uv@f98e06938123ccabd21905ea5d0069192241f9f1 # v8.3.1
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
 
       - name: Install consumer-repo runtimes (copier + pinned linters)
         # The consumer's own .mise.toml pins copier, yq, markdownlint-cli2,
