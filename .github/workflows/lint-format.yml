@@ -54,9 +54,9 @@ jobs:
           else
             echo "onboarded=true" >> "$GITHUB_OUTPUT"
             # Fork detection keyed on the SAME `is_fork` answer (identical grep)
-            # as lint-hooks.yml, so an upstream-derived repo lints only its PR's
-            # changed files below and never blocks on inherited upstream lint
-            # debt — behavior matches the current fleet exactly.
+            # as lint-hooks.yml, so a fork lints only its PR's changed files
+            # below and never blocks on inherited upstream lint debt — behavior
+            # matches the current fleet exactly.
             if grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
               echo "is_fork=true" >> "$GITHUB_OUTPUT"
             else
@@ -198,10 +198,10 @@ jobs:
         # lefthook/local surface); this gate does not invent that scope.
         #
         # File scope: non-fork repos lint ALL tracked files (git ls-files);
-        # fork (upstream-derived) repos lint ONLY the PR's changed files, so
-        # inherited upstream lint debt never blocks a fork PR. The changed-file
-        # resolution is ported verbatim from lint-hooks.yml (same base...head
-        # logic, same fetch-depth: 2 requirement on the checkout above).
+        # forks lint ONLY the PR's changed files, so inherited upstream lint
+        # debt never blocks a fork PR. The changed-file resolution is ported
+        # verbatim from lint-hooks.yml (same base...head logic, same
+        # fetch-depth: 2 requirement on the checkout above).
         if: steps.detect.outputs.onboarded == 'true'
         env:
           RENDER_DIR: ${{ runner.temp }}/render
