@@ -133,24 +133,40 @@ exactly the drift these checks exist to catch.
   `ubuntu-slim`) — including `lint-hooks` and `rust-test`. Only `e2e`
   still uses `ubuntu-latest`.
 
-## Renovate config — two files, two roles
+## Renovate config — three files, three roles
 
 - **`default.json`** is the **org-wide shared preset**. Every consumer's `renovate.json` does
   `extends: ["github>Rubio-Enterprises/.github"]`, which resolves to this file — so editing it
-  changes Renovate behavior fleet-wide. Key rules: the **native `copier` manager enabled with
-  trust** (Layer 3c — reads `_commit`/`_src_path` from `.copier-answers.yml`, tracks the
-  `standards` template `template/vX.Y.Z` tags, and ships an **auto-merged** full `copier update`
-  re-render inside its own PR — this replaces the retired `copier-sync`/`copier-check` ritual and
-  the old `_commit` regex customManager); built-in **`mise` manager disabled** (consumer
+  changes Renovate behavior fleet-wide. Key rules: built-in **`mise` manager disabled** (consumer
   `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against the copier
   re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
   **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only** for the
-  `jdx/mise` CLI pin (`KEEP LAST`), while the `Rubio-Enterprises/standards` template re-render
-  auto-merges through Renovate's own merge engine (waits for all checks green). One `customManager`
-  remains — the `# renovate: … jdx/mise` workflow `version:` markers; the standards re-render is
-  the native `copier` manager above, not a regex manager.
+  `jdx/mise` CLI pin (`KEEP LAST`). One `customManager` remains — the `# renovate: … jdx/mise`
+  workflow `version:` markers.
+- **`copier.json`** is the **copier-only preset**, composed by `default.json` via `extends`. It
+  holds the two pieces of copier policy: the trust switch (`copier.ignoreScripts: false`) and the
+  `Rubio-Enterprises/standards` template re-render rule (Layer 3c — reads `_commit`/`_src_path`
+  from `.copier-answers.yml`, tracks the `standards` template `template/vX.Y.Z` tags via a
+  `versioning` regex, and ships an **auto-merged** full `copier update` re-render inside its own
+  PR through Renovate's own merge engine, which waits for all checks green — this replaces the
+  retired `copier-sync`/`copier-check` ritual and the old `_commit` regex customManager).
+
+  It is a **separate file so that repos which run their own Renovate can `extends` it directly**
+  (`github>Rubio-Enterprises/.github:copier`) without inheriting the whole org preset — see
+  `mac-dev-playbook`, which is self-managed and whose ~60 hand-tuned Docker managers must not
+  pick up `config:best-practices`, the 7-day `minimumReleaseAge`, or the blanket automerge rule.
+  The org and the self-managed repos therefore share ONE definition of the copier rule instead of
+  copying it.
+
+  **Ordering caveat:** Renovate concatenates a preset's `packageRules` *before* the extending
+  config's own (`mergeChildConfig`: `parent.concat(child)`), so the copier rule now sits *ahead*
+  of `default.json`'s own rules rather than last. That is currently behaviour-neutral (nothing in
+  `default.json` matches `matchManagers: ["copier"]`, and the one broadly-matching rule — blanket
+  automerge — sets `automerge`/`platformAutomerge` to the same values the copier rule does). If
+  you ever add a rule to `default.json` that *does* match the copier dep, it will now win over
+  this preset — which is the opposite of the old `KEEP LAST` behaviour.
 - **`renovate.json`** is *this repo's own* config and merely `extends` the preset above.
 
 ## Agent skills
