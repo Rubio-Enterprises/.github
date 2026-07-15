@@ -13,14 +13,14 @@ Org-level reusable GitHub Actions workflows for `Rubio-Enterprises`. Every consu
 
 ## Standards dependency
 
-`audit.yml` and `secret-scan.yml` check out `Rubio-Enterprises/standards` at the floating **`audit/v1`** and execute its audit-side content there. The ref is on the **audit stream only**:
+`audit.yml` and `secret-scan.yml` check out `Rubio-Enterprises/standards` and execute its audit-side content there. Each run **resolves the ref at runtime for the calling repository** rather than using a fixed tag, so the workflows track `standards` as it advances:
 
-- `audit/vX.Y.Z` advances only when files in `standards/scripts/`, `standards/schemas/`, `standards/policy/`, `standards/data/`, or audit-side `.mise.toml` change.
-- Template-side changes in `standards/template/` and `standards/copier.yml` advance the **template stream** (`template/vX.Y.Z`) and **do not require a `.github` release**. They reach consumers via `copier update`, not via `.github`.
+- Audit-side changes (`standards/scripts/`, `standards/schemas/`, `standards/policy/`, `standards/data/`, or audit-side `.mise.toml`) reach consumers through that resolved ref.
+- Template-side changes in `standards/template/` and `standards/copier.yml` reach consumers via `copier update`, not via `.github`, and **do not require a `.github` release**.
 
-See [`standards/RELEASES.md`](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md) for the full dual-layer model.
+See [`standards/RELEASES.md`](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md) for the full model.
 
-Because the ref floats, new audit-rule **content** reaches consumers when `standards` advances `audit/v1` — **no `.github` release needed**. A `.github` release (`vX.Y.Z` + release-please moves `v1`) is needed only when a **reusable workflow's own code** changes; Renovate then bumps the consumer-side SHA pin on its next pass.
+Because the ref is resolved per run, new audit-rule **content** reaches consumers as soon as `standards` advances — **no `.github` release needed**. A `.github` release (`vX.Y.Z` + release-please moves `v1`) is needed only when a **reusable workflow's own code** changes; Renovate then bumps the consumer-side SHA pin on its next pass.
 
 ## scripts/
 
