@@ -104,13 +104,18 @@ coexist, and they move differently.
    the bump; on merge it tags `vX.Y.Z`, creates the release, then **moves `v1`
    onto the release commit** and verifies the push landed.
 4. `floating-tag-floor-check.yml` (daily cron) is the backstop for point 3:
-   **`v1` MUST equal the latest strict-semver release commit.** (Its sister
-   invariant in `standards` no longer exists — `standards` releases by channel
-   now, not by advancing a floating tag.)
+   **every floating major tag `vN` present here MUST equal the latest
+   strict-semver `vN.Y.Z` release commit in its OWN major line.** Each major is
+   checked independently, so an older major that has stopped receiving releases
+   (`v1` once `v2.x` is shipping) stays guarded for as long as its tag exists
+   rather than going unchecked. (Its sister invariant in `standards` no longer
+   exists — `standards` releases by channel now, not by advancing a floating
+   tag.)
 
-**Never create or move `v1` or `gates/wf-v1` by hand** — release-please owns
-`v1`; Terraform owns `gates/wf-v1`. A hand-moved tag on an unreleased SHA is
-exactly the drift these checks exist to catch.
+**Never create or move a floating major tag (`v1`, `v2`, …) or `gates/wf-v1` by
+hand** — release-please owns the floating majors; Terraform owns `gates/wf-v1`.
+A hand-moved tag on an unreleased SHA is exactly the drift these checks exist to
+catch.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
 
