@@ -143,6 +143,20 @@ jobs:
             echo "::error::GO_PRIVATE_MODULE_REPOS does not contain a repository name"
             exit 1
           fi
+          if [ ! -f ./go.mod ] || [ -L ./go.mod ]; then
+            echo "::error::GO_PRIVATE_MODULE_REPOS requires exactly one regular root ./go.mod"
+            exit 1
+          fi
+          go_work="$(find . -name go.work -print -quit)"
+          if [ -n "$go_work" ]; then
+            echo "::error::GO_PRIVATE_MODULE_REPOS does not support go.work workspaces ($go_work)"
+            exit 1
+          fi
+          nested_go_mod="$(find . -mindepth 2 -name go.mod -print -quit)"
+          if [ -n "$nested_go_mod" ]; then
+            echo "::error::GO_PRIVATE_MODULE_REPOS does not support nested Go modules ($nested_go_mod)"
+            exit 1
+          fi
 
       - name: Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)
         if: vars.GO_PRIVATE_MODULE_REPOS != ''
@@ -167,14 +181,15 @@ jobs:
         run: |
           set -euo pipefail
           git_config="${RUNNER_TEMP}/go-private-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.gitconfig"
+          credential_helper="${RUNNER_TEMP}/go-private-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-credential.sh"
           cleanup() {
             status=$?
             trap - EXIT
-            if ! rm -f -- "$git_config"; then
-              echo "::error::failed to remove the temporary private-module Git config"
+            if ! rm -f -- "$git_config" "$credential_helper"; then
+              echo "::error::failed to remove temporary private-module credential files"
               status=1
             fi
-            unset GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GOPRIVATE
+            unset GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_TERMINAL_PROMPT GOPRIVATE
             if ! curl --fail --silent --show-error --request DELETE \
               --header "Accept: application/vnd.github+json" \
               --header "Authorization: Bearer ${TOKEN}" \
@@ -191,22 +206,39 @@ jobs:
           umask 077
           : > "$git_config"
           chmod 600 "$git_config"
-          export GIT_CONFIG_GLOBAL="$git_config"
-          export GIT_CONFIG_NOSYSTEM=1
-          export GOPRIVATE="github.com/${OWNER}/*"
+          cat > "$credential_helper" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          [ "${1:-}" = get ] || exit 0
+          protocol=
+          host=
+          path=
+          while IFS='=' read -r key value; do
+            case "$key" in
+              protocol) protocol="$value" ;;
+              host) host="$value" ;;
+              path) path="$value" ;;
+            esac
+          done
+          [ "$protocol" = https ] && [ "$host" = github.com ] || exit 0
           IFS=',' read -ra repos <<< "$REPOS"
           for repo in "${repos[@]}"; do
             repo="${repo// /}"
             [ -n "$repo" ] || continue
-            if [[ "$repo" == *[!A-Za-z0-9._-]* ]]; then
-              echo "::error::invalid repository name in GO_PRIVATE_MODULE_REPOS"
-              exit 1
+            if [ "$path" = "${OWNER}/${repo}" ] || [ "$path" = "${OWNER}/${repo}.git" ]; then
+              printf 'username=x-access-token\npassword=%s\n' "$TOKEN"
+              exit 0
             fi
-            git config --file "$git_config" \
-              url."https://x-access-token:${TOKEN}@github.com/${OWNER}/${repo}".insteadOf \
-              "https://github.com/${OWNER}/${repo}"
           done
-          go mod download
+          EOF
+          chmod 700 "$credential_helper"
+          export GIT_CONFIG_GLOBAL="$git_config"
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_TERMINAL_PROMPT=0
+          export GOPRIVATE="github.com/${OWNER}/*"
+          git config --file "$git_config" credential.useHttpPath true
+          git config --file "$git_config" credential.helper "!\"$credential_helper\""
+          go mod download all
 
       - name: Verify private Go credentials are cleared
         if: vars.GO_PRIVATE_MODULE_REPOS != ''
@@ -214,11 +246,12 @@ jobs:
         run: |
           set -euo pipefail
           git_config="${RUNNER_TEMP}/go-private-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.gitconfig"
-          if [ -e "$git_config" ]; then
-            echo "::error::temporary private-module Git config still exists"
+          credential_helper="${RUNNER_TEMP}/go-private-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-credential.sh"
+          if [ -e "$git_config" ] || [ -e "$credential_helper" ]; then
+            echo "::error::temporary private-module credential files still exist"
             exit 1
           fi
-          if [ -n "${TOKEN:-}" ] || [ -n "${GIT_CONFIG_GLOBAL:-}" ] || [ -n "${GIT_CONFIG_NOSYSTEM:-}" ]; then
+          if [ -n "${TOKEN:-}" ] || [ -n "${GIT_CONFIG_GLOBAL:-}" ] || [ -n "${GIT_CONFIG_NOSYSTEM:-}" ] || [ -n "${GIT_TERMINAL_PROMPT:-}" ]; then
             echo "::error::private-module credentials leaked into the step environment"
             exit 1
           fi
@@ -242,6 +275,7 @@ jobs:
       - name: Run optional test setup
         id: setup
         env:
+          GIT_TERMINAL_PROMPT: "0"
           MISE_ENV: ci
         shell: bash
         run: |
@@ -257,6 +291,7 @@ jobs:
       - name: Run tests
         id: run-tests
         env:
+          GIT_TERMINAL_PROMPT: "0"
           MISE_ENV: ci
         run: mise run test
 
