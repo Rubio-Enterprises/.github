@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Shared copier-manager policy: the template-trust switch plus the standards template re-render rule. Composed by default.json, and extended directly by repos that run their own Renovate rather than the org-wide config — so both inherit ONE definition instead of copying the rule. Deliberately contains nothing but copier-scoped config: the packageRule is pinned to matchManagers:[\"copier\"], so extending this preset cannot alter any other manager's behaviour. `copier.ignoreScripts:false` is the trusted-template half of the re-render trust switch — Renovate's copier manager appends `--trust` to `copier update` ONLY when GlobalConfig.allowScripts is true AND !ignoreScripts (see renovate lib/modules/manager/copier/artifacts.ts). `allowScripts` is self-hosted/global-only and lives in the runner's config; `ignoreScripts` defaults to true, so it MUST be flipped to false here to let the standards template's _tasks (post-render scripts) and _migrations run. It is scoped to the copier manager on purpose so npm/composer/bun install-scripts stay ignored everywhere else.",
+  "copier": {
+    "ignoreScripts": false
+  },
+  "packageRules": [
+    {
+      "description": "The standards Copier template re-render, tracked by Renovate's NATIVE copier manager. The manager reads `_commit`/`_src_path` from each consumer's `.copier-answers.yml`, resolves the standards template repo's git tags, and ships a full `copier update` re-render inside its own PR. versioning=regex isolates the `template/vX.Y.Z` tag stream (filtering out the audit/*, plugin/*, and legacy bare v* tags git-tags also returns) AND preserves the full tag string as the written value, so the resulting `copier update --vcs-ref template/vX.Y.Z` stays a valid ref (a bare extractVersion would strip the prefix and break the ref). automerge runs through Renovate's OWN merge engine (platformAutomerge:false, matching the org default): it waits for ALL checks green, which is stronger than GitHub-native auto-merge's required-only wait. minimumReleaseAge:0 exempts this FIRST-PARTY dep from the global supply-chain soak - the standards canary ring already soaked the promoted SHA before its `template/vX.Y.(Z+1)` tag was stamped, so there is nothing to vet. prPriority high so the re-render wins PR slots during a full-fleet promotion wave. matchDepNames is a regex so it keeps matching whether `_src_path` is the `gh:` shorthand or a full https URL.",
+      "matchManagers": ["copier"],
+      "matchDepNames": ["/Rubio-Enterprises\\/standards/"],
+      "versioning": "regex:^template/v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false,
+      "prPriority": 10,
+      "minimumReleaseAge": "0 days",
+      "commitMessageTopic": "rubio-standards template",
+      "labels": ["dependencies", "standards-template"]
+    }
+  ]
+}
