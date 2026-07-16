@@ -209,7 +209,20 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          archetype="$(mise exec -- yq -r '.archetype' .copier-answers.yml)"
+          # archetype selects this gate's entire lint strategy, so an unreadable
+          # one must stop the run, not shape it. Two things make that non-obvious:
+          # this step runs without `set -e`, and `yq -r` prints the literal string
+          # `null` for a missing key rather than the empty string. Without the
+          # check below, `null` simply matches no strategy branch — every linter
+          # is skipped and the gate reports GREEN while linting nothing. `// ""`
+          # normalizes the missing case so one emptiness test covers both
+          # spellings (and a yq failure, which also yields empty here).
+          archetype="$(mise exec -- yq -r '.archetype // ""' .copier-answers.yml)"
+          if [ -z "$archetype" ]; then
+            msg="no usable 'archetype' answer, which selects the lint strategy."
+            echo "::error file=.copier-answers.yml::lint-format: ${msg} Refusing to report success while running no linters."
+            exit 1
+          fi
           linter_floor="$(mise exec -- yq -r '.linter_floor // ""' .copier-answers.yml)"
           has_embedded_web="$(mise exec -- yq -r '.has_embedded_web // false' .copier-answers.yml)"
           echo "archetype=$archetype linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web is_fork=$IS_FORK"
