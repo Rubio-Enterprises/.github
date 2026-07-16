@@ -183,6 +183,11 @@ jobs:
             --defaults --trust \
             .standards "$RENDER_DIR"
           echo "rendered canonical configs into $RENDER_DIR"
+          # The checkout's last use is the render above. Move it out of the
+          # consumer tree so tree scanners (e.g. biome's nested-config
+          # discovery, which chokes on non-config files named biome.json)
+          # never parse its contents.
+          mv .standards "$RUNNER_TEMP/standards-src"
 
       - name: Run linters against the consumer tree
         # Which linters apply is derived from the archetype (mirrors the
