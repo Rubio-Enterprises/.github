@@ -192,8 +192,10 @@ jobs:
       - name: Run linters against the consumer tree
         # Which linters apply is derived from the archetype (mirrors the
         # per-archetype lefthook.yml.jinja hooks): markdownlint / yamllint are
-        # universal; ruff for py-*; biome for ts-* (unless linter_floor=oxc) OR
-        # any archetype with has_embedded_web. Each linter uses the rendered
+        # universal; ruff for py-*; biome for has_javascript or has_typescript
+        # (unless linter_floor=oxc) OR has_embedded_web, with absent facet
+        # answers falling back to the archetype defaults they self-derive
+        # from. Each linter uses the rendered
         # config via its explicit config flag. Failures are collected so every
         # linter reports, not just the first to fail. Secret scanning (gitleaks)
         # is owned by the gate-secret-scan family — not run here.
@@ -230,7 +232,30 @@ jobs:
           fi
           linter_floor="$(mise exec -- yq -r '.linter_floor // ""' .copier-answers.yml)"
           has_embedded_web="$(mise exec -- yq -r '.has_embedded_web // false' .copier-answers.yml)"
-          echo "archetype=$archetype linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web is_fork=$IS_FORK"
+          # Language facets, read bare (NOT with `yq // fallback`: yq's `//`
+          # treats an explicit `false` like null, which would resurrect the
+          # archetype default exactly when a repo declares the facet false).
+          # Absent answers fall back in lockstep with copier.yml's
+          # self-deriving defaults: has_typescript to the ts- archetype glob,
+          # has_javascript to its literal-false default — so repos not yet
+          # re-rendered with the facet questions behave exactly as before.
+          has_typescript="$(mise exec -- yq -r '.has_typescript' .copier-answers.yml)"
+          case "$has_typescript" in
+            true | false) ;;
+            *)
+              case "$archetype" in
+                ts-*) has_typescript=true ;;
+                *) has_typescript=false ;;
+              esac
+              ;;
+          esac
+          has_javascript="$(mise exec -- yq -r '.has_javascript' .copier-answers.yml)"
+          case "$has_javascript" in
+            true | false) ;;
+            *) has_javascript=false ;;
+          esac
+          echo "archetype=$archetype linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web" \
+            "has_typescript=$has_typescript has_javascript=$has_javascript is_fork=$IS_FORK"
 
           # Fork repos restrict every linter to the PR's changed files. Resolve
           # that set once, with the SAME base...head logic lint-hooks.yml uses
@@ -334,11 +359,15 @@ jobs:
               ;;
           esac
 
-          # --- biome (ts-* unless oxc, OR has_embedded_web) ---
+          # --- biome (has_javascript or has_typescript unless oxc, OR has_embedded_web) ---
+          # The archetype leg moved onto the language facets; the
+          # has_embedded_web leg is a declared answer and stays as-is. The
+          # facet fallbacks above keep this decision identical to the old
+          # `ts-*` glob for every repo without a persisted facet answer.
           run_biome=false
-          case "$archetype" in
-            ts-*) [ "$linter_floor" != "oxc" ] && run_biome=true ;;
-          esac
+          if [ "$has_typescript" = "true" ] || [ "$has_javascript" = "true" ]; then
+            [ "$linter_floor" != "oxc" ] && run_biome=true
+          fi
           [ "$has_embedded_web" = "true" ] && run_biome=true
           if [ "$run_biome" = "true" ]; then
             # Exclude lint/tooling config files from the lint INPUTS (this is
