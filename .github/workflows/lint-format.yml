@@ -216,17 +216,25 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          # archetype selects this gate's entire lint strategy, so an unreadable
-          # one must stop the run, not shape it. Two things make that non-obvious:
-          # this step runs without `set -e`, and `yq -r` prints the literal string
-          # `null` for a missing key rather than the empty string. Without the
-          # check below, `null` simply matches no strategy branch — every linter
-          # is skipped and the gate reports GREEN while linting nothing. `// ""`
-          # normalizes the missing case so one emptiness test covers both
-          # spellings (and a yq failure, which also yields empty here).
+          # The classification selects this gate's entire lint strategy, so an
+          # unreadable one must stop the run, not shape it. The has_<lang>
+          # facets are the classification; `archetype` survives only as the
+          # fallback for answers files that predate the facet questions (it
+          # was retired as a question and re-rendered repos no longer carry
+          # it). A file with NEITHER any facet key nor a usable archetype is
+          # unclassifiable — without the check below every linter is silently
+          # skipped and the gate reports GREEN while linting nothing. (`yq -r`
+          # prints the literal string `null` for a missing key; `// ""`
+          # normalizes that and yq failures to empty.)
           archetype="$(mise exec -- yq -r '.archetype // ""' .copier-answers.yml)"
-          if [ -z "$archetype" ]; then
-            msg="no usable 'archetype' answer, which selects the lint strategy."
+          facet_keys_seen=0
+          for facet_key in has_python has_javascript has_typescript has_rust has_go has_swift; do
+            case "$(mise exec -- yq -r ".${facet_key}" .copier-answers.yml)" in
+              true | false) facet_keys_seen=1 ;;
+            esac
+          done
+          if [ "$facet_keys_seen" -eq 0 ] && [ -z "$archetype" ]; then
+            msg="neither language facets nor a usable 'archetype' answer; these select the lint strategy."
             echo "::error file=.copier-answers.yml::lint-format: ${msg} Refusing to report success while running no linters."
             exit 1
           fi
@@ -254,8 +262,18 @@ jobs:
             true | false) ;;
             *) has_javascript=false ;;
           esac
-          echo "archetype=$archetype linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web" \
-            "has_typescript=$has_typescript has_javascript=$has_javascript is_fork=$IS_FORK"
+          has_python="$(mise exec -- yq -r '.has_python' .copier-answers.yml)"
+          case "$has_python" in
+            true | false) ;;
+            *)
+              case "$archetype" in
+                py-*) has_python=true ;;
+                *) has_python=false ;;
+              esac
+              ;;
+          esac
+          echo "archetype=${archetype:-<retired>} linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web" \
+            "has_typescript=$has_typescript has_javascript=$has_javascript has_python=$has_python is_fork=$IS_FORK"
 
           # Fork repos restrict every linter to the PR's changed files. Resolve
           # that set once, with the SAME base...head logic lint-hooks.yml uses
@@ -338,8 +356,9 @@ jobs:
           # template/v1.55.2 re-render wave: 220 T201s across 4 repos, every
           # one covered by a committed per-file-ignore). The floor render
           # remains the fallback for repos with no ruff config at all.
-          case "$archetype" in
-            py-*)
+          # Facet-first (the archetype fallback above keeps pre-facet answers
+          # files behaving exactly as before).
+          if [ "$has_python" = "true" ]; then
               mapfile -t pyfiles < <(select_files '*.py')
               if [ "${#pyfiles[@]}" -gt 0 ]; then
                 if [ -f ruff.toml ] || [ -f .ruff.toml ]; then
@@ -356,8 +375,7 @@ jobs:
               else
                 echo "no Python files to lint; skipping ruff"
               fi
-              ;;
-          esac
+          fi
 
           # --- biome (has_javascript or has_typescript unless oxc, OR has_embedded_web) ---
           # The archetype leg moved onto the language facets; the
