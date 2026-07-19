@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.2.0](https://github.com/Rubio-Enterprises/.github/compare/v2.1.0...v2.2.0) (2026-07-19)
+
+
+### Features
+
+* **lint-format:** decide biome from language facets ([#114](https://github.com/Rubio-Enterprises/.github/issues/114)) ([13dbaa6](https://github.com/Rubio-Enterprises/.github/commit/13dbaa6ea316be923ba9fb0332060876a0cbb0e6))
+
+
+### Bug Fixes
+
+* **lint-format:** fail on an unreadable archetype answer ([#110](https://github.com/Rubio-Enterprises/.github/issues/110)) ([e7c4673](https://github.com/Rubio-Enterprises/.github/commit/e7c4673fa1653bd147ac179f7e3eab3050831913))
+* **lint-format:** move the standards checkout out of the tree after rendering ([#112](https://github.com/Rubio-Enterprises/.github/issues/112)) ([4c002e7](https://github.com/Rubio-Enterprises/.github/commit/4c002e72aabe83174b8a130773d1d7c25ab2f789))
+* move the checkout to `$RUNNER_TEMP` immediately after the render. ([4c002e7](https://github.com/Rubio-Enterprises/.github/commit/4c002e72aabe83174b8a130773d1d7c25ab2f789))
+* read language facets first in lint-format and lint-hooks ([#115](https://github.com/Rubio-Enterprises/.github/issues/115)) ([0b3dd81](https://github.com/Rubio-Enterprises/.github/commit/0b3dd819fdab616fa8170264b7641f9fd7a73127))
+* **workflows:** check every floating major tag, not only the newest ([#103](https://github.com/Rubio-Enterprises/.github/issues/103)) ([42ed677](https://github.com/Rubio-Enterprises/.github/commit/42ed677a0a6e38f2309d07958e2af5253ef89d96))
+
 ## [2.1.0](https://github.com/Rubio-Enterprises/.github/compare/v2.0.1...v2.1.0) (2026-07-10)
 
 
