@@ -51,6 +51,14 @@ jobs:
             echo "::notice::no .copier-answers.yml — repo is not standards-onboarded; lint-format gate passes (fail-open)"
             echo "onboarded=false" >> "$GITHUB_OUTPUT"
             echo "is_fork=false" >> "$GITHUB_OUTPUT"
+          # A minimal-render repo_type declines lint-format from the type:
+          # nothing is rendered (no lint configs, no .mise.toml copier pin),
+          # so there is nothing to lint — same green short-circuit as the
+          # un-onboarded branch above.
+          elif grep -qE '^repo_type:[[:space:]]*(pristine_fork|governance_repo)' .copier-answers.yml 2>/dev/null; then
+            echo "::notice::repo_type declines lint-format (minimal render); gate passes"
+            echo "onboarded=false" >> "$GITHUB_OUTPUT"
+            echo "is_fork=false" >> "$GITHUB_OUTPUT"
           else
             echo "onboarded=true" >> "$GITHUB_OUTPUT"
             # Fork detection keyed on the SAME `is_fork` answer (identical grep)
