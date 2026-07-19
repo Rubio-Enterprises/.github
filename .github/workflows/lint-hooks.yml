@@ -49,10 +49,13 @@ jobs:
           GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
         shell: bash
         run: |
-          # has_swift routes to the macOS runner (swiftlint needs sourcekitd).
-          # The archetype grep is the fallback for answers files that predate
-          # the facet questions; re-rendered repos no longer carry archetype.
+          # has_swift routes to the macOS runner (swiftlint needs sourcekitd),
+          # as does has_homebrew_formulae (`brew style` needs Homebrew, which
+          # the hosted macOS images ship). The archetype grep is the fallback
+          # for answers files that predate the facet questions; re-rendered
+          # repos no longer carry archetype.
           if grep -qE '^has_swift:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
+            grep -qE '^has_homebrew_formulae:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
             printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
           else
