@@ -388,6 +388,17 @@ jobs:
               # consumer-config-wins on 2026-07-20 after the conversion
               # wave landed every other divergent repo's delta in
               # `biome.json.local`.
+              # NEVER --config-path here: biome anchors a config's relative
+              # globs (files.includes negations, overrides[].includes) to the
+              # directory CONTAINING the config, so a config resolved from
+              # $RENDER_DIR silently un-matches every path-scoped glob of the
+              # checkout — delta-excluded dirs get linted and delta overrides
+              # stop applying. Observed live the day of the floor-delta flip
+              # (todoist-classify PR #162: override-exempted ui/** files
+              # re-erroring, 9 delta-excluded files re-included). Materialize
+              # the rendered config at the checkout root instead — the
+              # checkout is ephemeral, and for converted repos the committed
+              # biome.json is merge-biome.sh's own output of the same merge.
               if [ -f biome.json.local ]; then
                 if [ ! -f "$RENDER_DIR/biome.json" ]; then
                   # The resolved standards channel predates the biome
@@ -398,19 +409,27 @@ jobs:
                   fail=1
                 else
                   echo "== biome check (floor + delta render) =="
+                  cp "$RENDER_DIR/biome.json" biome.json
                   mise exec -- biome check \
-                    --config-path "$RENDER_DIR" \
                     --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
                 fi
               elif [ -f biome.json ] || [ -f biome.jsonc ]; then
                 echo "== biome check (consumer config; unconverted repo) =="
                 mise exec -- biome check \
                   --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
-              else
+              elif [ -f "$RENDER_DIR/biome.json" ]; then
                 echo "== biome check (floor render) =="
+                cp "$RENDER_DIR/biome.json" biome.json
                 mise exec -- biome check \
-                  --config-path "$RENDER_DIR" \
                   --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
+              else
+                # No consumer config and the resolved channel rendered no
+                # floor (pre-fragment channel): biome defaults would lint
+                # here, which is not the org floor. Fail loudly, mirroring
+                # the converted-repo branch above.
+                echo "::error::no biome config available — the render produced no biome.json" \
+                  "and the repo commits none; the resolved standards channel predates the biome floor fragment"
+                fail=1
               fi
             else
               echo "biome applies but no JS/TS/JSON files to lint; skipping"
