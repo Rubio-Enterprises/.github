@@ -169,13 +169,13 @@ jobs:
           # exactly as a real consumer render does. Without this the render is
           # floor-only, so a consumer's legitimately-declared relaxations (extra
           # `ignore`/`ignores` globs or rule overrides in `.yamllint.local` /
-          # `.markdownlint-cli2.jsonc.local` / `ruff.toml.local`) would fail CI
-          # while passing locally.
-          # These three are the ONLY lint-config sidecars the merge hooks consume;
+          # `.markdownlint-cli2.jsonc.local` / `ruff.toml.local` /
+          # `biome.json.local`) would fail CI while passing locally.
+          # These four are the ONLY lint-config sidecars the merge hooks consume;
           # the template renders them nowhere (they sit in `_skip_if_exists`), so
           # seeding them into the non-empty dest is conflict-free.
           mkdir -p "$RENDER_DIR"
-          for sidecar in .markdownlint-cli2.jsonc.local .yamllint.local ruff.toml.local; do
+          for sidecar in .markdownlint-cli2.jsonc.local .yamllint.local ruff.toml.local biome.json.local; do
             if [ -f "$sidecar" ]; then
               cp "$sidecar" "$RENDER_DIR/$sidecar"
               echo "seeded consumer sidecar $sidecar into the scratch render"
@@ -201,11 +201,10 @@ jobs:
       - name: Run linters against the consumer tree
         # Which linters apply is derived from the archetype (mirrors the
         # per-archetype lefthook.yml.jinja hooks): markdownlint / yamllint are
-        # universal; ruff for py-*; biome for has_javascript or has_typescript
-        # (unless linter_floor=oxc) OR has_embedded_web, with absent facet
-        # answers falling back to the archetype defaults they self-derive
-        # from. Each linter uses the rendered
-        # config via its explicit config flag. Failures are collected so every
+        # universal; ruff for has_python; biome for has_javascript or
+        # has_typescript (unless linter_floor=oxc) OR has_embedded_web — all
+        # from the declared facets (the archetype fallback is retired). Each
+        # linter uses the rendered config via its explicit config flag. Failures are collected so every
         # linter reports, not just the first to fail. Secret scanning (gitleaks)
         # is owned by the gate-secret-scan family — not run here.
         # shellcheck / clippy / gofmt / rustfmt / prettier / pyright / deno /
@@ -227,61 +226,29 @@ jobs:
           set -uo pipefail
           # The classification selects this gate's entire lint strategy, so an
           # unreadable one must stop the run, not shape it. The has_<lang>
-          # facets are the classification; `archetype` survives only as the
-          # fallback for answers files that predate the facet questions (it
-          # was retired as a question and re-rendered repos no longer carry
-          # it). A file with NEITHER any facet key nor a usable archetype is
-          # unclassifiable — without the check below every linter is silently
-          # skipped and the gate reports GREEN while linting nothing. (`yq -r`
-          # prints the literal string `null` for a missing key; `// ""`
-          # normalizes that and yq failures to empty.)
-          archetype="$(mise exec -- yq -r '.archetype // ""' .copier-answers.yml)"
-          facet_keys_seen=0
+          # facets ARE the classification; the archetype fallback is retired
+          # (the question is deleted, and every governed repo was verified to
+          # persist all six facets before the fallback fell). A missing or
+          # non-boolean facet is unclassifiable — without the check below a
+          # linter is silently skipped and the gate reports GREEN while
+          # linting nothing. Facets are read bare (NOT with `yq // fallback`:
+          # yq's `//` treats an explicit `false` like null).
           for facet_key in has_python has_javascript has_typescript has_rust has_go has_swift; do
             case "$(mise exec -- yq -r ".${facet_key}" .copier-answers.yml)" in
-              true | false) facet_keys_seen=1 ;;
+              true | false) ;;
+              *)
+                msg="missing or non-boolean '${facet_key}' answer; the facets select the lint strategy."
+                echo "::error file=.copier-answers.yml::lint-format: ${msg} Refusing to report success while running no linters."
+                exit 1
+                ;;
             esac
           done
-          if [ "$facet_keys_seen" -eq 0 ] && [ -z "$archetype" ]; then
-            msg="neither language facets nor a usable 'archetype' answer; these select the lint strategy."
-            echo "::error file=.copier-answers.yml::lint-format: ${msg} Refusing to report success while running no linters."
-            exit 1
-          fi
           linter_floor="$(mise exec -- yq -r '.linter_floor // ""' .copier-answers.yml)"
           has_embedded_web="$(mise exec -- yq -r '.has_embedded_web // false' .copier-answers.yml)"
-          # Language facets, read bare (NOT with `yq // fallback`: yq's `//`
-          # treats an explicit `false` like null, which would resurrect the
-          # archetype default exactly when a repo declares the facet false).
-          # Absent answers fall back in lockstep with copier.yml's
-          # self-deriving defaults: has_typescript to the ts- archetype glob,
-          # has_javascript to its literal-false default — so repos not yet
-          # re-rendered with the facet questions behave exactly as before.
           has_typescript="$(mise exec -- yq -r '.has_typescript' .copier-answers.yml)"
-          case "$has_typescript" in
-            true | false) ;;
-            *)
-              case "$archetype" in
-                ts-*) has_typescript=true ;;
-                *) has_typescript=false ;;
-              esac
-              ;;
-          esac
           has_javascript="$(mise exec -- yq -r '.has_javascript' .copier-answers.yml)"
-          case "$has_javascript" in
-            true | false) ;;
-            *) has_javascript=false ;;
-          esac
           has_python="$(mise exec -- yq -r '.has_python' .copier-answers.yml)"
-          case "$has_python" in
-            true | false) ;;
-            *)
-              case "$archetype" in
-                py-*) has_python=true ;;
-                *) has_python=false ;;
-              esac
-              ;;
-          esac
-          echo "archetype=${archetype:-<retired>} linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web" \
+          echo "linter_floor=${linter_floor:-<none>} has_embedded_web=$has_embedded_web" \
             "has_typescript=$has_typescript has_javascript=$has_javascript has_python=$has_python is_fork=$IS_FORK"
 
           # Fork repos restrict every linter to the PR's changed files. Resolve
@@ -382,10 +349,8 @@ jobs:
           fi
 
           # --- biome (has_javascript or has_typescript unless oxc, OR has_embedded_web) ---
-          # The archetype leg moved onto the language facets; the
-          # has_embedded_web leg is a declared answer and stays as-is. The
-          # facet fallbacks above keep this decision identical to the old
-          # `ts-*` glob for every repo without a persisted facet answer.
+          # Strategy selection is facet-driven; the has_embedded_web leg is a
+          # declared answer and stays as-is.
           run_biome=false
           if [ "$has_typescript" = "true" ] || [ "$has_javascript" = "true" ]; then
             [ "$linter_floor" != "oxc" ] && run_biome=true
@@ -407,19 +372,38 @@ jobs:
             mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc' \
               | grep -vE '(^|/)(biome\.jsonc?|\.markdownlint-cli2\.jsonc|commitlint\.config\.cjs|renovate\.json)$' || true)
             if [ "${#jsfiles[@]}" -gt 0 ]; then
-              # biome.json is Pattern D in standards' copier.yml
-              # `_skip_if_exists` ("rule shape is consumer-owned"): same
-              # ownership split as ruff above. When the consumer has a
-              # committed biome config, run config-less so biome's own
-              # discovery uses it (fleet-live on the v1.55.2 wave: repos with
-              # sanctioned overrides/file-scope in their biome.json failed on
-              # 190+ diagnostics the floor render surfaced). Config-less also
-              # matches the local lefthook loop, including its failure modes
-              # (a consumer biome.json whose $schema lags the mise-pinned CLI
-              # is the consumer's own drift to fix — same as local). Floor
-              # render remains the fallback for repos with no biome config.
-              if [ -f biome.json ] || [ -f biome.jsonc ]; then
-                echo "== biome check (consumer config) =="
+              # Pattern F (floor ⊕ delta), same strategy as ruff above,
+              # keyed on the committed `biome.json.local` sidecar: a repo
+              # that declared its delta was converted (its checked-in
+              # biome.json is merge-biome.sh's own output, the working-tree
+              # mirror of the same merge), so the gate lints with the
+              # rendered floor ⊕ delta config the seeding step composed.
+              # A repo with a biome config but NO sidecar is not yet
+              # converted — its biome.json may diverge from the floor in
+              # undeclared ways (the divergence guard drops the fragment for
+              # it at render time), so the consumer config still decides
+              # (Pattern D fallback; the one deliberate holdout is tracked
+              # in its own repo issue). Floor render remains the default for
+              # repos with no biome config at all. Flipped from
+              # consumer-config-wins on 2026-07-20 after the conversion
+              # wave landed every other divergent repo's delta in
+              # `biome.json.local`.
+              if [ -f biome.json.local ]; then
+                if [ ! -f "$RENDER_DIR/biome.json" ]; then
+                  # The resolved standards channel predates the biome
+                  # fragment rename — linting config-less here would apply
+                  # biome defaults, not the org floor. Fail loudly instead.
+                  echo "::error::biome.json.local is committed but the render produced no biome.json;" \
+                    "the resolved standards channel predates the biome floor fragment"
+                  fail=1
+                else
+                  echo "== biome check (floor + delta render) =="
+                  mise exec -- biome check \
+                    --config-path "$RENDER_DIR" \
+                    --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
+                fi
+              elif [ -f biome.json ] || [ -f biome.jsonc ]; then
+                echo "== biome check (consumer config; unconverted repo) =="
                 mise exec -- biome check \
                   --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
               else
