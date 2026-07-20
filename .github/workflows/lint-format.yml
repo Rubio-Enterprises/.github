@@ -169,12 +169,13 @@ jobs:
           # exactly as a real consumer render does. Without this the render is
           # floor-only, so a consumer's legitimately-declared relaxations (extra
           # `ignore`/`ignores` globs or rule overrides in `.yamllint.local` /
-          # `.markdownlint-cli2.jsonc.local`) would fail CI while passing locally.
-          # These two are the ONLY lint-config sidecars the merge hooks consume;
+          # `.markdownlint-cli2.jsonc.local` / `ruff.toml.local`) would fail CI
+          # while passing locally.
+          # These three are the ONLY lint-config sidecars the merge hooks consume;
           # the template renders them nowhere (they sit in `_skip_if_exists`), so
           # seeding them into the non-empty dest is conflict-free.
           mkdir -p "$RENDER_DIR"
-          for sidecar in .markdownlint-cli2.jsonc.local .yamllint.local; do
+          for sidecar in .markdownlint-cli2.jsonc.local .yamllint.local ruff.toml.local; do
             if [ -f "$sidecar" ]; then
               cp "$sidecar" "$RENDER_DIR/$sidecar"
               echo "seeded consumer sidecar $sidecar into the scratch render"
@@ -351,35 +352,30 @@ jobs:
             echo "no YAML files to lint; skipping yamllint"
           fi
 
-          # --- ruff (py-* archetypes) ---
-          # ruff.toml is Pattern D in standards' copier.yml `_skip_if_exists`
-          # ("consumer-tuned over time"): the consumer owns the rule shape;
-          # audit Layer C polices how far it may drift from the floor. So when
-          # the consumer has a committed ruff config, lint with it — run
-          # config-less so ruff's hierarchical discovery governs (root
-          # ruff.toml, pyproject [tool.ruff], AND nested sub-project configs),
-          # exactly like the local dev loop. Enforcing the bare floor render
-          # here contradicted that ownership split and failed repos on
-          # violations their sanctioned config suppresses (fleet-live on the
-          # template/v1.55.2 re-render wave: 220 T201s across 4 repos, every
-          # one covered by a committed per-file-ignore). The floor render
-          # remains the fallback for repos with no ruff config at all.
-          # Facet-first (the archetype fallback above keeps pre-facet answers
-          # files behaving exactly as before).
+          # --- ruff (has_python) ---
+          # Pattern F (floor ⊕ delta), same strategy as markdownlint/yamllint
+          # above: the render step seeded the consumer's committed
+          # `ruff.toml.local` into the scratch render, where the template's
+          # merge-ruff.sh composed it over the org floor — so
+          # `$RENDER_DIR/ruff.toml` IS floor ⊕ delta, and the gate always
+          # lints with it. The consumer's checked-in ruff.toml is the
+          # working-tree mirror of the same merge (copier rewrites it each
+          # render) and never decides the gate. An earlier floor-enforcement
+          # attempt failed repos on violations their committed configs
+          # sanctioned; the sidecar seeding is what fixes that — declared
+          # deltas merge back in. Flipped from consumer-config-wins on
+          # 2026-07-20 after every divergent py repo's delta landed in
+          # `ruff.toml.local`. Explicit --config disables ruff's hierarchical
+          # discovery: acceptable because every gate-relevant py repo is
+          # root-only (no nested ruff configs, no pyproject [tool.ruff] —
+          # measured 2026-07-20).
           if [ "$has_python" = "true" ]; then
               mapfile -t pyfiles < <(select_files '*.py')
               if [ "${#pyfiles[@]}" -gt 0 ]; then
-                if [ -f ruff.toml ] || [ -f .ruff.toml ]; then
-                  echo "== ruff check (consumer config) =="
-                  mise exec -- ruff check -- "${pyfiles[@]}" || fail=1
-                  echo "== ruff format --check (consumer config) =="
-                  mise exec -- ruff format --check -- "${pyfiles[@]}" || fail=1
-                else
-                  echo "== ruff check (floor render) =="
-                  mise exec -- ruff check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
-                  echo "== ruff format --check (floor render) =="
-                  mise exec -- ruff format --check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
-                fi
+                echo "== ruff check (floor + delta render) =="
+                mise exec -- ruff check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
+                echo "== ruff format --check (floor + delta render) =="
+                mise exec -- ruff format --check --config "$RENDER_DIR/ruff.toml" -- "${pyfiles[@]}" || fail=1
               else
                 echo "no Python files to lint; skipping ruff"
               fi
