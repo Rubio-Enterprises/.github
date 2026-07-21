@@ -61,7 +61,14 @@ jobs:
           else
             printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
           fi
-          if grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
+          # Fork mode keys on repo_type (ADR-0013); the boolean `is_fork`
+          # answer was retired in template v1.55.24, which silently flipped
+          # forks to all-files mode while this grep still keyed on it. The
+          # legacy grep stays as a fallback for consumers on a pre-retirement
+          # render — identical behavior, removable once the fleet is fully
+          # >= v1.55.24.
+          if grep -qE '^repo_type:[[:space:]]*(extended_fork|pristine_fork)' .copier-answers.yml 2>/dev/null ||
+            grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
             printf 'is_fork=true\n' >> "$GITHUB_OUTPUT"
           else
             printf 'is_fork=false\n' >> "$GITHUB_OUTPUT"

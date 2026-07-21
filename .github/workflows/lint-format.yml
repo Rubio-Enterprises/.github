@@ -61,11 +61,16 @@ jobs:
             echo "is_fork=false" >> "$GITHUB_OUTPUT"
           else
             echo "onboarded=true" >> "$GITHUB_OUTPUT"
-            # Fork detection keyed on the SAME `is_fork` answer (identical grep)
+            # Fork detection keyed on repo_type (ADR-0013), the SAME expression
             # as lint-hooks.yml, so a fork lints only its PR's changed files
-            # below and never blocks on inherited upstream lint debt — behavior
-            # matches the current fleet exactly.
-            if grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
+            # below and never blocks on inherited upstream lint debt. The
+            # boolean `is_fork` answer this used to grep was retired in
+            # template v1.55.24 — which silently flipped forks to full-tree
+            # mode while the grep still keyed on it; the legacy grep stays as
+            # a fallback for consumers on a pre-retirement render (identical
+            # behavior, removable once the fleet is fully >= v1.55.24).
+            if grep -qE '^repo_type:[[:space:]]*(extended_fork|pristine_fork)' .copier-answers.yml 2>/dev/null ||
+              grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
               echo "is_fork=true" >> "$GITHUB_OUTPUT"
             else
               echo "is_fork=false" >> "$GITHUB_OUTPUT"
