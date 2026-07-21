@@ -105,9 +105,37 @@ jobs:
       # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
       - name: Install uv (routes mise pipx installs through uvx)
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      # Fingerprint the uv-resolved python into the mise cache key (standards#331).
+      # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
+      # at the uv-MANAGED python under ~/.local/share/uv/python — OUTSIDE the
+      # ~/.local/share/mise tree jdx/mise-action caches. When uv's default python
+      # bumps (e.g. 3.14.3 → 3.14.4), a cache restored onto a fresh runner VM hands
+      # back pipx venvs whose shebang points at an interpreter that VM lacks, so
+      # every tool dies with "couldn't exec process" — a permanently poisoned cache
+      # no re-run fixes. Folding the version into cache_key_prefix makes a python
+      # bump INVALIDATE the cache instead of poisoning it. `uv python find` never
+      # downloads and can fall back to a system python, so install first
+      # (idempotent — the same managed interpreter uvx would provision anyway),
+      # then read the managed version.
+      - name: Fingerprint the uv-resolved python for the mise cache key
+        id: uv-python
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv python install
+          version="$(uv python find --managed-python --show-version)"
+          if [ -z "$version" ]; then
+            echo "::error::could not resolve the uv-managed python version for the mise cache key" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          echo "uv-resolved python for mise cache key: $version"
       - name: Install consumer-repo runtimes (lefthook + pinned hook tools)
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         with:
+          # Key the mise cache to the uv-resolved python (standards#331): a python
+          # bump changes the prefix and invalidates rather than poisons the cache.
+          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.6.14"
       # Consumers whose go.mod replaces a dependency with a private org fork
