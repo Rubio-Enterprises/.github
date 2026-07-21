@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.3.0](https://github.com/Rubio-Enterprises/.github/compare/v2.2.0...v2.3.0) (2026-07-21)
+
+
+### Features
+
+* **lint-format:** biome floor-delta render; retire archetype fallbacks ([#121](https://github.com/Rubio-Enterprises/.github/issues/121)) ([304937d](https://github.com/Rubio-Enterprises/.github/commit/304937dd01a3a897149fd1acfb868c1a7272b177))
+* **lint-format:** ruff lints with the floor + delta render ([#120](https://github.com/Rubio-Enterprises/.github/issues/120)) ([9c68676](https://github.com/Rubio-Enterprises/.github/commit/9c686764570830c590711d3d82c83daad6aebc5f))
+
+
+### Bug Fixes
+
+* lint-format skips minimal-render repo types ([#117](https://github.com/Rubio-Enterprises/.github/issues/117)) ([e10eae0](https://github.com/Rubio-Enterprises/.github/commit/e10eae0f796b8e62e404dc374941ed368124f751))
+* **lint-format:** anchor rendered biome config at the checkout root ([#123](https://github.com/Rubio-Enterprises/.github/issues/123)) ([959e1f2](https://github.com/Rubio-Enterprises/.github/commit/959e1f200498b54e7bb3cfeede8c05698d4d3a09))
+* **lint:** key fork detection on repo_type after is_fork retirement ([#124](https://github.com/Rubio-Enterprises/.github/issues/124)) ([4cfbf15](https://github.com/Rubio-Enterprises/.github/commit/4cfbf152aa10c6e3dd508ff7e679ff2b2af7641a))
+
 ## [2.2.0](https://github.com/Rubio-Enterprises/.github/compare/v2.1.0...v2.2.0) (2026-07-19)
 
 
