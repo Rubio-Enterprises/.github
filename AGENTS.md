@@ -130,7 +130,7 @@ catch.
   `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
   routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip
   (< 26) rejects → hard fail. Copy this step into any new mise-based reusable.
-- **mise CLI pin.** The `version: "2026.6.9"` on each `jdx/mise-action` carries a
+- **mise CLI pin.** Each `jdx/mise-action` carries an explicit `version:` pin and a
   `# renovate: datasource=github-releases depName=jdx/mise` marker so Renovate bumps them
   together (human-merge only — see below). Keep the marker when you add a job.
 - **`RUNNER_GLUE` runner selection.** Glue-tier jobs use
