@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/Rubio-Enterprises/.github/compare/v2.3.0...v2.3.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **ci:** fingerprint uv-resolved python in the mise cache key ([#126](https://github.com/Rubio-Enterprises/.github/issues/126)) ([74707df](https://github.com/Rubio-Enterprises/.github/commit/74707dffc102886b21f0d65afe99f7da64dbb29e))
+
 ## [2.3.0](https://github.com/Rubio-Enterprises/.github/compare/v2.2.0...v2.3.0) (2026-07-21)
 
 
