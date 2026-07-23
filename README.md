@@ -8,8 +8,22 @@ Org-level reusable GitHub Actions workflows for `Rubio-Enterprises`. Every consu
 |---|---|
 | [`audit.yml`](./.github/workflows/audit.yml) | Runs `Rubio-Enterprises/standards` Layer A/B/C against the calling consumer |
 | [`e2e.yml`](./.github/workflows/e2e.yml) | Archetype-aware end-to-end harness (Playwright / pexpect / testscript / assert_cmd / MCP) |
-| [`rust-test.yml`](./.github/workflows/rust-test.yml) | Swatinem cache + nextest JUnit |
+| [`rust-test.yml`](./.github/workflows/rust-test.yml) | Policy-routed canonical Rust tests with fail-closed aggregation |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | PR gitleaks + scheduled trufflehog deep-scan |
+
+### Rust test execution policy
+
+Direct required-workflow events read repository variables
+`RUST_TEST_WORKLOAD_CLASS` and `RUST_TEST_TIMEOUT_MINUTES`. Reusable callers must
+pass required `workload-class` and `timeout-minutes` inputs. Supported classes are
+`glue` and `linux-arm`; timeout must be an integer from 5 through 120 minutes.
+The class resolves through the private organization Runner Route when available
+and otherwise uses its public hosted fallback (`ubuntu-slim` or
+`ubuntu-24.04-arm`). Repository policy never stores physical runner labels.
+
+Invalid policy fails on the hosted slim pre-check before checkout. Valid active
+runs always execute `mise run test`, and the aggregate succeeds only when the
+workload result is exactly `success`.
 
 ## Standards dependency
 
@@ -20,7 +34,7 @@ Org-level reusable GitHub Actions workflows for `Rubio-Enterprises`. Every consu
 
 See [`standards/RELEASES.md`](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md) for the full model.
 
-Because the ref is resolved per run, new audit-rule **content** reaches consumers as soon as `standards` advances — **no `.github` release needed**. A `.github` release (`vX.Y.Z` + release-please moves `v1`) is needed only when a **reusable workflow's own code** changes; Renovate then bumps the consumer-side SHA pin on its next pass.
+Because the ref is resolved per run, new audit-rule **content** reaches consumers as soon as `standards` advances — **no `.github` release needed**. A Gate workflow file change is evaluated at an exact candidate commit and then published through the guarded `gates/wf-v1` path. A thin-called reusable change instead rides a `.github` release (`vX.Y.Z` + release-please moves `v1`), after which Renovate bumps consumer-side SHA pins.
 
 ## scripts/
 

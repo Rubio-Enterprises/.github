@@ -47,7 +47,16 @@ Terraform-managed `gates/wf-v1` tag; the *content* floats on the channel.
 | `pr-title.yml` | `gate-pr-title` | commitlint on the PR title with rules from the channel (not a hardcoded types list) | channel, runtime-resolved |
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (ts-* archetypes), graceful no-task notice | — |
 | `test-py.yml` | `gate-python-tests` | `uv run pytest` (py-* + `has_test`) | — |
-| `rust-test.yml` | `gate-rust-tests` | Swatinem cache + `mise run test` (nextest JUnit); Cargo.toml guard + bucket job | — |
+| `rust-test.yml` | `gate-rust-tests` | validates Rust Test Execution Policy, routes `glue`/`linux-arm`, always runs `mise run test`, and fails closed through the bucket job | — |
+
+`rust-test.yml` reads `RUST_TEST_WORKLOAD_CLASS` and `RUST_TEST_TIMEOUT_MINUTES`
+for direct consumer events. Reusable callers must pass required `workload-class`
+and `timeout-minutes` inputs. Direct execution is identified from the immutable
+`github.workflow_ref` prefix because a reusable call keeps the caller's
+`github.event_name` and workflow ref. Supported classes are `glue` and `linux-arm`; timeout
+must be an integer from 5 through 120. Invalid policy runs only the hosted slim
+pre-check before failing, and only an exact successful workload lets the aggregate
+pass. There is no Cargo-manifest detector or successful no-project consumer path.
 
 **Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
 consumer's rendered `standards.yml` (or a release workflow):
@@ -92,9 +101,9 @@ coexist, and they move differently.
    `.github` release**. There is no `audit/v1` tag to move any more.
 2. **The gate workflow *files* are pinned by the org rulesets to `gates/wf-v1`.**
    That tag is Terraform-managed in `.github-private`. A change to a gate
-   workflow's own code (steps/logic) is *plumbing*: land it here, soak it via a
-   temporary evaluate-mode duplicate ruleset at `refs/heads/main`, then advance
-   `gates/wf-v1` to the new SHA via a **TF PR** in `.github-private` (and remove
+   workflow's own code (steps/logic) is *plumbing*: land it here, soak the exact
+   candidate commit via a temporary evaluate-mode duplicate ruleset, then advance
+   `gates/wf-v1` to the validated SHA through the guarded publication path (and remove
    the duplicate). release-please does **not** own `gates/wf-v1`.
 3. **Thin-called reusables (`lint-hooks`, `e2e`, `bump-brew`) still ride the
    `.github` release + floating `v1`.** Consumers pin them by SHA with a trailing
@@ -119,24 +128,24 @@ catch.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
 
-- **`pull_request:` no-op guard.** Most reusables declare a `pull_request:` trigger they
-  don't actually use, then guard every job with
-  `if: github.event_name != 'pull_request' || github.repository != 'Rubio-Enterprises/.github'`.
-  The trigger exists *only* to satisfy GitHub's org-ruleset `required_workflows` validator
-  (422 without it); the guard makes it a no-op on PRs against `.github` itself (this repo
-  can't satisfy the consumer-shaped contract `check.sh` enforces). Keep both when you add a
-  reusable consumers must run.
+- **Source-repository no-op guard.** Consumer-shaped workflows declare direct triggers so
+  GitHub accepts them as required-workflow plumbing, but `.github` itself cannot satisfy those
+  consumer contracts. Guard direct `pull_request` and `merge_group` events from this source
+  repository explicitly. The Rust workflow skips its workload and lets the bucket report the
+  source no-op; consumer direct events and `workflow_call` remain strict.
 - **`setup-uv` before `mise-action`.** Every mise-using job installs
   `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
   routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip
   (< 26) rejects → hard fail. Copy this step into any new mise-based reusable.
-- **mise CLI pin.** The `version: "2026.6.9"` on each `jdx/mise-action` carries a
+- **mise CLI pin.** Each `jdx/mise-action` version carries a
   `# renovate: datasource=github-releases depName=jdx/mise` marker so Renovate bumps them
   together (human-merge only — see below). Keep the marker when you add a job.
-- **`RUNNER_GLUE` runner selection.** Glue-tier jobs use
-  `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}` (org var, defaults to
-  `ubuntu-slim`) — including `lint-hooks` and `rust-test`. Only `e2e`
-  still uses `ubuntu-latest`.
+- **Runner Route selection.** Glue-tier jobs use
+  `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}`. Rust workload policy
+  additionally maps symbolic `linux-arm` through `RUNNER_LINUX_ARM` with
+  `ubuntu-24.04-arm` as its class-specific hosted fallback. Repository policy stores only
+  the symbolic class and timeout; never copy physical self-hosted labels into a public
+  workflow. The Rust aggregate remains on the glue route. Only `e2e` uses `ubuntu-latest`.
 
 ## Renovate config — three files, three roles
 
