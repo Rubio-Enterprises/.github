@@ -109,8 +109,8 @@ coexist, and they move differently.
    `.github/plumbing-ref/publication-request.json`. The push-triggered publisher
    performs an exact expected-current compare-and-swap and verifies the final
    remote ref. Terraform owns only the consuming rulesets/ref name;
-   release-please owns neither this tag nor its publisher. Rollback uses the
-   validation-first manual workflow. Full runbook:
+   release-please owns neither this tag nor its publisher. Backward movement is
+   reserved for last-resort direct owner recovery. Full runbook:
    [`docs/plumbing-ref-publication.md`](docs/plumbing-ref-publication.md).
 3. **Thin-called reusables (`lint-hooks`, `e2e`, `bump-brew`) still ride the
    `.github` release + floating `v1`.** Consumers pin them by SHA with a trailing
@@ -128,11 +128,13 @@ coexist, and they move differently.
    exists — `standards` releases by channel now, not by advancing a floating
    tag.)
 
-**Never create or move a floating major tag (`v1`, `v2`, …) or `gates/wf-v1` by
-hand.** Release-please owns the floating majors. The repository-owned Plumbing
-Ref publisher owns `gates/wf-v1` through a request-only PR and exact compare-and-
-swap; its manual rollback workflow owns backward moves. Direct owner mutation is
-last-resort recovery only and must retain the exact lease + remote reread contract.
+**Never create or move a floating major tag (`v1`, `v2`, …) by hand.**
+Release-please owns the floating majors. The repository-owned Plumbing Ref
+publisher owns normal forward movement of `gates/wf-v1` through a request-only PR
+and exact compare-and-swap. There is intentionally no automated rollback
+workflow or CLI command. A backward move is last-resort direct owner recovery
+only and must follow the exact lease, Gate Family validation, and final remote
+reread contract in the runbook.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
 
