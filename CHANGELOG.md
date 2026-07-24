@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.4.0](https://github.com/Rubio-Enterprises/.github/compare/v2.3.1...v2.4.0) (2026-07-24)
+
+
+### Features
+
+* **governance:** add guarded plumbing ref publisher ([#132](https://github.com/Rubio-Enterprises/.github/issues/132)) ([7115370](https://github.com/Rubio-Enterprises/.github/commit/711537080bbc75857d49f8e6ed1a0f43fd141354))
+
+
+### Bug Fixes
+
+* **gates:** route rust tests by policy ([#131](https://github.com/Rubio-Enterprises/.github/issues/131)) ([32082b2](https://github.com/Rubio-Enterprises/.github/commit/32082b213abc6b1fc810f78b20d2cc5c0f63b154))
+* **gates:** run audit on merge groups ([#137](https://github.com/Rubio-Enterprises/.github/issues/137)) ([0c13d3f](https://github.com/Rubio-Enterprises/.github/commit/0c13d3f5f63570b76e72cdd08b735580edbf7699))
+* **governance:** remove automated plumbing ref rollback ([#136](https://github.com/Rubio-Enterprises/.github/issues/136)) ([2ae68ca](https://github.com/Rubio-Enterprises/.github/commit/2ae68ca8764e89cc21f6015e947f00a6d216257a))
+
 ## [2.3.1](https://github.com/Rubio-Enterprises/.github/compare/v2.3.0...v2.3.1) (2026-07-21)
 
 
