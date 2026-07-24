@@ -29,7 +29,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     steps:
       - name: Check out the consumer repo
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Fork-mode linting (below) needs the PR merge commit's parents (or
           # enough history to merge-base against the base ref) to compute the
@@ -118,7 +118,7 @@ jobs:
 
       - name: Check out standards@channel
         if: steps.detect.outputs.onboarded == 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/standards
           ref: ${{ steps.channel.outputs.channel }}
@@ -173,13 +173,13 @@ jobs:
         # identically to the consumer's local hooks. Secret scanning (gitleaks)
         # is owned exclusively by the gate-secret-scan family — never run here.
         if: steps.detect.outputs.onboarded == 'true'
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4
         with:
           # Key the mise cache to the uv-resolved python (standards#331): a python
           # bump changes the prefix and invalidates rather than poisons the cache.
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.14"
+          version: "2026.7.7"
 
       - name: Render canonical lint configs from standards@channel
         # copier renders the WHOLE template into a scratch dir driven by the

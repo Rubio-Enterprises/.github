@@ -38,7 +38,7 @@ jobs:
       is_fork: ${{ steps.pick.outputs.is_fork }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           sparse-checkout: .copier-answers.yml
           sparse-checkout-cone-mode: false
@@ -93,7 +93,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the consumer repo
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Fork-mode linting needs the PR merge commit's parents (or enough
           # history to merge-base against the base ref) to compute changed
@@ -131,13 +131,13 @@ jobs:
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "uv-resolved python for mise cache key: $version"
       - name: Install consumer-repo runtimes (lefthook + pinned hook tools)
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4
         with:
           # Key the mise cache to the uv-resolved python (standards#331): a python
           # bump changes the prefix and invalidates rather than poisons the cache.
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.6.14"
+          version: "2026.7.7"
       # Consumers whose go.mod replaces a dependency with a private org fork
       # declare the fork repo name(s) in the repo variable
       # GO_PRIVATE_MODULE_REPOS (comma-separated, e.g. "scaleset").
