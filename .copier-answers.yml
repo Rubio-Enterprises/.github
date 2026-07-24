@@ -1,6 +1,6 @@
 # Changes here will be overwritten by Copier; NEVER edit this file manually.
-_commit: template/v1.55.29
-_rubio_template_version: template/v1.55.29
+_commit: template/v1.55.30
+_rubio_template_version: template/v1.55.30
 _src_path: https://github.com/Rubio-Enterprises/standards.git
 default_branch: main
 enforce_audit: false
@@ -25,6 +25,8 @@ is_public: true
 node_version: 22.12.0
 project_name: .github
 repo_type: governance_repo
+rust_test_timeout_minutes: 20
+rust_test_workload_class: glue
 upstream_branch: ''
 upstream_url: ''
 uses_release_please: true
