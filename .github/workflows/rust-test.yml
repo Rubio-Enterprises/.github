@@ -15,7 +15,9 @@ name: rust test (reusable)
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Include the workflow source ref so the temporary exact-candidate evaluate rule
+  # cannot cancel (or be cancelled by) the enforced gates/wf-v1 run on the same PR.
+  group: ${{ github.workflow_ref }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   rust-test:

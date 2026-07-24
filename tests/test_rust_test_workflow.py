@@ -54,6 +54,16 @@ def run_script(script: str, **environment: str) -> subprocess.CompletedProcess[s
 
 
 class RustWorkflowContractTests(unittest.TestCase):
+    def test_candidate_and_production_runs_have_distinct_concurrency_groups(self) -> None:
+        self.assertIn(
+            "group: ${{ github.workflow_ref }}-${{ github.ref }}",
+            WORKFLOW_TEXT,
+        )
+        self.assertNotIn(
+            "group: ${{ github.workflow }}-${{ github.ref }}",
+            WORKFLOW_TEXT,
+        )
+
     def test_reusable_interface_requires_explicit_policy(self) -> None:
         workflow_call = re.search(
             r"workflow_call:\n(?P<body>.*?)\n  pull_request:",
