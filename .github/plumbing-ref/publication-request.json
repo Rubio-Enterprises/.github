@@ -1,8 +1,14 @@
 {
   "expected_current_sha": "74707dffc102886b21f0d65afe99f7da64dbb29e",
-  "target_sha": "74707dffc102886b21f0d65afe99f7da64dbb29e",
-  "reason": "Bootstrap the repository-owned gates/wf-v1 publisher at the current live ref; no publication is requested.",
+  "target_sha": "32082b213abc6b1fc810f78b20d2cc5c0f63b154",
+  "reason": "Publish the exact repository-selected Rust gate candidate accepted under standards#342/#347/#348/#349.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github-private/issues/114#issuecomment-5052062767"
+    "https://github.com/Rubio-Enterprises/standards/issues/347",
+    "https://github.com/Rubio-Enterprises/standards/issues/348",
+    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30066892216",
+    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30066746002",
+    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30098391098",
+    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30098391153",
+    "https://github.com/Rubio-Enterprises/vibe-kanban/actions/runs/30066275770"
   ]
 }
