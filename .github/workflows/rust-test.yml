@@ -2,60 +2,179 @@ name: rust test (reusable)
 # Consumer-called reusable (Swatinem cache + `mise run test`, nextest JUnit) AND
 # the ruleset-injected `gate-rust-tests` Required Governance Workflow. The direct
 # `pull_request` / `merge_group` triggers are what let a Terraform org ruleset
-# target it at rust-* repos; ruleset injection auto-triggers those events and
-# ignores event filters, so there are no path/branch filters. The `detect` guard
-# keeps the gate green (defensive) if it is ever attached to a non-Rust repo.
+# target it at selected repos; ruleset injection auto-triggers those events and
+# ignores event filters, so there are no path/branch filters. Active consumers
+# must supply valid symbolic execution policy and always run `mise run test`.
 "on":
   workflow_call:
     inputs:
-      timeout-minutes: { type: number, default: 20 }
+      workload-class: { type: string, required: true }
+      timeout-minutes: { type: number, required: true }
   pull_request:
   merge_group:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Include the workflow source ref so the temporary exact-candidate evaluate rule
+  # cannot cancel (or be cancelled by) the enforced gates/wf-v1 run on the same PR.
+  group: ${{ github.workflow_ref }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   rust-test:
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
-    # `inputs.timeout-minutes` is empty on a direct pull_request / merge_group
-    # (no workflow_call inputs), so fall back to the same 20-minute default.
-    timeout-minutes: ${{ inputs.timeout-minutes || 20 }}
+    # The direct trigger exists on this source repository only so GitHub accepts
+    # the workflow as required-workflow plumbing. Consumer events and reusable
+    # calls remain strict; direct .github events are an explicit source no-op.
+    if: >-
+      ${{
+        !startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/rust-test.yml@') ||
+        github.repository != 'Rubio-Enterprises/.github'
+      }}
+    # Route inline so valid policy adds no routing job or glue queue dependency.
+    # The timeout whitelist is part of route validity: malformed policy always
+    # lands on the known-safe hosted slim runner for the first-step pre-check.
+    runs-on: >-
+      ${{ fromJSON(
+        (
+          !startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/rust-test.yml@') &&
+          (
+            contains(fromJSON('["5","6","7","8","9","10","11","12","13","14"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["15","16","17","18","19","20","21","22","23","24"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["25","26","27","28","29","30","31","32","33","34"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["35","36","37","38","39","40","41","42","43","44"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["45","46","47","48","49","50","51","52","53","54"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["55","56","57","58","59","60","61","62","63","64"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["65","66","67","68","69","70","71","72","73","74"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["75","76","77","78","79","80","81","82","83","84"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["85","86","87","88","89","90","91","92","93","94"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["95","96","97","98","99","100","101","102","103","104"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["105","106","107","108","109","110","111","112","113","114"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["115","116","117","118","119","120"]'), format('{0}', inputs.timeout-minutes))
+          ) &&
+          (
+            (inputs.workload-class == 'glue' && (vars.RUNNER_GLUE || '["ubuntu-slim"]')) ||
+            (inputs.workload-class == 'linux-arm' && (vars.RUNNER_LINUX_ARM || '["ubuntu-24.04-arm"]'))
+          )
+        ) ||
+        (
+          startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/rust-test.yml@') &&
+          (
+            contains(fromJSON('["5","6","7","8","9","10","11","12","13","14"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["15","16","17","18","19","20","21","22","23","24"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["25","26","27","28","29","30","31","32","33","34"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["35","36","37","38","39","40","41","42","43","44"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["45","46","47","48","49","50","51","52","53","54"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["55","56","57","58","59","60","61","62","63","64"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["65","66","67","68","69","70","71","72","73","74"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["75","76","77","78","79","80","81","82","83","84"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["85","86","87","88","89","90","91","92","93","94"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["95","96","97","98","99","100","101","102","103","104"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["105","106","107","108","109","110","111","112","113","114"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["115","116","117","118","119","120"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES))
+          ) &&
+          (
+            (vars.RUST_TEST_WORKLOAD_CLASS == 'glue' && (vars.RUNNER_GLUE || '["ubuntu-slim"]')) ||
+            (vars.RUST_TEST_WORKLOAD_CLASS == 'linux-arm' && (vars.RUNNER_LINUX_ARM || '["ubuntu-24.04-arm"]'))
+          )
+        ) ||
+        '["ubuntu-slim"]'
+      ) }}
+    timeout-minutes: >-
+      ${{
+        (
+          !startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/rust-test.yml@') &&
+          (
+            contains(fromJSON('["5","6","7","8","9","10","11","12","13","14"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["15","16","17","18","19","20","21","22","23","24"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["25","26","27","28","29","30","31","32","33","34"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["35","36","37","38","39","40","41","42","43","44"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["45","46","47","48","49","50","51","52","53","54"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["55","56","57","58","59","60","61","62","63","64"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["65","66","67","68","69","70","71","72","73","74"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["75","76","77","78","79","80","81","82","83","84"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["85","86","87","88","89","90","91","92","93","94"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["95","96","97","98","99","100","101","102","103","104"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["105","106","107","108","109","110","111","112","113","114"]'), format('{0}', inputs.timeout-minutes)) ||
+            contains(fromJSON('["115","116","117","118","119","120"]'), format('{0}', inputs.timeout-minutes))
+          ) &&
+          inputs.timeout-minutes
+        ) ||
+        (
+          startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/rust-test.yml@') &&
+          (
+            contains(fromJSON('["5","6","7","8","9","10","11","12","13","14"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["15","16","17","18","19","20","21","22","23","24"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["25","26","27","28","29","30","31","32","33","34"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["35","36","37","38","39","40","41","42","43","44"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["45","46","47","48","49","50","51","52","53","54"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["55","56","57","58","59","60","61","62","63","64"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["65","66","67","68","69","70","71","72","73","74"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["75","76","77","78","79","80","81","82","83","84"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["85","86","87","88","89","90","91","92","93","94"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["95","96","97","98","99","100","101","102","103","104"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["105","106","107","108","109","110","111","112","113","114"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES)) ||
+            contains(fromJSON('["115","116","117","118","119","120"]'), format('{0}', vars.RUST_TEST_TIMEOUT_MINUTES))
+          ) &&
+          fromJSON(vars.RUST_TEST_TIMEOUT_MINUTES)
+        ) ||
+        20
+      }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Detect Rust project
-        # No Cargo.toml (a mis-targeted repo, or .github itself) -> skip the test
-        # steps and pass with a notice. Consumers that call this via workflow_call
-        # always carry Cargo.toml, so they run normally.
-        id: detect
+      - name: Validate Rust test execution policy
+        id: policy
+        env:
+          IS_DIRECT: >-
+            ${{ startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/rust-test.yml@') }}
+          INPUT_WORKLOAD_CLASS: ${{ inputs.workload-class }}
+          INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+          REPOSITORY_WORKLOAD_CLASS: ${{ vars.RUST_TEST_WORKLOAD_CLASS }}
+          REPOSITORY_TIMEOUT_MINUTES: ${{ vars.RUST_TEST_TIMEOUT_MINUTES }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f Cargo.toml ]; then
-            echo "rust=true" >> "$GITHUB_OUTPUT"
+          if [ "$IS_DIRECT" = "true" ]; then
+            workload_class="$REPOSITORY_WORKLOAD_CLASS"
+            timeout_minutes="$REPOSITORY_TIMEOUT_MINUTES"
           else
-            echo "rust=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::no Cargo.toml — repo is not a Rust archetype; rust-test gate passes (defensive)"
+            workload_class="$INPUT_WORKLOAD_CLASS"
+            timeout_minutes="$INPUT_TIMEOUT_MINUTES"
           fi
+
+          workload_class="${workload_class,,}"
+          case "$workload_class" in
+            glue|linux-arm) ;;
+            *)
+              echo "::error::rust_test_workload_class must be glue or linux-arm"
+              exit 1
+              ;;
+          esac
+          case "$timeout_minutes" in
+            [5-9]|[1-9][0-9]|1[01][0-9]|120) ;;
+            *)
+              echo "::error::rust_test_timeout_minutes must be a canonical integer from 5 through 120"
+              exit 1
+              ;;
+          esac
+
+          printf 'workload-class=%s\n' "$workload_class" >> "$GITHUB_OUTPUT"
+          printf 'timeout-minutes=%s\n' "$timeout_minutes" >> "$GITHUB_OUTPUT"
+          echo "Rust test policy: class=$workload_class timeout=${timeout_minutes}m"
+
+      - name: Check out the consumer repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
       # uv on PATH routes mise's pipx-backend installs through uvx (see the other
       # mise-based reusables for the full rationale).
-      - if: steps.detect.outputs.rust == 'true'
+      - name: Install uv (routes mise pipx installs through uvx)
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+
       # Fingerprint the uv-resolved python into the mise cache key (standards#331).
       # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
       # at the uv-MANAGED python under ~/.local/share/uv/python — OUTSIDE the
       # ~/.local/share/mise tree jdx/mise-action caches. When uv's default python
-      # bumps (e.g. 3.14.3 → 3.14.4), a cache restored onto a fresh runner VM hands
-      # back pipx venvs whose shebang points at an interpreter that VM lacks, so
-      # every tool dies with "couldn't exec process" — a permanently poisoned cache
-      # no re-run fixes. Folding the version into cache_key_prefix makes a python
-      # bump INVALIDATE the cache instead of poisoning it. `uv python find` never
-      # downloads and can fall back to a system python, so install first
-      # (idempotent — the same managed interpreter uvx would provision anyway),
-      # then read the managed version.
+      # bumps, a cache restored onto a fresh runner VM hands back pipx venvs whose
+      # shebang points at an interpreter that VM lacks. Folding the version into
+      # cache_key_prefix invalidates rather than poisons that cache.
       - name: Fingerprint the uv-resolved python for the mise cache key
-        if: steps.detect.outputs.rust == 'true'
         id: uv-python
         shell: bash
         run: |
@@ -68,22 +187,27 @@ jobs:
           fi
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "uv-resolved python for mise cache key: $version"
-      - if: steps.detect.outputs.rust == 'true'
+
+      - name: Install consumer-repo runtimes
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         with:
-          # Key the mise cache to the uv-resolved python (standards#331): a python
-          # bump changes the prefix and invalidates rather than poisons the cache.
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.6.14"
-      - if: steps.detect.outputs.rust == 'true'
+
+      - name: Cache Rust build outputs
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - if: steps.detect.outputs.rust == 'true'
+
+      - name: Run canonical Rust tests
         run: mise run test
-      - if: always() && steps.detect.outputs.rust == 'true'
+
+      - name: Publish Rust test report
+        if: always() && steps.policy.outcome == 'success'
         uses: mikepenz/action-junit-report@d9f48fc87bc235f7e214acf696ca5abc0a986f16 # v6
         with: { report_paths: 'target/nextest/ci/junit.xml' }
-      - if: always() && steps.detect.outputs.rust == 'true'
+
+      - name: Upload Rust test reports
+        if: always() && steps.policy.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: rust-test-reports-${{ github.run_id }}
@@ -98,17 +222,22 @@ jobs:
     steps:
       - name: Aggregate gate result
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          WORKLOAD_RESULT: ${{ needs.rust-test.result }}
+          SOURCE_REPOSITORY_NOOP: >-
+            ${{
+              startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/rust-test.yml@') &&
+              github.repository == 'Rubio-Enterprises/.github'
+            }}
         shell: bash
         run: |
           set -euo pipefail
-          echo "dependency results: $RESULTS"
-          for r in $RESULTS; do
-            case "$r" in
-              failure|cancelled)
-                echo "::error::rust-test gate failed (a dependency reported '$r')"
-                exit 1
-                ;;
-            esac
-          done
+          echo "workload result: $WORKLOAD_RESULT"
+          if [ "$SOURCE_REPOSITORY_NOOP" = "true" ]; then
+            echo "::notice::.github source-repository direct event — Rust consumer workload is intentionally not run"
+            exit 0
+          fi
+          if [ "$WORKLOAD_RESULT" != "success" ]; then
+            echo "::error::rust-test gate failed (workload reported '$WORKLOAD_RESULT')"
+            exit 1
+          fi
           echo "rust-test gate passed"
