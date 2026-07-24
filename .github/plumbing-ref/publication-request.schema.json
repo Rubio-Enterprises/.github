@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Rubio-Enterprises/.github/blob/main/.github/plumbing-ref/publication-request.schema.json",
+  "title": "Plumbing Ref Publication Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expected_current_sha", "target_sha", "reason"],
+  "properties": {
+    "expected_current_sha": {
+      "type": "string",
+      "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+    },
+    "target_sha": {
+      "type": "string",
+      "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+    },
+    "reason": {
+      "type": "string",
+      "allOf": [
+        { "pattern": "\\S" },
+        { "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$" }
+      ]
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uri",
+        "pattern": "^https://[^/\\s]+(?:/.*)?$"
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "expected_current_sha": "74707dffc102886b21f0d65afe99f7da64dbb29e",
+  "target_sha": "74707dffc102886b21f0d65afe99f7da64dbb29e",
+  "reason": "Bootstrap the repository-owned gates/wf-v1 publisher at the current live ref; no publication is requested.",
+  "references": [
+    "https://github.com/Rubio-Enterprises/.github-private/issues/114#issuecomment-5052062767"
+  ]
+}

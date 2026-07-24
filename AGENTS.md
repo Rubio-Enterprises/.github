@@ -36,8 +36,10 @@ repo runs one iff it carries the matching `gate-*` custom property (set in
 consumer's PR checks. They are **not** thin-called from `standards.yml`. The
 content-bearing gates resolve their `standards` content at runtime from the
 repo's channel — `canary` for ring repos, `stable` for the fleet (read from the
-`ring` custom property). The ruleset pins the workflow *file* to the
-Terraform-managed `gates/wf-v1` tag; the *content* floats on the channel.
+`ring` custom property). The ruleset pins the workflow *file* to the `gates/wf-v1` tag; the tag object is
+published by this repository's guarded Publication Request/CAS workflow while
+Terraform owns the consuming rulesets and ref name. The *content* floats on the
+channel.
 
 | Gate workflow | Gate Family | What it does | Standards content |
 |---|---|---|---|
@@ -100,11 +102,16 @@ coexist, and they move differently.
    promotes `canary` → `stable` (see `standards` `RELEASES.md`), with **no
    `.github` release**. There is no `audit/v1` tag to move any more.
 2. **The gate workflow *files* are pinned by the org rulesets to `gates/wf-v1`.**
-   That tag is Terraform-managed in `.github-private`. A change to a gate
-   workflow's own code (steps/logic) is *plumbing*: land it here, soak the exact
-   candidate commit via a temporary evaluate-mode duplicate ruleset, then advance
-   `gates/wf-v1` to the validated SHA through the guarded publication path (and remove
-   the duplicate). release-please does **not** own `gates/wf-v1`.
+   A change to a gate workflow's own code (steps/logic) is *plumbing*: land the
+   candidate here, perform proportional Candidate Validation (normally a
+   temporary Terraform-owned evaluate-mode duplicate ruleset at the exact
+   candidate), then merge a request-only PR changing
+   `.github/plumbing-ref/publication-request.json`. The push-triggered publisher
+   performs an exact expected-current compare-and-swap and verifies the final
+   remote ref. Terraform owns only the consuming rulesets/ref name;
+   release-please owns neither this tag nor its publisher. Rollback uses the
+   validation-first manual workflow. Full runbook:
+   [`docs/plumbing-ref-publication.md`](docs/plumbing-ref-publication.md).
 3. **Thin-called reusables (`lint-hooks`, `e2e`, `bump-brew`) still ride the
    `.github` release + floating `v1`.** Consumers pin them by SHA with a trailing
    `# v1`; Renovate bumps that SHA when the floating `v1` moves. Releases are
@@ -122,9 +129,10 @@ coexist, and they move differently.
    tag.)
 
 **Never create or move a floating major tag (`v1`, `v2`, …) or `gates/wf-v1` by
-hand** — release-please owns the floating majors; Terraform owns `gates/wf-v1`.
-A hand-moved tag on an unreleased SHA is exactly the drift these checks exist to
-catch.
+hand.** Release-please owns the floating majors. The repository-owned Plumbing
+Ref publisher owns `gates/wf-v1` through a request-only PR and exact compare-and-
+swap; its manual rollback workflow owns backward moves. Direct owner mutation is
+last-resort recovery only and must retain the exact lease + remote reread contract.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
 
@@ -133,6 +141,13 @@ catch.
   consumer contracts. Guard direct `pull_request` and `merge_group` events from this source
   repository explicitly. The Rust workflow skips its workload and lets the bucket report the
   source no-op; consumer direct events and `workflow_call` remain strict.
+- **Plumbing Ref trust boundary.** Post-bootstrap Publication Request validation
+  and publication execute `plumbing_ref.py` from the protected base/before
+  revision, never from the proposed request commit. Only the request JSON may
+  change. The publisher runs hosted with the repo-scoped `GITHUB_TOKEN`; do not
+  add a PAT, App, environment, actor allowlist, or Terraform wrapper. Keep the
+  workflows free of Actions concurrency — an exact Git lease is the correctness
+  mechanism, while GitHub concurrency is not FIFO.
 - **`setup-uv` before `mise-action`.** Every mise-using job installs
   `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
   routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip

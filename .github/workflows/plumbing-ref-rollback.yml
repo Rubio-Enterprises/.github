@@ -1,0 +1,84 @@
+name: plumbing ref rollback
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_current_sha:
+        description: Exact SHA currently expected at gates/wf-v1
+        required: true
+        type: string
+      target_sha:
+        description: Older main-ancestor SHA to restore
+        required: true
+        type: string
+      reason:
+        description: Why the rollback is required
+        required: true
+        type: string
+      write_mode:
+        description: Validate first; choose write only for the deliberate mutation run
+        required: true
+        default: validate-only
+        type: choice
+        options:
+          - validate-only
+          - write
+permissions: {}
+jobs:
+  validate:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate rollback plan
+        env:
+          EXPECTED_CURRENT_SHA: ${{ inputs.expected_current_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          REASON: ${{ inputs.reason }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/plumbing_ref.py rollback \
+            --repository . \
+            --remote origin \
+            --manifest .github/plumbing-ref/gate-family-workflows.json \
+            --expected-current-sha "$EXPECTED_CURRENT_SHA" \
+            --target-sha "$TARGET_SHA" \
+            --reason "$REASON" \
+            --mode validate \
+            --run-attempt "$RUN_ATTEMPT"
+
+  write:
+    if: inputs.write_mode == 'write'
+    needs: [validate]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+      - name: Revalidate and publish rollback with exact compare-and-swap
+        env:
+          EXPECTED_CURRENT_SHA: ${{ inputs.expected_current_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          REASON: ${{ inputs.reason }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/plumbing_ref.py rollback \
+            --repository . \
+            --remote origin \
+            --manifest .github/plumbing-ref/gate-family-workflows.json \
+            --expected-current-sha "$EXPECTED_CURRENT_SHA" \
+            --target-sha "$TARGET_SHA" \
+            --reason "$REASON" \
+            --mode publish \
+            --run-attempt "$RUN_ATTEMPT"
