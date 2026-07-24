@@ -1,6 +1,6 @@
 # rubio-dotgithub
 
-Org-level reusable GitHub Actions workflows for `Rubio-Enterprises`. Every consumer's `.github/workflows/standards.yml` thin-calls into here.
+Organization GitHub Actions workflows for `Rubio-Enterprises`: seven Gate Family workflows injected by organization rulesets, plus the smaller set of reusables that consumers thin-call directly.
 
 ## Reusable workflows
 
@@ -24,6 +24,21 @@ and otherwise uses its public hosted fallback (`ubuntu-slim` or
 Invalid policy fails on the hosted slim pre-check before checkout. Valid active
 runs always execute `mise run test`, and the aggregate succeeds only when the
 workload result is exactly `success`.
+
+### Gate workflow publication
+
+Organization rulesets load Gate workflow files from the lightweight
+`gates/wf-v1` tag. This repository owns that tag through a guarded Publication
+Request and exact compare-and-swap publisher; Terraform owns only the consuming
+rulesets and ref name.
+
+Normal publication is a request-only PR changing
+`.github/plumbing-ref/publication-request.json`. After merge, the publisher
+validates commit ancestry and the complete Gate Family workflow manifest,
+requires the live ref to equal the recorded expected SHA, performs an exact Git
+lease update, and verifies the final remote ref. Backward moves use the manual,
+validation-first rollback workflow. See
+[`docs/plumbing-ref-publication.md`](./docs/plumbing-ref-publication.md).
 
 ## Standards dependency
 

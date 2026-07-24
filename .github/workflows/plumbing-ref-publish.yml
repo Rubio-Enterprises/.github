@@ -1,0 +1,104 @@
+name: plumbing ref publisher
+"on":
+  pull_request:
+    paths:
+      - .github/plumbing-ref/publication-request.json
+  push:
+    branches: [main]
+    paths:
+      - .github/plumbing-ref/publication-request.json
+permissions: {}
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out proposed request
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out protected base validator
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .base-validator
+          persist-credentials: false
+      - name: Validate Publication Request
+        env:
+          BEFORE_SHA: ${{ github.event.pull_request.base.sha }}
+          AFTER_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator=".github/scripts/plumbing_ref.py"
+          if [ -f ".base-validator/.github/scripts/plumbing_ref.py" ]; then
+            validator=".base-validator/.github/scripts/plumbing_ref.py"
+          elif git cat-file -e "$BEFORE_SHA:.github/plumbing-ref/publication-request.json" 2>/dev/null; then
+            echo "protected validator is missing from a post-bootstrap revision" >&2
+            exit 1
+          elif [ -n "$(git rev-list --max-count=1 "$BEFORE_SHA" -- \
+            .github/plumbing-ref/publication-request.json \
+            .github/scripts/plumbing_ref.py)" ]; then
+            echo "publisher bootstrap already completed in protected history" >&2
+            exit 1
+          fi
+          python3 "$validator" forward \
+            --repository . \
+            --remote origin \
+            --request .github/plumbing-ref/publication-request.json \
+            --manifest .github/plumbing-ref/gate-family-workflows.json \
+            --before-sha "$BEFORE_SHA" \
+            --after-sha "$AFTER_SHA" \
+            --mode validate \
+            --run-attempt 1 \
+            --change-scope merge-base
+
+  publish:
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out merged request
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+      - name: Check out protected prior validator
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.event.before }}
+          path: .base-validator
+          persist-credentials: false
+      - name: Publish with exact compare-and-swap
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator=".github/scripts/plumbing_ref.py"
+          if [ -f ".base-validator/.github/scripts/plumbing_ref.py" ]; then
+            validator=".base-validator/.github/scripts/plumbing_ref.py"
+          elif git cat-file -e "$BEFORE_SHA:.github/plumbing-ref/publication-request.json" 2>/dev/null; then
+            echo "protected validator is missing from a post-bootstrap revision" >&2
+            exit 1
+          elif [ -n "$(git rev-list --max-count=1 "$BEFORE_SHA" -- \
+            .github/plumbing-ref/publication-request.json \
+            .github/scripts/plumbing_ref.py)" ]; then
+            echo "publisher bootstrap already completed in protected history" >&2
+            exit 1
+          fi
+          python3 "$validator" forward \
+            --repository . \
+            --remote origin \
+            --request .github/plumbing-ref/publication-request.json \
+            --manifest .github/plumbing-ref/gate-family-workflows.json \
+            --before-sha "$BEFORE_SHA" \
+            --after-sha "$AFTER_SHA" \
+            --mode publish \
+            --run-attempt "$RUN_ATTEMPT" \
+            --change-scope direct
