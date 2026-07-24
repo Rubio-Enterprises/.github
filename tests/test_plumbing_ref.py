@@ -9,6 +9,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +35,18 @@ GATE_WORKFLOWS = {
 }
 REQUEST_PATH = Path(".github/plumbing-ref/publication-request.json")
 MANIFEST_PATH = Path(".github/plumbing-ref/gate-family-workflows.json")
+RUNBOOK_PATH = ROOT / "docs" / "plumbing-ref-publication.md"
 LIVE_REF = "refs/tags/gates/wf-v1"
+
+
+def owner_recovery_cas_block() -> str:
+    document = RUNBOOK_PATH.read_text(encoding="utf-8")
+    begin = "# BEGIN owner-recovery-cas"
+    end = "# END owner-recovery-cas"
+    if document.count(begin) != 1 or document.count(end) != 1:
+        raise RuntimeError("owner recovery CAS markers must appear exactly once")
+    block = document.split(begin, 1)[1].split(end, 1)[0]
+    return textwrap.dedent(block).strip() + "\n"
 
 
 def run_git(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -83,7 +95,9 @@ class GitFixture:
         files[str(MANIFEST_PATH)] = json.dumps(GATE_WORKFLOWS, indent=2) + "\n"
         return self.commit(files, "add gate workflow floor")
 
-    def write_request(self, expected: str, target: str, reason: str = "Publish candidate") -> str:
+    def write_request(
+        self, expected: str, target: str, reason: str = "Publish candidate"
+    ) -> str:
         request = {
             "expected_current_sha": expected,
             "target_sha": target,
@@ -112,9 +126,9 @@ class PublicationRequestTests(unittest.TestCase):
         request = plumbing_ref.load_request(ROOT / REQUEST_PATH)
         manifest = plumbing_ref.load_manifest(ROOT / MANIFEST_PATH)
         schema = json.loads(
-            (ROOT / ".github" / "plumbing-ref" / "publication-request.schema.json").read_text(
-                encoding="utf-8"
-            )
+            (
+                ROOT / ".github" / "plumbing-ref" / "publication-request.schema.json"
+            ).read_text(encoding="utf-8")
         )
 
         self.assertEqual(
@@ -286,7 +300,9 @@ class CliTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             report = json.loads(completed.stdout)
             self.assertEqual(report["result"], "validated")
-            self.assertIn("Plumbing Ref operation", summary_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                "Plumbing Ref operation", summary_path.read_text(encoding="utf-8")
+            )
 
     def test_forward_cli_failure_writes_summary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -338,6 +354,56 @@ class CliTests(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0)
             self.assertIn("failed", summary_path.read_text(encoding="utf-8"))
 
+    def test_forward_cli_rejects_backward_target_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = GitFixture(Path(directory))
+            target = fixture.create_floor()
+            expected = fixture.commit(
+                {GATE_WORKFLOWS["gate-rust-tests"]: "name: newer rust gate\n"},
+                "publish newer rust gate",
+            )
+            before = fixture.write_request(expected, expected, "Bootstrap publisher")
+            after = fixture.write_request(
+                expected,
+                target,
+                "Attempt a backward move through the forward publisher.",
+            )
+            fixture.push_main()
+            fixture.set_live_ref(expected)
+
+            for mode in ("validate", "publish"):
+                with self.subTest(mode=mode):
+                    completed = subprocess.run(
+                        [
+                            "python3",
+                            str(MODULE_PATH),
+                            "forward",
+                            "--repository",
+                            str(fixture.repo),
+                            "--remote",
+                            "origin",
+                            "--request",
+                            str(fixture.repo / REQUEST_PATH),
+                            "--manifest",
+                            str(fixture.repo / MANIFEST_PATH),
+                            "--before-sha",
+                            before,
+                            "--after-sha",
+                            after,
+                            "--mode",
+                            mode,
+                            "--run-attempt",
+                            "1",
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+
+                    self.assertNotEqual(completed.returncode, 0)
+                    self.assertIn("strict descendant", completed.stderr)
+                    self.assertEqual(fixture.live_sha(), expected)
+
     def test_missing_required_workflow_failure_reports_affected_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
@@ -380,7 +446,9 @@ class CliTests(unittest.TestCase):
             )
 
             summary = summary_path.read_text(encoding="utf-8")
-            affected_section = summary.split("### Affected Gate Family workflow files", 1)[1]
+            affected_section = summary.split(
+                "### Affected Gate Family workflow files", 1
+            )[1]
             self.assertNotEqual(completed.returncode, 0)
             self.assertIn(missing_path, affected_section)
             self.assertIn("required Gate Family workflow is not a blob", summary)
@@ -473,7 +541,9 @@ class ForwardPublicationTests(unittest.TestCase):
                 },
                 "bootstrap publisher",
             )
-            before = fixture.commit({str(REQUEST_PATH): None}, "delete publication request")
+            before = fixture.commit(
+                {str(REQUEST_PATH): None}, "delete publication request"
+            )
             after = fixture.commit(
                 {
                     str(REQUEST_PATH): json.dumps(
@@ -492,7 +562,9 @@ class ForwardPublicationTests(unittest.TestCase):
             fixture.push_main()
             fixture.set_live_ref(live)
 
-            with self.assertRaisesRegex(plumbing_ref.PolicyError, "incomplete publisher state"):
+            with self.assertRaisesRegex(
+                plumbing_ref.PolicyError, "incomplete publisher state"
+            ):
                 plumbing_ref.execute_forward(
                     repository=fixture.repo,
                     remote="origin",
@@ -535,7 +607,9 @@ class ForwardPublicationTests(unittest.TestCase):
             fixture.push_main()
             fixture.set_live_ref(live)
 
-            with self.assertRaisesRegex(plumbing_ref.PolicyError, "bootstrap already completed"):
+            with self.assertRaisesRegex(
+                plumbing_ref.PolicyError, "bootstrap already completed"
+            ):
                 plumbing_ref.execute_forward(
                     repository=fixture.repo,
                     remote="origin",
@@ -707,7 +781,9 @@ class ForwardPublicationTests(unittest.TestCase):
             fixture.push_main()
             fixture.set_live_ref(expected)
 
-            with self.assertRaisesRegex(plumbing_ref.PolicyError, "reruns never mutate"):
+            with self.assertRaisesRegex(
+                plumbing_ref.PolicyError, "reruns never mutate"
+            ):
                 plumbing_ref.execute_forward(
                     repository=fixture.repo,
                     remote="origin",
@@ -756,7 +832,9 @@ class ForwardPublicationTests(unittest.TestCase):
                     run_attempt=1,
                 )
 
-    def test_pull_request_scope_ignores_changes_added_to_base_after_branching(self) -> None:
+    def test_pull_request_scope_ignores_changes_added_to_base_after_branching(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
@@ -864,9 +942,15 @@ class CasCompetitionTests(unittest.TestCase):
 
 class CasVerificationTests(unittest.TestCase):
     def test_push_porcelain_requires_an_actual_forced_update(self) -> None:
-        self.assertTrue(plumbing_ref.push_reports_exact_update("+\told:new\tforced update\n"))
-        self.assertFalse(plumbing_ref.push_reports_exact_update("=\told:new\t[up to date]\n"))
-        self.assertFalse(plumbing_ref.push_reports_exact_update("Everything up-to-date\n"))
+        self.assertTrue(
+            plumbing_ref.push_reports_exact_update("+\told:new\tforced update\n")
+        )
+        self.assertFalse(
+            plumbing_ref.push_reports_exact_update("=\told:new\t[up to date]\n")
+        )
+        self.assertFalse(
+            plumbing_ref.push_reports_exact_update("Everything up-to-date\n")
+        )
 
     def test_post_write_remote_mismatch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -928,7 +1012,9 @@ class CasVerificationTests(unittest.TestCase):
                 "_read_live_ref",
                 side_effect=(expected, target),
             ):
-                with self.assertRaisesRegex(plumbing_ref.PolicyError, "exact-lease update failed"):
+                with self.assertRaisesRegex(
+                    plumbing_ref.PolicyError, "exact-lease update failed"
+                ):
                     plumbing_ref.execute_forward(
                         repository=fixture.repo,
                         remote="origin",
@@ -993,11 +1079,15 @@ class CasVerificationTests(unittest.TestCase):
             summary = summary_path.read_text(encoding="utf-8")
             self.assertNotEqual(completed.returncode, 0)
             self.assertIn("Mutation attempted | yes", summary)
-            affected_section = summary.split("### Affected Gate Family workflow files", 1)[1]
+            affected_section = summary.split(
+                "### Affected Gate Family workflow files", 1
+            )[1]
             self.assertIn(GATE_WORKFLOWS["gate-rust-tests"], affected_section)
             self.assertIn("exact-lease update failed", summary)
 
-    def test_failed_post_write_reread_keeps_mutation_and_affected_workflows(self) -> None:
+    def test_failed_post_write_reread_keeps_mutation_and_affected_workflows(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
@@ -1036,7 +1126,10 @@ class CasVerificationTests(unittest.TestCase):
                 mock.patch.object(
                     plumbing_ref,
                     "_read_live_ref",
-                    side_effect=(expected, plumbing_ref.PolicyError("transient remote read error")),
+                    side_effect=(
+                        expected,
+                        plumbing_ref.PolicyError("transient remote read error"),
+                    ),
                 ),
                 mock.patch.object(sys, "stderr", io.StringIO()),
             ):
@@ -1046,122 +1139,122 @@ class CasVerificationTests(unittest.TestCase):
             self.assertEqual(result, 1)
             self.assertEqual(fixture.live_sha(), target)
             self.assertIn("Mutation attempted | yes", summary)
-            affected_section = summary.split("### Affected Gate Family workflow files", 1)[1]
+            affected_section = summary.split(
+                "### Affected Gate Family workflow files", 1
+            )[1]
             self.assertIn(GATE_WORKFLOWS["gate-rust-tests"], affected_section)
             self.assertIn("post-write verification failed", summary)
 
 
-class RollbackPublicationTests(unittest.TestCase):
-    def test_rollback_updates_exact_live_ref_to_older_main_commit(self) -> None:
+class OwnerRecoveryRunbookTests(unittest.TestCase):
+    def run_recovery(
+        self,
+        fixture: GitFixture,
+        expected: str,
+        target: str,
+    ) -> subprocess.CompletedProcess[str]:
+        harness = (
+            "set -euo pipefail\n"
+            "REMOTE=origin\n"
+            f"LIVE_REF={LIVE_REF}\n"
+            f"EXPECTED_CURRENT_SHA={expected}\n"
+            f"TARGET_SHA={target}\n"
+            "read_remote_ref() {\n"
+            '  python3 - "$REMOTE" "$LIVE_REF" <<\'PY\'\n'
+            "import subprocess\n"
+            "import sys\n"
+            "\n"
+            "remote, ref = sys.argv[1:]\n"
+            "result = subprocess.run(\n"
+            '    ["git", "ls-remote", "--refs", remote, ref],\n'
+            "    check=True,\n"
+            "    capture_output=True,\n"
+            "    text=True,\n"
+            ")\n"
+            "lines = [line.split() for line in result.stdout.splitlines() if line.strip()]\n"
+            "if len(lines) != 1 or len(lines[0]) != 2 or lines[0][1] != ref:\n"
+            '    raise SystemExit(f"authoritative remote {ref} must exist exactly once")\n'
+            "print(lines[0][0])\n"
+            "PY\n"
+            "}\n" + owner_recovery_cas_block()
+        )
+        return subprocess.run(
+            ["bash", "-c", harness],
+            cwd=fixture.repo,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def create_recovery_fixture(self, root: Path) -> tuple[GitFixture, str, str]:
+        fixture = GitFixture(root)
+        target = fixture.create_floor()
+        expected = fixture.commit(
+            {GATE_WORKFLOWS["gate-rust-tests"]: "name: broken rust gate\n"},
+            "publish broken rust gate",
+        )
+        fixture.push_main()
+        fixture.set_live_ref(expected)
+        return fixture, expected, target
+
+    def test_owner_recovery_requires_actual_update_record(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            fixture = GitFixture(Path(directory))
-            target = fixture.create_floor()
-            expected = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: broken rust gate\n"},
-                "publish broken rust gate",
-            )
-            fixture.push_main()
-            fixture.set_live_ref(expected)
+            fixture, expected, target = self.create_recovery_fixture(Path(directory))
 
-            report = plumbing_ref.execute_rollback(
-                repository=fixture.repo,
-                remote="origin",
-                manifest_path=fixture.repo / MANIFEST_PATH,
-                expected_current_sha=expected,
-                target_sha=target,
-                reason="Roll back the broken Rust gate.",
-                references=["https://github.com/example/repo/issues/1"],
-                mode="publish",
-                run_attempt=1,
-            )
+            completed = self.run_recovery(fixture, expected, target)
 
-            self.assertEqual(report["result"], "published")
-            self.assertEqual(report["direction"], "rollback")
-            self.assertTrue(report["mutation_attempted"])
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("verified exact owner recovery update", completed.stdout)
             self.assertEqual(fixture.live_sha(), target)
 
-    def test_rollback_rerun_is_noop_only_when_target_is_already_live(self) -> None:
+    def test_owner_recovery_rejects_up_to_date_race(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            fixture = GitFixture(Path(directory))
-            target = fixture.create_floor()
-            expected = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: broken rust gate\n"},
-                "publish broken rust gate",
-            )
-            fixture.push_main()
-            fixture.set_live_ref(expected)
-
-            plumbing_ref.execute_rollback(
-                repository=fixture.repo,
-                remote="origin",
-                manifest_path=fixture.repo / MANIFEST_PATH,
-                expected_current_sha=expected,
-                target_sha=target,
-                reason="Roll back the broken Rust gate.",
-                references=[],
-                mode="publish",
-                run_attempt=1,
-            )
-            validation = plumbing_ref.execute_rollback(
-                repository=fixture.repo,
-                remote="origin",
-                manifest_path=fixture.repo / MANIFEST_PATH,
-                expected_current_sha=expected,
-                target_sha=target,
-                reason="Roll back the broken Rust gate.",
-                references=[],
-                mode="validate",
-                run_attempt=2,
-            )
-            report = plumbing_ref.execute_rollback(
-                repository=fixture.repo,
-                remote="origin",
-                manifest_path=fixture.repo / MANIFEST_PATH,
-                expected_current_sha=expected,
-                target_sha=target,
-                reason="Roll back the broken Rust gate.",
-                references=[],
-                mode="publish",
-                run_attempt=2,
+            fixture, expected, target = self.create_recovery_fixture(Path(directory))
+            run_git(
+                fixture.repo,
+                "push",
+                "--force",
+                "origin",
+                f"{target}:{LIVE_REF}",
             )
 
-            self.assertEqual(validation["result"], "already-live-noop")
-            self.assertFalse(validation["mutation_attempted"])
-            self.assertEqual(report["result"], "already-live-noop")
-            self.assertFalse(report["mutation_attempted"])
+            completed = self.run_recovery(fixture, expected, target)
 
-    def test_rollback_rejects_forward_target(self) -> None:
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("push exit status: 0", completed.stdout)
+            self.assertIn("final reread exit status: 0", completed.stdout)
+            self.assertIn(f"final observed ref: {target}", completed.stdout)
+            self.assertIn("up-to-date, not an actual update", completed.stderr)
+            self.assertEqual(fixture.live_sha(), target)
+
+    def test_owner_recovery_rereads_after_rejected_push(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            fixture = GitFixture(Path(directory))
-            expected = fixture.create_floor()
-            target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: newer rust gate\n"},
-                "create newer rust gate",
+            fixture, expected, target = self.create_recovery_fixture(Path(directory))
+            hook = fixture.remote / "hooks" / "pre-receive"
+            hook.write_text(
+                "#!/bin/sh\necho 'rejecting owner recovery push' >&2\nexit 1\n",
+                encoding="utf-8",
             )
-            fixture.push_main()
-            fixture.set_live_ref(expected)
+            hook.chmod(0o755)
 
-            with self.assertRaisesRegex(plumbing_ref.PolicyError, "strict ancestor"):
-                plumbing_ref.execute_rollback(
-                    repository=fixture.repo,
-                    remote="origin",
-                    manifest_path=fixture.repo / MANIFEST_PATH,
-                    expected_current_sha=expected,
-                    target_sha=target,
-                    reason="This is not a rollback.",
-                    references=[],
-                    mode="validate",
-                    run_attempt=1,
-                )
+            completed = self.run_recovery(fixture, expected, target)
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("final reread exit status: 0", completed.stdout)
+            self.assertIn(f"final observed ref: {expected}", completed.stdout)
+            self.assertIn("git push exited with status", completed.stderr)
+            self.assertEqual(fixture.live_sha(), expected)
 
 
 class WorkflowContractTests(unittest.TestCase):
     def test_normal_publisher_uses_base_validator_and_narrow_permissions(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "plumbing-ref-publish.yml").read_text(
-            encoding="utf-8"
-        )
+        workflow_path = ROOT / ".github" / "workflows" / "plumbing-ref-publish.yml"
+        workflow = workflow_path.read_text(encoding="utf-8")
 
+        self.assertTrue(workflow_path.is_file())
         self.assertIn("pull_request:", workflow)
+        self.assertIn('python3 "$validator" forward', workflow)
+        self.assertNotIn("workflow_dispatch:", workflow)
         self.assertNotIn("pull_request_target", workflow)
         self.assertIn("permissions: {}", workflow)
         self.assertIn("contents: read", workflow)
@@ -1177,22 +1270,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("secrets.", workflow)
         self.assertNotIn("pull_request.head.ref", workflow)
 
-    def test_rollback_is_validation_first_and_requires_explicit_write_mode(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "plumbing-ref-rollback.yml").read_text(
-            encoding="utf-8"
-        )
+    def test_automated_rollback_surface_is_absent(self) -> None:
+        rollback_workflow = ROOT / ".github" / "workflows" / "plumbing-ref-rollback.yml"
 
-        self.assertIn("default: validate-only", workflow)
-        self.assertIn("- validate-only", workflow)
-        self.assertIn("- write", workflow)
-        self.assertIn("if: inputs.write_mode == 'write'", workflow)
-        self.assertIn("needs: [validate]", workflow)
-        self.assertIn("contents: read", workflow)
-        self.assertIn("contents: write", workflow)
-        self.assertGreaterEqual(workflow.count("RUN_ATTEMPT: ${{ github.run_attempt }}"), 2)
-        self.assertNotIn("--run-attempt 1", workflow)
-        self.assertNotIn("concurrency:", workflow)
-        self.assertNotIn("secrets.", workflow)
+        self.assertFalse(rollback_workflow.exists())
+        self.assertFalse(hasattr(plumbing_ref, "execute_rollback"))
+        with mock.patch.object(sys, "stderr", io.StringIO()):
+            with self.assertRaises(SystemExit):
+                plumbing_ref._build_parser().parse_args(["rollback"])
 
     def test_exact_lease_is_the_only_ref_mutation_primitive(self) -> None:
         mutation_source = inspect.getsource(plumbing_ref._perform_cas)

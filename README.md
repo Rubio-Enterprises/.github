@@ -36,8 +36,9 @@ Normal publication is a request-only PR changing
 `.github/plumbing-ref/publication-request.json`. After merge, the publisher
 validates commit ancestry and the complete Gate Family workflow manifest,
 requires the live ref to equal the recorded expected SHA, performs an exact Git
-lease update, and verifies the final remote ref. Backward moves use the manual,
-validation-first rollback workflow. See
+lease update, and verifies the final remote ref. There is no automated rollback
+entrypoint; backward movement is reserved for last-resort direct owner recovery.
+See
 [`docs/plumbing-ref-publication.md`](./docs/plumbing-ref-publication.md).
 
 ## Standards dependency

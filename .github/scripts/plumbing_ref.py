@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and publish the gates/wf-v1 Plumbing Ref."""
+"""Validate and publish forward gates/wf-v1 Publication Requests."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ OPTIONAL_REQUEST_FIELDS = {"references"}
 
 
 class PolicyError(RuntimeError):
-    """Raised when a publication or rollback request violates policy."""
+    """Raised when a Publication Request violates policy."""
 
 
 class OperationError(PolicyError):
@@ -58,14 +58,18 @@ def _validate_text(value: str, field: str) -> str:
         value.encode("utf-8")
     except UnicodeEncodeError as error:
         raise PolicyError(f"{field} must contain valid Unicode text") from error
-    if any(ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F for character in value):
+    if any(
+        ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F for character in value
+    ):
         raise PolicyError(f"{field} must not contain control characters")
     return value
 
 
 def _validate_sha(value: Any, field: str) -> str:
     if not isinstance(value, str) or SHA_PATTERN.fullmatch(value) is None:
-        raise PolicyError(f"{field} must be exactly 40 lowercase hexadecimal characters")
+        raise PolicyError(
+            f"{field} must be exactly 40 lowercase hexadecimal characters"
+        )
     if value == "0" * 40:
         raise PolicyError(f"{field} must not be the all-zero object ID")
     return value
@@ -94,7 +98,9 @@ def _validate_references(value: Any) -> list[str]:
             or not hostname
             or any(character.isspace() for character in reference)
         ):
-            raise PolicyError("each reference must be an absolute https URL with a host")
+            raise PolicyError(
+                "each reference must be an absolute https URL with a host"
+            )
         references.append(reference)
     return references
 
@@ -117,11 +123,17 @@ def load_request(path: Path) -> dict[str, Any]:
     missing = REQUIRED_REQUEST_FIELDS - keys
     extra = keys - REQUIRED_REQUEST_FIELDS - OPTIONAL_REQUEST_FIELDS
     if missing:
-        raise PolicyError(f"Publication Request is missing: {', '.join(sorted(missing))}")
+        raise PolicyError(
+            f"Publication Request is missing: {', '.join(sorted(missing))}"
+        )
     if extra:
-        raise PolicyError(f"Publication Request has unknown fields: {', '.join(sorted(extra))}")
+        raise PolicyError(
+            f"Publication Request has unknown fields: {', '.join(sorted(extra))}"
+        )
 
-    expected_current_sha = _validate_sha(document["expected_current_sha"], "expected_current_sha")
+    expected_current_sha = _validate_sha(
+        document["expected_current_sha"], "expected_current_sha"
+    )
     target_sha = _validate_sha(document["target_sha"], "target_sha")
     reason = document["reason"]
     if not isinstance(reason, str) or not reason.strip():
@@ -156,8 +168,12 @@ def load_manifest(path: Path) -> dict[str, str]:
         if not isinstance(workflow_path, str):
             raise PolicyError(f"Gate Family {family} must map to a string path")
         _validate_text(workflow_path, f"Gate Family {family} workflow path")
-        if not workflow_path.startswith(".github/workflows/") or not workflow_path.endswith(".yml"):
-            raise PolicyError(f"Gate Family {family} must map to a .github/workflows/*.yml path")
+        if not workflow_path.startswith(
+            ".github/workflows/"
+        ) or not workflow_path.endswith(".yml"):
+            raise PolicyError(
+                f"Gate Family {family} must map to a .github/workflows/*.yml path"
+            )
         manifest[family] = workflow_path
     if len(set(manifest.values())) != len(manifest):
         raise PolicyError("Gate Family workflow paths must be unique")
@@ -401,7 +417,9 @@ def execute_forward(
         request_relative,
         VALIDATOR_PATH,
     ):
-        raise PolicyError("publisher bootstrap already completed in before revision history")
+        raise PolicyError(
+            "publisher bootstrap already completed in before revision history"
+        )
 
     _fetch_authoritative_refs(repository, remote)
     observed_sha = _read_live_ref(repository, remote)
@@ -414,14 +432,18 @@ def execute_forward(
 
     if bootstrap:
         if expected_sha != target_sha or observed_sha != expected_sha:
-            raise PolicyError("bootstrap requires expected_current_sha == target_sha == live ref")
+            raise PolicyError(
+                "bootstrap requires expected_current_sha == target_sha == live ref"
+            )
         direction = "bootstrap"
     else:
         if changed_paths != [request_relative]:
             raise PolicyError(
                 "post-bootstrap publication commits may change only " + request_relative
             )
-        if expected_sha == target_sha or not _is_ancestor(repository, expected_sha, target_sha):
+        if expected_sha == target_sha or not _is_ancestor(
+            repository, expected_sha, target_sha
+        ):
             raise PolicyError(
                 "forward target_sha must be a strict descendant of expected_current_sha"
             )
@@ -482,96 +504,10 @@ def execute_forward(
     return report
 
 
-def execute_rollback(
-    *,
-    repository: Path,
-    remote: str,
-    manifest_path: Path,
-    expected_current_sha: str,
-    target_sha: str,
-    reason: str,
-    references: list[str],
-    mode: str,
-    run_attempt: int,
-) -> dict[str, Any]:
-    """Validate or publish one backward Plumbing Ref transition."""
-
-    if mode not in {"validate", "publish"}:
-        raise PolicyError("rollback mode must be validate or publish")
-    if run_attempt < 1:
-        raise PolicyError("run_attempt must be at least 1")
-    expected_sha = _validate_sha(expected_current_sha, "expected_current_sha")
-    target = _validate_sha(target_sha, "target_sha")
-    if not isinstance(reason, str) or not reason.strip():
-        raise PolicyError("reason must contain at least one non-whitespace character")
-    _validate_text(reason, "reason")
-    validated_references = _validate_references(references)
-    manifest = load_manifest(manifest_path)
-
-    _fetch_authoritative_refs(repository, remote)
-    observed_sha = _read_live_ref(repository, remote)
-    if _object_type(repository, LOCAL_LIVE_REF) != "commit":
-        raise PolicyError(f"remote {LIVE_REF} must be a lightweight commit ref")
-    _require_commit(repository, expected_sha, "expected_current_sha")
-    _require_commit(repository, target, "target_sha")
-    if not _is_ancestor(repository, target, REMOTE_MAIN_REF):
-        raise PolicyError("target_sha must be reachable from current remote main")
-    if expected_sha == target or not _is_ancestor(repository, target, expected_sha):
-        raise PolicyError("rollback target_sha must be a strict ancestor of expected_current_sha")
-
-    report: dict[str, Any] = {
-        "result": "validated",
-        "direction": "rollback",
-        "mutation_attempted": False,
-        "expected_current_sha": expected_sha,
-        "observed_current_sha": observed_sha,
-        "target_sha": target,
-        "reason": reason,
-        "references": validated_references,
-        "changed_files": [],
-        "required_workflows": sorted(manifest.values()),
-        "affected_workflows": _affected_workflows(repository, expected_sha, target, manifest),
-        "final_observed_sha": observed_sha,
-    }
-    try:
-        _validate_required_workflows(repository, target, manifest)
-    except PolicyError as error:
-        raise OperationError(str(error), report) from error
-
-    if run_attempt > 1 and observed_sha == target:
-        report["result"] = "already-live-noop"
-        return report
-    if mode == "validate":
-        if observed_sha != expected_sha:
-            raise OperationError(
-                f"live ref mismatch: expected {expected_sha}, observed {observed_sha}",
-                report,
-            )
-        return report
-    if run_attempt > 1:
-        raise OperationError(
-            "reruns never mutate and the requested target is not live",
-            report,
-        )
-    if observed_sha != expected_sha:
-        raise OperationError(
-            f"live ref mismatch: expected {expected_sha}, observed {observed_sha}",
-            report,
-        )
-
-    report["final_observed_sha"] = _perform_cas(
-        repository,
-        remote,
-        expected_sha,
-        target,
-        report,
-    )
-    report["result"] = "published"
-    return report
-
-
 def _safe_summary_value(value: Any) -> str:
-    return html.escape(str(value), quote=True).replace("|", "&#124;").replace("\n", "<br>")
+    return (
+        html.escape(str(value), quote=True).replace("|", "&#124;").replace("\n", "<br>")
+    )
 
 
 def _summary_list(title: str, values: list[str], empty_message: str) -> list[str]:
@@ -620,7 +556,7 @@ def render_summary(report: dict[str, Any]) -> str:
         _summary_list(
             "Merged changed files",
             list(report.get("changed_files", [])),
-            "Manual dispatch / not applicable.",
+            "Not applicable.",
         )
     )
     lines.extend(
@@ -696,26 +632,21 @@ def _build_parser() -> argparse.ArgumentParser:
     forward = subparsers.add_parser("forward", help="validate or publish a request")
     forward.add_argument("--repository", default=".")
     forward.add_argument("--remote", default="origin")
-    forward.add_argument("--request", default=".github/plumbing-ref/publication-request.json")
-    forward.add_argument("--manifest", default=".github/plumbing-ref/gate-family-workflows.json")
+    forward.add_argument(
+        "--request", default=".github/plumbing-ref/publication-request.json"
+    )
+    forward.add_argument(
+        "--manifest", default=".github/plumbing-ref/gate-family-workflows.json"
+    )
     forward.add_argument("--before-sha", required=True)
     forward.add_argument("--after-sha", required=True)
     forward.add_argument("--mode", choices=("validate", "publish"), required=True)
     forward.add_argument("--run-attempt", type=int, default=1)
-    forward.add_argument("--change-scope", choices=("direct", "merge-base"), default="direct")
+    forward.add_argument(
+        "--change-scope", choices=("direct", "merge-base"), default="direct"
+    )
     forward.add_argument("--summary-file")
 
-    rollback = subparsers.add_parser("rollback", help="validate or publish a rollback")
-    rollback.add_argument("--repository", default=".")
-    rollback.add_argument("--remote", default="origin")
-    rollback.add_argument("--manifest", default=".github/plumbing-ref/gate-family-workflows.json")
-    rollback.add_argument("--expected-current-sha", required=True)
-    rollback.add_argument("--target-sha", required=True)
-    rollback.add_argument("--reason", required=True)
-    rollback.add_argument("--reference", action="append", default=[])
-    rollback.add_argument("--mode", choices=("validate", "publish"), required=True)
-    rollback.add_argument("--run-attempt", type=int, default=1)
-    rollback.add_argument("--summary-file")
     return parser
 
 
@@ -729,93 +660,56 @@ def main(arguments: list[str] | None = None) -> int:
     repository = Path(args.repository).resolve()
     summary_path = _summary_path(args.summary_file)
 
-    if args.command == "forward":
-        request_path = _resolve_path(repository, args.request)
-        manifest_path = _resolve_path(repository, args.manifest)
-        request: dict[str, Any] = {}
-        manifest: dict[str, str] = {}
-        changed_files: list[str] = []
-        direction = "forward"
-        try:
-            request = load_request(request_path)
-            manifest = load_manifest(manifest_path)
-            changed_files = _changed_paths(
-                repository,
-                args.before_sha,
-                args.after_sha,
-                args.change_scope,
-            )
-            request_relative = request_path.relative_to(repository).as_posix()
-            if not _path_exists_at(repository, args.before_sha, request_relative):
-                direction = "bootstrap"
-            report = execute_forward(
-                repository=repository,
-                remote=args.remote,
-                request_path=request_path,
-                manifest_path=manifest_path,
-                before_sha=args.before_sha,
-                after_sha=args.after_sha,
-                mode=args.mode,
-                run_attempt=args.run_attempt,
-                change_scope=args.change_scope,
-            )
-        except OperationError as error:
-            report = error.report
-            write_summary(summary_path, report)
-            print(f"error: {error}", file=sys.stderr)
-            return 1
-        except PolicyError as error:
-            report = _failure_report(
-                direction=direction,
-                repository=repository,
-                remote=args.remote,
-                error=error,
-                expected_sha=request.get("expected_current_sha", "unavailable"),
-                target_sha=request.get("target_sha", "unavailable"),
-                reason=request.get("reason", "unavailable"),
-                references=request.get("references", []),
-                changed_files=changed_files,
-                required_workflows=sorted(manifest.values()),
-            )
-            write_summary(summary_path, report)
-            print(f"error: {error}", file=sys.stderr)
-            return 1
-    else:
-        manifest_path = _resolve_path(repository, args.manifest)
-        manifest: dict[str, str] = {}
-        try:
-            manifest = load_manifest(manifest_path)
-            report = execute_rollback(
-                repository=repository,
-                remote=args.remote,
-                manifest_path=manifest_path,
-                expected_current_sha=args.expected_current_sha,
-                target_sha=args.target_sha,
-                reason=args.reason,
-                references=args.reference,
-                mode=args.mode,
-                run_attempt=args.run_attempt,
-            )
-        except OperationError as error:
-            report = error.report
-            write_summary(summary_path, report)
-            print(f"error: {error}", file=sys.stderr)
-            return 1
-        except PolicyError as error:
-            report = _failure_report(
-                direction="rollback",
-                repository=repository,
-                remote=args.remote,
-                error=error,
-                expected_sha=args.expected_current_sha,
-                target_sha=args.target_sha,
-                reason=args.reason,
-                references=args.reference,
-                required_workflows=sorted(manifest.values()),
-            )
-            write_summary(summary_path, report)
-            print(f"error: {error}", file=sys.stderr)
-            return 1
+    request_path = _resolve_path(repository, args.request)
+    manifest_path = _resolve_path(repository, args.manifest)
+    request: dict[str, Any] = {}
+    manifest: dict[str, str] = {}
+    changed_files: list[str] = []
+    direction = "forward"
+    try:
+        request = load_request(request_path)
+        manifest = load_manifest(manifest_path)
+        changed_files = _changed_paths(
+            repository,
+            args.before_sha,
+            args.after_sha,
+            args.change_scope,
+        )
+        request_relative = request_path.relative_to(repository).as_posix()
+        if not _path_exists_at(repository, args.before_sha, request_relative):
+            direction = "bootstrap"
+        report = execute_forward(
+            repository=repository,
+            remote=args.remote,
+            request_path=request_path,
+            manifest_path=manifest_path,
+            before_sha=args.before_sha,
+            after_sha=args.after_sha,
+            mode=args.mode,
+            run_attempt=args.run_attempt,
+            change_scope=args.change_scope,
+        )
+    except OperationError as error:
+        report = error.report
+        write_summary(summary_path, report)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except PolicyError as error:
+        report = _failure_report(
+            direction=direction,
+            repository=repository,
+            remote=args.remote,
+            error=error,
+            expected_sha=request.get("expected_current_sha", "unavailable"),
+            target_sha=request.get("target_sha", "unavailable"),
+            reason=request.get("reason", "unavailable"),
+            references=request.get("references", []),
+            changed_files=changed_files,
+            required_workflows=sorted(manifest.values()),
+        )
+        write_summary(summary_path, report)
+        print(f"error: {error}", file=sys.stderr)
+        return 1
 
     write_summary(summary_path, report)
     print(json.dumps(report, indent=2, sort_keys=True))
