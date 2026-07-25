@@ -1,23 +1,23 @@
 name: standards audit (reusable)
 "on":
   workflow_call:
-  # `pull_request` trigger is required by GitHub's organization-ruleset
-  # `required_workflows` validator (422 otherwise). Consumer thin-callers
-  # still invoke this workflow via `workflow_call`; the `pull_request` path
-  # is a no-op on PRs against `.github` itself (skipped via the job-level
-  # `if:` guard below — this repo is the bootstrap source of the reusable,
-  # not a consumer, so it can't satisfy the consumer-shaped contract that
-  # `scripts/check.sh` enforces).
+  # Direct `pull_request` and `merge_group` triggers are required for GitHub's
+  # organization-ruleset injection. `workflow_call` remains as a compatibility
+  # surface; only direct events against `.github` itself are no-ops (skipped via
+  # the job-level `if:` guard below — this repo is the bootstrap source of the
+  # reusable, not a consumer, so it can't satisfy the consumer-shaped contract
+  # that `scripts/check.sh` enforces).
   pull_request:
+  merge_group:
 permissions:
   contents: read
 jobs:
   audit:
-    # Skip when running as the `pull_request` no-op on the `.github` repo
-    # itself. Consumer thin-callers invoke via `workflow_call`, where
-    # `github.event_name` is `workflow_call` and this guard passes.
+    # Skip only direct events against the `.github` source repo. Reusable calls
+    # inherit the caller's workflow ref, so they remain strict even when their
+    # caller was triggered by pull_request or merge_group.
     if: >-
-      github.event_name != 'pull_request' ||
+      !startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/audit.yml@') ||
       github.repository != 'Rubio-Enterprises/.github'
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     steps:
@@ -66,7 +66,7 @@ jobs:
           ref: ${{ steps.channel.outputs.channel }}
           path: .standards
           token: ${{ steps.standards-token.outputs.token }}
-          persist-credentials: false   # read-only checkout; don't leave a token in .standards/.git
+          persist-credentials: false # read-only checkout; don't leave a token in .standards/.git
       # One observable answer to "what standards version is the fleet running?".
       # The channel branch floats, so the run summary records the exact commit
       # this run executed (the same channel secret-scan.yml now resolves — no pin

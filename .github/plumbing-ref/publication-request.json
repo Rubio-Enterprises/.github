@@ -1,0 +1,9 @@
+{
+  "expected_current_sha": "32082b213abc6b1fc810f78b20d2cc5c0f63b154",
+  "target_sha": "0c13d3f5f63570b76e72cdd08b735580edbf7699",
+  "reason": "Publish the exact Audit merge-group candidate after successful proportional Candidate Validation.",
+  "references": [
+    "https://github.com/Rubio-Enterprises/.github/pull/137",
+    "https://github.com/Rubio-Enterprises/.github/releases/tag/v2.4.0"
+  ]
+}

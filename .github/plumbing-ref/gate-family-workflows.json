@@ -1,0 +1,9 @@
+{
+  "gate-audit": ".github/workflows/audit.yml",
+  "gate-lint-format": ".github/workflows/lint-format.yml",
+  "gate-secret-scan": ".github/workflows/secret-scan.yml",
+  "gate-pr-title": ".github/workflows/pr-title.yml",
+  "gate-typescript": ".github/workflows/typecheck-ts.yml",
+  "gate-python-tests": ".github/workflows/test-py.yml",
+  "gate-rust-tests": ".github/workflows/rust-test.yml"
+}
