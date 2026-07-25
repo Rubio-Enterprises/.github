@@ -1,14 +1,9 @@
 {
-  "expected_current_sha": "74707dffc102886b21f0d65afe99f7da64dbb29e",
-  "target_sha": "32082b213abc6b1fc810f78b20d2cc5c0f63b154",
-  "reason": "Publish the exact repository-selected Rust gate candidate accepted under standards#342/#347/#348/#349.",
+  "expected_current_sha": "32082b213abc6b1fc810f78b20d2cc5c0f63b154",
+  "target_sha": "0c13d3f5f63570b76e72cdd08b735580edbf7699",
+  "reason": "Publish the exact Audit merge-group candidate after successful proportional Candidate Validation.",
   "references": [
-    "https://github.com/Rubio-Enterprises/standards/issues/347",
-    "https://github.com/Rubio-Enterprises/standards/issues/348",
-    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30066892216",
-    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30066746002",
-    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30098391098",
-    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/30098391153",
-    "https://github.com/Rubio-Enterprises/vibe-kanban/actions/runs/30066275770"
+    "https://github.com/Rubio-Enterprises/.github/pull/137",
+    "https://github.com/Rubio-Enterprises/.github/releases/tag/v2.4.0"
   ]
 }
