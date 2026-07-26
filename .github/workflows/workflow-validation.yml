@@ -1,4 +1,8 @@
 name: workflow validation
+# Static validation of this repo's workflows: actionlint plus the guard keeping
+# the retired rollback entrypoints absent. The contract tests under tests/ are
+# NOT run here — test-gate.yml is their single canonical runner (standards
+# ADR 0020), so this workflow no longer duplicates that execution.
 "on":
   pull_request:
 permissions:
@@ -26,5 +30,3 @@ jobs:
             printf '%s\n' 'automated rollback command must remain absent' >&2
             exit 1
           fi
-      - name: Run workflow contract tests
-        run: python3 -m unittest discover -s tests -v
