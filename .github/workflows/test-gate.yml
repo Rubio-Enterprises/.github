@@ -6,10 +6,9 @@ name: test-gate
 #
 # Scope note: the gate workflows this repo *hosts* (audit.yml, test-py.yml,
 # rust-test.yml, …) are what other repos run; they are not touched here.
-# workflow-validation.yml still runs the same suite via
-# `python3 -m unittest discover -s tests`, so it executes twice on a PR — the
-# overlap is left in place deliberately rather than editing a workflow in the
-# org's .github repo as a side effect of this migration.
+# workflow-validation.yml no longer runs this suite (its unittest step was
+# retired in favor of this gate); it keeps actionlint and the retired-rollback
+# guard.
 #
 # Runner: `ubuntu-24.04`, matching this repo's OWN CI (workflow-validation.yml,
 # plumbing-ref-publish.yml). The `vars.RUNNER_GLUE` route belongs to the gate
