@@ -96,6 +96,11 @@ jobs:
           security list-keychains -d user | normalize_keychain_paths \
             >"$RUNNER_TEMP/original-keychain-list"
 
+      # Resolve the pin by asking each installed Xcode its own version, never by
+      # constructing a bundle path from the pin. Runners carry several Xcodes
+      # under mutually inconsistent names — Xcode_26.4.1.app, Xcode-26.5.0.app,
+      # Xcode.app — so a guessed path silently misses, and a guess that misses
+      # mid-pipeline yields an empty version rather than a non-zero exit.
       - name: Select pinned Xcode
         run: |
           set -eu
@@ -103,15 +108,31 @@ jobs:
             echo "::error::.xcode-version is required by the release contract" >&2
             exit 1
           fi
-          version=$(tr -d '[:space:]' <.xcode-version)
-          app="/Applications/Xcode_${version}.app"
-          [ -d "$app" ] || app="/Applications/Xcode.app"
-          installed=$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version | head -1 | awk '{print $2}')
-          if [ "$installed" != "$version" ]; then
-            echo "::error::.xcode-version pins $version but the runner has $installed" >&2
+          pinned=$(tr -d '[:space:]' <.xcode-version)
+
+          selected=""
+          for bundle in /Applications/Xcode*.app; do
+            [ -d "$bundle" ] || continue
+            developer_dir="$bundle/Contents/Developer"
+            [ -x "$developer_dir/usr/bin/xcodebuild" ] || continue
+            found=$("$developer_dir/usr/bin/xcodebuild" -version 2>/dev/null | awk 'NR==1{print $2}')
+            echo "  $bundle -> ${found:-unreadable}"
+            # A pin of 26.5 accepts a bundle reporting 26.5 or 26.5.0.
+            case "$found" in
+            "$pinned" | "$pinned".*)
+              selected="$developer_dir"
+              break
+              ;;
+            esac
+          done
+
+          if [ -z "$selected" ]; then
+            echo "::error::.xcode-version pins $pinned but no /Applications/Xcode*.app reports it" >&2
             exit 1
           fi
-          echo "DEVELOPER_DIR=$app/Contents/Developer" >>"$GITHUB_ENV"
+
+          echo "Selected Xcode $pinned at $selected"
+          echo "DEVELOPER_DIR=$selected" >>"$GITHUB_ENV"
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
