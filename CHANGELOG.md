@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.5.0](https://github.com/Rubio-Enterprises/.github/compare/v2.4.0...v2.5.0) (2026-07-27)
+
+
+### Features
+
+* **ci:** adopt canonical test-gate workflow ([#140](https://github.com/Rubio-Enterprises/.github/issues/140)) ([fe2f993](https://github.com/Rubio-Enterprises/.github/commit/fe2f993ece216711b3df814884ef8d2f8949d1e0))
+* **testflight:** implement the reusable internal release workflow ([#143](https://github.com/Rubio-Enterprises/.github/issues/143)) ([b548c26](https://github.com/Rubio-Enterprises/.github/commit/b548c269fb8f6f55ab9199afe7a0ee97c149b0b3))
+
+
+### Bug Fixes
+
+* **testflight:** correct the runner model to ephemeral ([#148](https://github.com/Rubio-Enterprises/.github/issues/148)) ([03228e2](https://github.com/Rubio-Enterprises/.github/commit/03228e2aad48b8992b2838f4eedd0f92d132a830))
+* **testflight:** create the run-scoped keychain, not just clean it up ([#145](https://github.com/Rubio-Enterprises/.github/issues/145)) ([0a37dcb](https://github.com/Rubio-Enterprises/.github/commit/0a37dcb6a113243dab7ee305fb9ca8f2ebd9a12f))
+* **testflight:** resolve the xcode pin by version, not by guessed path ([#144](https://github.com/Rubio-Enterprises/.github/issues/144)) ([2a2bc92](https://github.com/Rubio-Enterprises/.github/commit/2a2bc92516c29b33d0eff62dcde0d90ccd454d8d))
+
 ## [2.4.0](https://github.com/Rubio-Enterprises/.github/compare/v2.3.1...v2.4.0) (2026-07-24)
 
 
