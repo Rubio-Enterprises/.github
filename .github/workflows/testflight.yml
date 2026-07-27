@@ -15,16 +15,19 @@
 # workflow cannot express, the answer is app-side Fastlane logic, not a new
 # input — see the contract's "Non-goals".
 #
-# KEYCHAIN ISOLATION ON PERSISTENT RUNNERS
-# ----------------------------------------
-# Match installs certificates into a keychain and provisioning profiles into
-# user-scoped locations that a temporary keychain does not isolate. On an
-# ephemeral runner that is harmless, because the whole machine is discarded.
-# The organization's macOS runner is persistent self-hosted, so this workflow
-# captures the runner's default keychain and search list before the release and
-# restores them afterwards, deleting the run-scoped keychain on success or
-# failure. Without that, a release would permanently reorder the search list of
-# a machine that serves every subsequent job.
+# WHY A RUN-SCOPED KEYCHAIN
+# -------------------------
+# Match imports the signing certificate into the *default* keychain. A macOS
+# VM's login keychain is locked and has no interactive session to unlock it, so
+# codesign blocks forever on a prompt nobody can answer — the job burns its
+# timeout and dies with an orphaned codesign process rather than an error.
+#
+# So the release runs against a keychain this workflow creates and unlocks
+# itself. The runners are ephemeral (Tart VMs, discarded after each job), which
+# is why nothing here tries to put the machine's original keychain state back:
+# there is no next job on this machine to protect. If the organization ever
+# introduces a persistent runner, that changes — capture and restore of the
+# default keychain and search list would have to come back.
 name: testflight (reusable)
 
 "on":
@@ -84,39 +87,6 @@ jobs:
       - name: Check out caller revision
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Capture keychain state
-        run: |
-          set -eu
-          normalize_keychain_paths() {
-            while IFS= read -r line; do
-              case "$line" in
-              *\"*)
-                path=${line#*\"}
-                path=${path%%\"*}
-                ;;
-              *) path=$line ;;
-              esac
-              [ -n "$path" ] && printf '%s\n' "$path"
-            done
-          }
-          security default-keychain -d user | normalize_keychain_paths \
-            >"$RUNNER_TEMP/original-default-keychain"
-          security list-keychains -d user | normalize_keychain_paths \
-            >"$RUNNER_TEMP/original-keychain-list"
-
-      # Resolve the pin by asking each installed Xcode its own version, never by
-      # constructing a bundle path from the pin. Runners carry several Xcodes
-      # under mutually inconsistent names — Xcode_26.4.1.app, Xcode-26.5.0.app,
-      # Xcode.app — so a guessed path silently misses, and a guess that misses
-      # mid-pipeline yields an empty version rather than a non-zero exit.
-      # Match imports the signing certificate into the *default* keychain. On a
-      # headless runner the login keychain is locked, so codesign blocks forever
-      # on an unlock prompt nobody can answer — the job burns its whole timeout
-      # and dies with an orphaned codesign process rather than an error.
-      #
-      # Create an unlocked run-scoped keychain and make it the default, with the
-      # runner's original entries kept in the search list so anything else on the
-      # machine still resolves. Restored and deleted by the final step.
       - name: Create run-scoped signing keychain
         run: |
           set -eu
@@ -126,14 +96,17 @@ jobs:
           # reintroduces exactly the hang this step exists to prevent.
           security set-keychain-settings -lut 21600 "$SIGNING_KEYCHAIN_NAME"
           security unlock-keychain -p "" "$SIGNING_KEYCHAIN_NAME"
-
-          set --
-          while IFS= read -r keychain; do
-            set -- "$@" "$keychain"
-          done <"$RUNNER_TEMP/original-keychain-list"
-          security list-keychains -d user -s "$SIGNING_KEYCHAIN_NAME" "$@"
+          # Replaces the user search list outright. The system keychain is a
+          # separate domain and stays reachable, so codesign still resolves
+          # Apple's intermediate certificates.
+          security list-keychains -d user -s "$SIGNING_KEYCHAIN_NAME"
           security default-keychain -d user -s "$SIGNING_KEYCHAIN_NAME"
 
+      # Resolve the pin by asking each installed Xcode its own version, never by
+      # constructing a bundle path from the pin. Runners carry several Xcodes
+      # under mutually inconsistent names — Xcode_26.4.1.app, Xcode-26.5.0.app,
+      # Xcode.app — so a guessed path silently misses, and a guess that misses
+      # mid-pipeline yields an empty version rather than a non-zero exit.
       - name: Select pinned Xcode
         run: |
           set -eu
@@ -210,29 +183,15 @@ jobs:
             echo "- Outcome: $JOB_STATUS"
           } >>"$GITHUB_STEP_SUMMARY"
 
-      # Runs on success or failure. A failed release that left the runner's
-      # default keychain swapped would break every later job on this machine.
-      - name: Restore signing state
+      # Runs on success or failure. The VM is discarded either way, so this is
+      # defence in depth rather than the thing that protects the next job:
+      # it bounds how long decrypted signing material sits on disk if the
+      # runner's teardown is ever delayed or reused.
+      - name: Delete signing keychain
         if: ${{ always() }}
         run: |
           set -u
           cleanup_status=0
-          default_file="$RUNNER_TEMP/original-default-keychain"
-          list_file="$RUNNER_TEMP/original-keychain-list"
-
-          if [ -s "$default_file" ]; then
-            IFS= read -r default_keychain <"$default_file"
-            security default-keychain -d user -s "$default_keychain" || cleanup_status=$?
-          fi
-
-          if [ -s "$list_file" ]; then
-            set --
-            while IFS= read -r keychain; do
-              set -- "$@" "$keychain"
-            done <"$list_file"
-            security list-keychains -d user -s "$@" || cleanup_status=$?
-          fi
-
           for keychain_path in \
             "$HOME/Library/Keychains/$SIGNING_KEYCHAIN_NAME" \
             "$HOME/Library/Keychains/$SIGNING_KEYCHAIN_NAME-db"; do
@@ -240,5 +199,4 @@ jobs:
               security delete-keychain "$keychain_path" || cleanup_status=$?
             fi
           done
-
           exit "$cleanup_status"
