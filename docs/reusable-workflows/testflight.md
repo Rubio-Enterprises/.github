@@ -26,9 +26,11 @@ The reusable workflow owns:
 - cleanup that runs on success or failure;
 - a generic GitHub summary containing the source revision and job outcome.
 
-The runner selected through the organization’s configurable macOS runner variable may be ephemeral or persistent self-hosted.
+The runner selected through the organization’s configurable macOS runner variable must be ephemeral. The organization operates ephemeral Tart macOS virtual machines, discarded after each job.
 
-A temporary keychain does not isolate everything Match touches: Match also installs provisioning profiles into user-scoped locations that outlive the job. On an ephemeral runner that is harmless, because the machine is discarded. On a persistent runner it is not, so the reusable workflow captures the runner’s default keychain and search list before the release and restores them afterwards, deleting the run-scoped keychain on success or failure. Persistent runners are supported only through that capture-and-restore path — a release must never leave a shared machine’s keychain search list reordered.
+Ephemerality is what makes the signing model safe. Match installs certificates into a keychain and provisioning profiles into user-scoped locations that a temporary keychain does not isolate, so a shared machine would accumulate signing material across unrelated jobs. Because the machine is discarded, the workflow does not restore the original keychain state — it creates and unlocks a run-scoped keychain, makes it the default, and deletes it at the end as defence in depth.
+
+Introducing a persistent runner would invalidate that reasoning. It would require restoring the default keychain and user search list after every run, and reviewing what else Match leaves behind outside the keychain.
 
 ### Caller responsibilities
 
