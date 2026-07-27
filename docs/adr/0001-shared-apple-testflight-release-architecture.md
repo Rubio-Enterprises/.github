@@ -1,7 +1,13 @@
 # ADR 0001: Shared Apple TestFlight release architecture
 
-- **Status:** Accepted
+- **Status:** Accepted, amended 2026-07-27
 - **Date:** 2026-07-14
+
+## Amendment (2026-07-27)
+
+The physical-device attestation requirement was removed from the caller contract by owner decision (Rubio-Enterprises/vvterm#140). A release dispatch now requires only a manual dispatch from the protected default branch, plus an optional changelog. The attestation was caller-side policy only — the reusable `testflight.yml` never consumed a `physical_device_tested` input — so no shared workflow behavior changed.
+
+Mentions of physical-device attestation elsewhere in this ADR, including the caller-policy paragraph under “Release Orchestrator”, record the original decision and no longer describe current behavior. The living caller contract is `docs/reusable-workflows/testflight.md`. Device registration and registered-device release-testing builds remain part of the app release contract; only the attestation gate on dispatch was dropped.
 
 ## Context
 

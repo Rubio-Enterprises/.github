@@ -37,10 +37,8 @@ Introducing a persistent runner would invalidate that reasoning. It would requir
 The app-local caller owns:
 
 - a manual dispatch trigger;
-- a required boolean `physical_device_tested` input;
 - an optional single-line `changelog` input mapped to `TESTFLIGHT_CHANGELOG`;
 - rejection of tags and non-default branches;
-- physical-device attestation;
 - per-application concurrency configured to queue rather than cancel;
 - minimal permissions;
 - immutable pinning of the reusable workflow;
@@ -105,7 +103,7 @@ The architecture uses one shared team App Store Connect key across participating
 
 ## Release behavior
 
-1. The caller validates that the dispatch is from the default branch and that physical-device testing was confirmed.
+1. The caller validates that the manual dispatch is from the default branch. No additional attestation input is required; the optional changelog is the only caller input.
 2. The reusable workflow checks out the dispatch revision, not the branch’s later head.
 3. The workflow selects the configured macOS runner and application-pinned toolchain.
 4. The workflow creates an isolated temporary keychain.

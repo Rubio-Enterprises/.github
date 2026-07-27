@@ -34,9 +34,11 @@ A human confirmation that a clean, release-configured build was exported for reg
 
 Device attestation proves build, signing, installation, and launch behavior. It does not claim that every product flow was manually tested.
 
+It is an optional maintainer practice, not a release gate: the TestFlight caller contract has required no attestation input since 2026-07-27.
+
 ## Release-testing build
 
-A Release-configured application exported for registered physical devices with distribution signing. It is used for device attestation before TestFlight distribution.
+A Release-configured application exported for registered physical devices with distribution signing. It is the build a maintainer uses for device attestation.
 
 ## Internal Release
 
