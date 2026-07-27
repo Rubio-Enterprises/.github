@@ -1,0 +1,184 @@
+# Reusable Apple internal TestFlight release. Implements the organization's
+# accepted contract in docs/reusable-workflows/testflight.md.
+#
+# OWNERSHIP BOUNDARY
+# ------------------
+# This workflow owns only the generic GitHub Actions half of a release: runner
+# selection, toolchain setup, run-scoped keychain lifecycle, explicit secret
+# mapping, cleanup, and a generic summary. It knows nothing about any
+# application's Xcode project, targets, extensions, entitlements, CloudKit
+# containers, bundle identifiers, or provisioning-profile names. Every one of
+# those lives behind the single command `bundle exec fastlane ios
+# testflight_release`, which the application repository owns.
+#
+# Do not add application-shaped inputs here. If a release needs something this
+# workflow cannot express, the answer is app-side Fastlane logic, not a new
+# input — see the contract's "Non-goals".
+#
+# KEYCHAIN ISOLATION ON PERSISTENT RUNNERS
+# ----------------------------------------
+# Match installs certificates into a keychain and provisioning profiles into
+# user-scoped locations that a temporary keychain does not isolate. On an
+# ephemeral runner that is harmless, because the whole machine is discarded.
+# The organization's macOS runner is persistent self-hosted, so this workflow
+# captures the runner's default keychain and search list before the release and
+# restores them afterwards, deleting the run-scoped keychain on success or
+# failure. Without that, a release would permanently reorder the search list of
+# a machine that serves every subsequent job.
+name: testflight (reusable)
+
+"on":
+  workflow_call:
+    inputs:
+      changelog:
+        description: Optional single-line TestFlight release notes. Empty sends none.
+        type: string
+        default: ''
+      timeout-minutes:
+        description: Job timeout. Apple processing waits dominate the runtime.
+        type: number
+        default: 120
+    secrets:
+      APP_STORE_CONNECT_API_KEY_ID:
+        required: true
+      APP_STORE_CONNECT_API_KEY_ISSUER_ID:
+        required: true
+      APP_STORE_CONNECT_API_KEY_CONTENT_BASE64:
+        required: true
+      MATCH_GIT_URL:
+        required: true
+      MATCH_GIT_BASIC_AUTHORIZATION:
+        required: true
+      MATCH_PASSWORD:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  testflight:
+    name: Internal TestFlight release
+    runs-on: ${{ fromJSON(vars.RUNNER_MACOS || '["macos-15"]') }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      # Run-scoped so concurrent or retried runs never collide on one keychain.
+      SIGNING_KEYCHAIN_NAME: release-signing-${{ github.run_id }}-${{ github.run_attempt }}
+      # fastlane reads xcodebuild's PTY output through FastlaneCore's
+      # encode_as_utf_8_if_possible. Without a UTF-8 locale, Ruby's default
+      # external encoding makes that output test as invalid, the helper guesses
+      # UTF-16, and the conversion raises FastlanePtyError. Self-hosted runners
+      # set no locale, so declare one here.
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      # Checks out the caller's dispatch revision, not the branch's later head:
+      # a release must build exactly the commit the operator attested to.
+      - name: Check out caller revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Capture keychain state
+        run: |
+          set -eu
+          normalize_keychain_paths() {
+            while IFS= read -r line; do
+              case "$line" in
+              *\"*)
+                path=${line#*\"}
+                path=${path%%\"*}
+                ;;
+              *) path=$line ;;
+              esac
+              [ -n "$path" ] && printf '%s\n' "$path"
+            done
+          }
+          security default-keychain -d user | normalize_keychain_paths \
+            >"$RUNNER_TEMP/original-default-keychain"
+          security list-keychains -d user | normalize_keychain_paths \
+            >"$RUNNER_TEMP/original-keychain-list"
+
+      - name: Select pinned Xcode
+        run: |
+          set -eu
+          if [ ! -f .xcode-version ]; then
+            echo "::error::.xcode-version is required by the release contract" >&2
+            exit 1
+          fi
+          version=$(tr -d '[:space:]' <.xcode-version)
+          app="/Applications/Xcode_${version}.app"
+          [ -d "$app" ] || app="/Applications/Xcode.app"
+          installed=$(DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version | head -1 | awk '{print $2}')
+          if [ "$installed" != "$version" ]; then
+            echo "::error::.xcode-version pins $version but the runner has $installed" >&2
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$app/Contents/Developer" >>"$GITHUB_ENV"
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version-file: .ruby-version
+          bundler-cache: true
+
+      # `xcrun --find metal` locates the shim, which is present even when the
+      # downloadable Metal Toolchain component is not installed — guarding on it
+      # passes and the build then fails with "cannot execute tool 'metal'".
+      # Download unconditionally.
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Release to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          ASC_KEY_CONTENT_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT_BASE64 }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          TESTFLIGHT_CHANGELOG: ${{ inputs.changelog }}
+        run: bundle exec fastlane ios testflight_release
+
+      - name: Record outcome
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -eu
+          {
+            echo "## Internal TestFlight release"
+            echo
+            echo "- Source revision: \`$GITHUB_SHA\`"
+            echo "- Outcome: $JOB_STATUS"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # Runs on success or failure. A failed release that left the runner's
+      # default keychain swapped would break every later job on this machine.
+      - name: Restore signing state
+        if: ${{ always() }}
+        run: |
+          set -u
+          cleanup_status=0
+          default_file="$RUNNER_TEMP/original-default-keychain"
+          list_file="$RUNNER_TEMP/original-keychain-list"
+
+          if [ -s "$default_file" ]; then
+            IFS= read -r default_keychain <"$default_file"
+            security default-keychain -d user -s "$default_keychain" || cleanup_status=$?
+          fi
+
+          if [ -s "$list_file" ]; then
+            set --
+            while IFS= read -r keychain; do
+              set -- "$@" "$keychain"
+            done <"$list_file"
+            security list-keychains -d user -s "$@" || cleanup_status=$?
+          fi
+
+          for keychain_path in \
+            "$HOME/Library/Keychains/$SIGNING_KEYCHAIN_NAME" \
+            "$HOME/Library/Keychains/$SIGNING_KEYCHAIN_NAME-db"; do
+            if [ -e "$keychain_path" ]; then
+              security delete-keychain "$keychain_path" || cleanup_status=$?
+            fi
+          done
+
+          exit "$cleanup_status"

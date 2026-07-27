@@ -72,6 +72,17 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "Hand-authored TestFlight callers pinning the Rubio-Enterprises/.github reusable release workflow. Unlike the standards.yml digest above, this target is shared WRITE-CAPABLE release logic: it carries App Store Connect and Match credentials, mutates App Store Connect state, and runs on the persistent signing runner -- a regression reaches Apple, not just a red check. automerge:false forces every advance through a reviewed consumer commit, and the dedicated groupName keeps it out of the general github-actions group so it can never ride in on an unrelated bump. Must come AFTER the first-party reusable rule above (later rules win), which would otherwise automerge it.",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/testflight-release.yml"],
+      "matchDepNames": ["Rubio-Enterprises/.github"],
+      "groupName": "testflight release workflow",
+      "enabled": true,
+      "automerge": false,
+      "platformAutomerge": false,
+      "minimumReleaseAge": "0 days"
+    },
+    {
       "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows, tracked by the jdx/mise customManager below). Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["jdx/mise"],

@@ -1,6 +1,6 @@
 # Apple TestFlight reusable workflow contract
 
-- **Status:** Accepted design; implementation pending
+- **Status:** Implemented in `.github/workflows/testflight.yml`
 - **Reference implementation:** VVTerm
 
 ## Purpose
@@ -26,7 +26,9 @@ The reusable workflow owns:
 - cleanup that runs on success or failure;
 - a generic GitHub summary containing the source revision and job outcome.
 
-The runner selected through the organization’s configurable macOS runner variable must be ephemeral. Persistent self-hosted runners are unsupported because Match installs provisioning profiles into user-scoped locations that are not isolated by the temporary keychain.
+The runner selected through the organization’s configurable macOS runner variable may be ephemeral or persistent self-hosted.
+
+A temporary keychain does not isolate everything Match touches: Match also installs provisioning profiles into user-scoped locations that outlive the job. On an ephemeral runner that is harmless, because the machine is discarded. On a persistent runner it is not, so the reusable workflow captures the runner’s default keychain and search list before the release and restores them afterwards, deleting the run-scoped keychain on success or failure. Persistent runners are supported only through that capture-and-restore path — a release must never leave a shared machine’s keychain search list reordered.
 
 ### Caller responsibilities
 
@@ -57,7 +59,7 @@ The application repository owns:
 - Xcode project, scheme, target, extension, signing, and export details;
 - optional release notes, with an empty value allowed;
 - waiting for App Store Connect processing;
-- assigning and confirming the processed build in the fixed internal group;
+- associating the processed build with the fixed internal group **where association is required** — see “Internal group association” below;
 - appending application version, build number, bundle identifier, internal group, and distribution outcome to `GITHUB_STEP_SUMMARY` when that environment variable is available.
 
 ## Executable application contract
@@ -67,14 +69,20 @@ Every caller provides the same repository layout and command contract:
 - the macOS runner is selected from `vars.RUNNER_MACOS`, defaulting to `["macos-15"]` when unset;
 - the pinned Xcode version is stored in root `.xcode-version`;
 - the pinned Ruby version is stored in root `.ruby-version`;
-- the Bundler definition and lockfile are stored under root `fastlane/`;
-- Fastlane is invoked with `fastlane/` as the working directory;
+- the Bundler definition and lockfile are stored at the repository root;
+- Fastlane is invoked from the repository root;
 - the release command is `bundle exec fastlane ios testflight_release`;
 - optional release notes are supplied through `TESTFLIGHT_CHANGELOG`;
 - source revision is supplied through the standard `GITHUB_SHA` environment variable in CI and resolved from Git locally;
 - the application lane writes detailed release information directly to `GITHUB_STEP_SUMMARY` when running in GitHub Actions;
-- a zero exit status means the build finished processing and is associated with the fixed internal group;
+- a zero exit status means the build finished processing and is available to the fixed internal group;
 - any archive, upload, processing, or group-association failure exits non-zero.
+
+### Internal group association
+
+An internal TestFlight group configured with `hasAccessToAllBuilds = true` receives every processed build automatically, and the build’s `betaGroups` relationship stays empty. For such a group, a per-build association call is unnecessary and an association *assertion* fails on every otherwise-successful release.
+
+Applications therefore associate and assert only when their internal group does not already have access to all builds. Where the group does, reaching `processingState == VALID` is the complete success condition. VVTerm — the reference implementation — uses a `hasAccessToAllBuilds = true` group and deliberately performs no association call.
 
 The central workflow does not parse application metadata or require an additional result-file protocol.
 
