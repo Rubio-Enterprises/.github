@@ -38,6 +38,14 @@ name: testflight (reusable)
         description: Job timeout. Apple processing waits dominate the runtime.
         type: number
         default: 120
+      release-timeout-minutes:
+        description: >-
+          Timeout for the Fastlane release step alone. Kept below the job
+          timeout on purpose: a job-level timeout cancels the whole job, so
+          cleanup and the summary never run. This bounds a hung release while
+          leaving those steps a window to report and restore the runner.
+        type: number
+        default: 70
     secrets:
       APP_STORE_CONNECT_API_KEY_ID:
         required: true
@@ -101,6 +109,31 @@ jobs:
       # under mutually inconsistent names — Xcode_26.4.1.app, Xcode-26.5.0.app,
       # Xcode.app — so a guessed path silently misses, and a guess that misses
       # mid-pipeline yields an empty version rather than a non-zero exit.
+      # Match imports the signing certificate into the *default* keychain. On a
+      # headless runner the login keychain is locked, so codesign blocks forever
+      # on an unlock prompt nobody can answer — the job burns its whole timeout
+      # and dies with an orphaned codesign process rather than an error.
+      #
+      # Create an unlocked run-scoped keychain and make it the default, with the
+      # runner's original entries kept in the search list so anything else on the
+      # machine still resolves. Restored and deleted by the final step.
+      - name: Create run-scoped signing keychain
+        run: |
+          set -eu
+          security create-keychain -p "" "$SIGNING_KEYCHAIN_NAME"
+          # Long lock timeout: a release archive plus Apple's processing wait can
+          # run for over an hour, and a keychain that auto-locks mid-run
+          # reintroduces exactly the hang this step exists to prevent.
+          security set-keychain-settings -lut 21600 "$SIGNING_KEYCHAIN_NAME"
+          security unlock-keychain -p "" "$SIGNING_KEYCHAIN_NAME"
+
+          set --
+          while IFS= read -r keychain; do
+            set -- "$@" "$keychain"
+          done <"$RUNNER_TEMP/original-keychain-list"
+          security list-keychains -d user -s "$SIGNING_KEYCHAIN_NAME" "$@"
+          security default-keychain -d user -s "$SIGNING_KEYCHAIN_NAME"
+
       - name: Select pinned Xcode
         run: |
           set -eu
@@ -148,6 +181,7 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Release to TestFlight
+        timeout-minutes: ${{ inputs.release-timeout-minutes }}
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
@@ -155,6 +189,11 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          # Point Match at the run-scoped keychain explicitly rather than
+          # relying on it being the default, so the import target is
+          # unambiguous even if something else reorders the search list.
+          MATCH_KEYCHAIN_NAME: ${{ env.SIGNING_KEYCHAIN_NAME }}
+          MATCH_KEYCHAIN_PASSWORD: ''
           TESTFLIGHT_CHANGELOG: ${{ inputs.changelog }}
         run: bundle exec fastlane ios testflight_release
 
