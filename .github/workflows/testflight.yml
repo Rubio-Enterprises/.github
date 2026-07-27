@@ -38,6 +38,14 @@ name: testflight (reusable)
         description: Job timeout. Apple processing waits dominate the runtime.
         type: number
         default: 120
+      release-timeout-minutes:
+        description: >-
+          Timeout for the Fastlane release step alone. Kept below the job
+          timeout on purpose: a job-level timeout cancels the whole job, so
+          cleanup and the summary never run. This bounds a hung release while
+          leaving those steps a window to report and restore the runner.
+        type: number
+        default: 70
     secrets:
       APP_STORE_CONNECT_API_KEY_ID:
         required: true
@@ -173,6 +181,7 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Release to TestFlight
+        timeout-minutes: ${{ inputs.release-timeout-minutes }}
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
