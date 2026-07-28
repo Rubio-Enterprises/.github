@@ -163,6 +163,11 @@ reread contract in the runbook.
   `ubuntu-24.04-arm` as its class-specific hosted fallback. Repository policy stores only
   the symbolic class and timeout; never copy physical self-hosted labels into a public
   workflow. The Rust aggregate remains on the glue route. Only `e2e` uses `ubuntu-latest`.
+  macOS is two-tiered and the tier is a deliberate choice, not a detail: short (≲2 min)
+  lints/shell tests take `RUNNER_MACOS_LITE` (cheap hosted) — `lint-hooks`' swift route is
+  one — while `RUNNER_MACOS` (the scarce self-hosted Tart pool) is reserved for long,
+  high-frequency Xcode work such as `testflight`'s signed build. Do not promote a lint job
+  onto `RUNNER_MACOS` to "match" the other macOS job.
 
 ## Renovate config — three files, three roles
 
