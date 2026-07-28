@@ -102,15 +102,29 @@ jobs:
       # written on a PR ref are private to that PR, but PR runs CAN read the
       # base branch's — so the cross-PR benefit depends on something seeding
       # `main` (a consumer's own push-triggered workflow usually does).
+      # Resolving the store must never be able to fail the gate. `pnpm store
+      # path` writes the path on stdout and its deprecation notices on stderr,
+      # so command substitution already yields a clean value — but an empty or
+      # unresolvable result would hand actions/cache an empty `path:`, which is
+      # a hard "Path Validation Error" and would fail a REQUIRED check for every
+      # pnpm consumer at once. Treat resolution as best-effort: on any failure
+      # emit ok=false and skip caching, leaving the install to run uncached.
       - name: Locate the pnpm store
         id: pnpm-store
         if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
         shell: bash
         run: |
-          set -euo pipefail
-          printf 'path=%s\n' "$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+          set -uo pipefail
+          if ! store="$(pnpm store path --silent 2>/dev/null)" || [ -z "$store" ]; then
+            echo "::notice::could not resolve the pnpm store path — skipping the store cache"
+            printf 'ok=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'ok=true\n' >> "$GITHUB_OUTPUT"
+          printf 'path=%s\n' "$store" >> "$GITHUB_OUTPUT"
+          echo "pnpm store: $store"
       - name: Restore the pnpm store
-        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
+        if: steps.pnpm-store.outputs.ok == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
