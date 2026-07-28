@@ -1,10 +1,11 @@
 {
-  "expected_current_sha": "f9d43151bd89f6487b5b610db54c65b9066f32a4",
-  "target_sha": "d533135257918a08a89407a333564d558ba51bf6",
-  "reason": "Publish the TypeScript gate's install-memory fix. The previously published range added pnpm store + turbo caching, but a canary on karakeep#316 showed the store cache could never pay off: the gate is injected and only ever fires on pull_request, and a PR-ref cache is private to that PR, so each run paid ~700 MB and ~110 s of save for zero reuse while evicting caches that were hitting (karakeep, kodus-ai and gmaps-sync all sit at ~102% of the 10 GiB repo limit). This range makes the store cache read-only and throttles pnpm install to --network-concurrency=8 --child-concurrency=2, which is the actual fix for the exit-137 kills: 5 of the 7 observed landed in the install step, where peak RSS tracks pnpm's concurrency rather than the dependency-graph size. Validated on karakeep#316 (warm caches: install 22s -> 3s, type-check 1m23s -> 190ms) and by the full green check suite on #160.",
+  "expected_current_sha": "d533135257918a08a89407a333564d558ba51bf6",
+  "target_sha": "f66ffb1e8e1f51d55f7ae56b418e66176aa88b1a",
+  "reason": "Publish #162, which lets the default branch seed the caches the TypeScript gate reads. #160 made the pnpm store cache read-only because an injected required workflow only ever fires on pull_request and a PR-ref cache is private to that PR, leaving the restore correct but permanently cold. #162 adds the missing writer: the gate also accepts workflow_call with a seed-caches input, so a repo's rendered standards.yml can call this same file on push-to-default, which is the one ref every PR in the repo may read from. Reusing the gate's own file rather than a separate seeder keeps the cache keys to a single definition. Also namespaces the concurrency group, because in a called workflow github.workflow resolves to the caller's name and the previous bare group would have deadlocked against standards.yml's identical group. Inert on PR runs until the standards companion lands: seed-caches defaults false and inputs is null on a pull_request trigger. The preceding range was validated by the 2026-07-28 manual Renovate wave: 26 typecheck gate runs, zero OOM kills, against 7 exit-137 kills on the prior wave.",
   "references": [
+    "https://github.com/Rubio-Enterprises/.github/pull/162",
     "https://github.com/Rubio-Enterprises/.github/pull/160",
-    "https://github.com/Rubio-Enterprises/karakeep/pull/316",
-    "https://github.com/Rubio-Enterprises/gha-outrunner/issues/149"
+    "https://github.com/Rubio-Enterprises/standards/pull/409",
+    "https://github.com/Rubio-Enterprises/karakeep/pull/316"
   ]
 }
