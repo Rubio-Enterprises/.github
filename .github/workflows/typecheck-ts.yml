@@ -11,10 +11,31 @@ name: typecheck-ts (gate)
 "on":
   pull_request:
   merge_group:
+  # Also callable, so a repo's rendered `standards.yml` can run this same file
+  # on push-to-default with `seed-caches: true`. Injected required workflows
+  # only ever fire on `pull_request`, and a PR-ref cache is private to that PR,
+  # so the default branch is the only place a reusable cache can be written.
+  # Reusing THIS file rather than a separate seeder is deliberate: the cache
+  # keys are then defined once, and a seeder that drifts from the gate's key
+  # format fails silently — it writes caches nobody ever reads.
+  workflow_call:
+    inputs:
+      seed-caches:
+        description: >-
+          Save the pnpm store cache after installing, instead of only reading
+          it. Set this ONLY for push-to-default runs; on a PR ref the write is
+          unreadable by every other PR and still consumes the repo's cache
+          budget.
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Prefixed with the workflow's own name, NOT bare `github.workflow`. In a
+  # called workflow `github.workflow` resolves to the CALLER's name, so a bare
+  # group would collide with the caller's own concurrency group — the caller
+  # holds it while waiting for this job, which waits for the group: deadlock.
+  group: typecheck-ts-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   typecheck:
@@ -108,10 +129,10 @@ jobs:
       # per PR for zero reuse — and since these repos already sit at ~102 % of
       # the 10 GiB per-repo cache limit, each write evicted something that WAS
       # being hit. PR runs may always read the base branch's caches, so the
-      # default branch is the only place worth writing from; seeding these exact
-      # keys on push-to-default from a repo's rendered `standards.yml` is the
-      # follow-up that makes this restore actually hit. Until that lands this
-      # step is a no-op miss — which is strictly better than the write was.
+      # default branch is the only place worth writing from — which is what the
+      # `seed-caches` input and the "Seed the pnpm store cache" step below do.
+      # A repo whose `standards.yml` does not call this workflow on push simply
+      # gets a no-op miss here, which is still strictly better than the write.
       # Resolving the store must never be able to fail the gate. `pnpm store
       # path` writes the path on stdout and its deprecation notices on stderr,
       # so command substitution already yields a clean value — but an empty or
@@ -177,6 +198,28 @@ jobs:
             fi
           fi
 
+      # The counterpart to the read-only restore above, and the ONLY place this
+      # workflow writes the store. Gated on `seed-caches`, which a repo's
+      # rendered `standards.yml` sets true for push-to-default runs only — a
+      # write from a PR ref is unreadable by every other PR while still
+      # consuming the repo's 10 GiB cache budget.
+      #
+      # Placed here rather than in a post step so it runs even when the
+      # type-check below fails: the store's contents are decided by the
+      # lockfile, and a repo with a genuine type error still deserves a warm
+      # store for the PR that fixes it. Re-running an unchanged default branch
+      # re-uses the same key, which `cache/save` reports as a skip, not an
+      # error.
+      - name: Seed the pnpm store cache
+        if: >-
+          inputs.seed-caches
+          && steps.detect.outputs.has_typecheck == 'true'
+          && steps.pnpm-store.outputs.ok == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       # Cache turbo's local task cache for monorepo consumers. Turbo hashes each
       # package's own inputs plus its resolved external deps, so a restored
       # cache replays every task whose hash still matches and re-runs only the
@@ -190,11 +233,13 @@ jobs:
       # hashes, so the cache only needs to be recent, not matched. The artifact
       # is small (single-digit MB for 23 tasks).
       #
-      # Unlike the pnpm store above, this one still WRITES from PR runs. The
-      # asymmetry is purely about size: at ~1 MB and ~1 s per save it does not
-      # move the repo's cache-eviction budget, and the within-PR payoff is real
-      # — when Renovate rebases a PR the second run replays 22 of 23 tasks off
-      # the first run's cache. A 700 MB store write could not earn that back.
+      # Unlike the pnpm store above, this one still WRITES from PR runs, and so
+      # needs no `seed-caches` gate. The asymmetry is purely about size: at
+      # ~1 MB and ~1 s per save it does not move the repo's cache-eviction
+      # budget, and the within-PR payoff is real — when Renovate rebases a PR
+      # the second run replays 22 of 23 tasks off the first run's cache. A
+      # 700 MB store write could not earn that back. Being plain `cache` also
+      # means a push-to-default run seeds the default branch for free.
       - name: Restore the turbo task cache
         if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('turbo.json') != ''
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
