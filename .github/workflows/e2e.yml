@@ -32,12 +32,18 @@ permissions:
   contents: read
 jobs:
   e2e:
-    # The glue image bakes in the Playwright browser OS deps (mac-dev-playbook
-    # docker/glue-runner/Dockerfile, `playwright install-deps`), which the pool's
-    # no-new-privileges containers cannot install for themselves. Consumers'
-    # `mise run e2e-setup` is sudo-aware to match: `--with-deps` only where
-    # passwordless sudo exists, a plain browser-binary install here.
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-latest"]') }}
+    # Deliberately hosted, and NOT RUNNER_GLUE. Glue is the light-job tier —
+    # sized at 24 unbudgeted containers sharing colima's 24 GiB on a measured
+    # p90 of 0.74 GB each (mac-dev-playbook cue/mac/config_outrunner.cue). A
+    # Playwright suite is an order of magnitude past that: routing e2e here
+    # killed static-webpage-template — the fleet's LIGHTEST consumer — during
+    # `pnpm install`, before browser install even started, and the same pool
+    # OOM-kills karakeep's typecheck and installs. Baking browser deps into
+    # the glue image (mac-dev-playbook#468) fixed a real gap but does not make
+    # this the right tier.
+    # TODO: give e2e its own route (RUNNER_E2E) so it can target a VM-backed
+    # pool independently of the glue and ARM decisions.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
