@@ -32,8 +32,12 @@ permissions:
   contents: read
 jobs:
   e2e:
-    # TODO: route to RUNNER_GLUE once the glue runner image carries Playwright browser deps
-    runs-on: ubuntu-latest
+    # The glue image bakes in the Playwright browser OS deps (mac-dev-playbook
+    # docker/glue-runner/Dockerfile, `playwright install-deps`), which the pool's
+    # no-new-privileges containers cannot install for themselves. Consumers'
+    # `mise run e2e-setup` is sudo-aware to match: `--with-deps` only where
+    # passwordless sudo exists, a plain browser-binary install here.
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
