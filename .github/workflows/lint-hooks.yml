@@ -9,7 +9,12 @@ name: lint hooks (reusable)
 # archetype and sends the lint-hooks job to macOS for `swift-*` archetypes —
 # swiftformat/swiftlint need sourcekitd, which the Linux glue runner lacks, so
 # there they die with `swiftformat_linux: not found` / `Loading
-# libsourcekitdInProc.so failed`. Every other archetype stays on RUNNER_GLUE.
+# libsourcekitdInProc.so failed`. That macOS need is served by the LITE tier
+# (`RUNNER_MACOS_LITE`, cheap GitHub-hosted), not the scarce self-hosted Tart
+# pool: this job is a short lint pass (~40s of swiftlint/swiftformat once the
+# mise cache is warm), and the org routing rule puts short (≲2 min) macOS
+# lints/shell tests on the lite tier while reserving `RUNNER_MACOS` for long,
+# high-frequency Xcode builds. Every other archetype stays on RUNNER_GLUE.
 #
 # Consumer thin-callers invoke this via `uses:`. The `pull_request:` trigger is
 # required so GitHub's org-ruleset `required_workflows` validator accepts the
@@ -26,9 +31,11 @@ permissions:
 jobs:
   detect:
     # Resolve the runner from the consumer's archetype: swift-* needs macOS
-    # (sourcekitd); everything else uses the glue/ubuntu-slim tier. Reading
-    # .copier-answers.yml tracks the authoritative archetype rather than
-    # file-sniffing for Package.swift.
+    # (sourcekitd) on the cheap hosted lite tier — a ≲2-min lint pass, so
+    # RUNNER_MACOS_LITE rather than the scarce self-hosted RUNNER_MACOS pool
+    # (see the routing note in the file header); everything else uses the
+    # glue/ubuntu-slim tier. Reading .copier-answers.yml tracks the
+    # authoritative archetype rather than file-sniffing for Package.swift.
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
@@ -45,7 +52,7 @@ jobs:
       - name: Pick runner from the language facets
         id: pick
         env:
-          MACOS_RUNNER: ${{ vars.RUNNER_MACOS || '["macos-15"]' }}
+          MACOS_RUNNER: ${{ vars.RUNNER_MACOS_LITE || '["macos-15"]' }}
           GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
         shell: bash
         run: |
