@@ -88,6 +88,36 @@ jobs:
         if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
+      # Cache the pnpm content-addressed store. Without this the gate
+      # re-downloads the whole dependency set on every run — measured at 3,095
+      # packages / 78 s quiet / 285 s under load for a large monorepo, on an
+      # ephemeral container that starts cold every time. That download is also
+      # a memory peak: 5 of the 7 exit-137 kills observed on the glue pool in
+      # the 2026-07-28 Renovate wave happened inside `pnpm install`, before any
+      # type-checking began.
+      #
+      # `restore-keys` matters more than the exact key here. A Renovate PR
+      # changes the lockfile, so the hash never matches; the prefix match still
+      # restores the newest store and pnpm downloads only the delta. Caches
+      # written on a PR ref are private to that PR, but PR runs CAN read the
+      # base branch's — so the cross-PR benefit depends on something seeding
+      # `main` (a consumer's own push-triggered workflow usually does).
+      - name: Locate the pnpm store
+        id: pnpm-store
+        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'path=%s\n' "$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Restore the pnpm store
+        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install JS deps
         # Type-checking needs node_modules (typescript, @types/*, astro). mise
         # installs the toolchain but not the workspace. Lockfile-aware and
@@ -107,6 +137,27 @@ jobs:
             else echo "::error::package.json without a lockfile — commit one"; exit 1
             fi
           fi
+
+      # Cache turbo's local task cache for monorepo consumers. Turbo hashes each
+      # package's own inputs plus its resolved external deps, so a restored
+      # cache replays every task whose hash still matches and re-runs only the
+      # rest. Measured on a 23-package consumer: an unchanged re-run is 80 ms
+      # (23/23 replayed), touching one app's source re-runs 1 task, and — the
+      # case that matters here — bumping a single package's dependency in the
+      # lockfile still replays 22 of 23. That is the shape of a Renovate wave,
+      # which is exactly when this pool runs out of memory.
+      #
+      # The key is intentionally rolling: turbo decides validity from its own
+      # hashes, so the cache only needs to be recent, not matched. The artifact
+      # is small (single-digit MB for 23 tasks).
+      - name: Restore the turbo task cache
+        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('turbo.json') != ''
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: .turbo/cache
+          key: turbo-typecheck-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            turbo-typecheck-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Type-check (mise run typecheck)
         if: steps.detect.outputs.has_typecheck == 'true'
