@@ -1,9 +1,12 @@
 {
-  "expected_current_sha": "32082b213abc6b1fc810f78b20d2cc5c0f63b154",
-  "target_sha": "0c13d3f5f63570b76e72cdd08b735580edbf7699",
-  "reason": "Publish the exact Audit merge-group candidate after successful proportional Candidate Validation.",
+  "expected_current_sha": "0c13d3f5f63570b76e72cdd08b735580edbf7699",
+  "target_sha": "f9d43151bd89f6487b5b610db54c65b9066f32a4",
+  "reason": "Publish pnpm store and turbo task caching for the TypeScript gate. The gate cold-started every run, and its pnpm install step accounted for 5 of the 7 exit-137 OOM kills observed on the glue pool during the 2026-07-28 Renovate wave. The range also carries the mise 2026.7.7 bump across all gate workflows, canonical test-gate adoption, and lint-hooks macOS routing to the lite hosted tier. Candidate Validation was not run; the cache steps are fail-open by construction and the first real exercise is the 06:23 UTC Renovate wave.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/137",
-    "https://github.com/Rubio-Enterprises/.github/releases/tag/v2.4.0"
+    "https://github.com/Rubio-Enterprises/.github/pull/157",
+    "https://github.com/Rubio-Enterprises/.github/pull/158",
+    "https://github.com/Rubio-Enterprises/.github/pull/140",
+    "https://github.com/Rubio-Enterprises/.github/pull/151",
+    "https://github.com/Rubio-Enterprises/gha-outrunner/issues/149"
   ]
 }
