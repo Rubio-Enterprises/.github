@@ -162,7 +162,10 @@ reread contract in the runbook.
   additionally maps symbolic `linux-arm` through `RUNNER_LINUX_ARM` with
   `ubuntu-24.04-arm` as its class-specific hosted fallback. Repository policy stores only
   the symbolic class and timeout; never copy physical self-hosted labels into a public
-  workflow. The Rust aggregate remains on the glue route. Only `e2e` uses `ubuntu-latest`.
+  workflow. The Rust aggregate remains on the glue route. `e2e` has its own tier —
+  `RUNNER_E2E` with `ubuntu-latest` as its hosted fallback — because Playwright suites are
+  multi-GB jobs: its self-hosted value targets the linux-arm64 VM pool and must NEVER be
+  pointed at glue (tried and reverted in #154 after it OOM-killed the lightest consumer).
   macOS is two-tiered and the tier is a deliberate choice, not a detail: short (≲2 min)
   lints/shell tests take `RUNNER_MACOS_LITE` (cheap hosted) — `lint-hooks`' swift route is
   one — while `RUNNER_MACOS` (the scarce self-hosted Tart pool) is reserved for long,
