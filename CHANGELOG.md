@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.6.0](https://github.com/Rubio-Enterprises/.github/compare/v2.5.0...v2.6.0) (2026-07-29)
+
+
+### Features
+
+* **e2e:** route the reusable e2e job through its own RUNNER_E2E tier ([#156](https://github.com/Rubio-Enterprises/.github/issues/156)) ([53ba872](https://github.com/Rubio-Enterprises/.github/commit/53ba8726befdc27638269e6a239451ba457200a2))
+* **typecheck-gate:** let the default branch seed the caches the gate reads ([#162](https://github.com/Rubio-Enterprises/.github/issues/162)) ([f66ffb1](https://github.com/Rubio-Enterprises/.github/commit/f66ffb1e8e1f51d55f7ae56b418e66176aa88b1a))
+
+
+### Bug Fixes
+
+* **typecheck-gate:** never let pnpm store resolution fail the gate ([#158](https://github.com/Rubio-Enterprises/.github/issues/158)) ([f9d4315](https://github.com/Rubio-Enterprises/.github/commit/f9d43151bd89f6487b5b610db54c65b9066f32a4))
+
+
+### Performance Improvements
+
+* **lint-hooks:** cap the pnpm install concurrency ([#165](https://github.com/Rubio-Enterprises/.github/issues/165)) ([8d73187](https://github.com/Rubio-Enterprises/.github/commit/8d7318733e9698869ac974a020b711fdefe8a1b9))
+* **typecheck-gate:** cap pnpm install concurrency, stop writing the store cache ([#160](https://github.com/Rubio-Enterprises/.github/issues/160)) ([d533135](https://github.com/Rubio-Enterprises/.github/commit/d533135257918a08a89407a333564d558ba51bf6))
+
+
+### Reverts
+
+* unroute the reusable e2e job from the glue pool ([#154](https://github.com/Rubio-Enterprises/.github/issues/154)) ([cb2dbba](https://github.com/Rubio-Enterprises/.github/commit/cb2dbba1cdff4325054333a8bf1069a89359a3bf))
+
 ## [2.5.0](https://github.com/Rubio-Enterprises/.github/compare/v2.4.0...v2.5.0) (2026-07-27)
 
 
