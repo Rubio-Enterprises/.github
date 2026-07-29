@@ -223,8 +223,32 @@ jobs:
         # Surfaced 2026-05-17 by karakeep PR #5 v1.1.16 re-run (Plan 3 Task 48):
         # `pnpm exec sherif` failed with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL
         # because sherif (a devDep) wasn't in node_modules.
+        #
+        # Throttled for the same reason as typecheck-ts.yml's "Install JS deps"
+        # step, and with the same two flags: pnpm's defaults (16 concurrent HTTP
+        # requests, 5 concurrent build child-processes) each hold a decompressed
+        # tarball in flight, so peak RSS scales with the concurrency, not with
+        # the size of the dependency graph. Halving both caps the transient peak
+        # while barely moving wall-clock, because the step is network-bound long
+        # before it is CPU-bound. The glue containers are sized for ~0.75 GB
+        # jobs, so the peak is the number that has to come down.
+        #
+        # The typecheck gate got these flags on 2026-07-28 and this gate did
+        # not, which made this step THE failure mode of the next Renovate wave:
+        # of 37 kodus-ai `standards.yml` runs on 2026-07-29, 21 failed and every
+        # one failed in `lint-hooks` — 16 in this step (exit 137 OOM kills and
+        # ERR_PNPM_BROKEN_METADATA_JSON registry timeouts, roughly evenly split),
+        # 2 more installing pnpm itself. Zero were lint errors.
+        #
+        # Throttled, not skipped: the install exists for CONSUMER-owned
+        # `lefthook-local.yml` hooks, which are arbitrary per repo — a hook that
+        # shells out to a node script needing node_modules leaves no `pnpm` token
+        # for a workflow-side grep to find — so there is no sound test here for
+        # "no hook needs the workspace". Fork-ness is not that test either:
+        # forks run the same pre-commit hooks as every other repo, just scoped to
+        # the PR's changed files.
         if: hashFiles('pnpm-lock.yaml') != ''
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --network-concurrency=8 --child-concurrency=2
         shell: bash
       - name: Run lefthook pre-commit across all files
         if: needs.detect.outputs.is_fork != 'true'
