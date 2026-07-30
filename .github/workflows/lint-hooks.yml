@@ -267,26 +267,38 @@ jobs:
           files=/tmp/lefthook-changed-files.txt
           : > "$files"
 
+          # EVERY producer below must be `-z` (NUL-separated). lefthook's
+          # `--files-from-stdin` parses NUL, not newlines — verified against the
+          # pinned lefthook 2.1.10. Fed a newline-separated list it resolves ZERO
+          # paths, so every `glob:`-scoped hook reports
+          # `(skip) no files for inspection` and the job exits 0 while checking
+          # nothing. Only hooks with no `glob:` (gitleaks, and consumer hooks like
+          # karakeep's `sherif`) ran, which is why the gate looked healthy:
+          # karakeep run 30479210039 logged `markdownlint`, `yamllint`,
+          # `yaml-prettier`, `shellcheck` and `shfmt` all skipping while `gitleaks`
+          # and `sherif` passed. `-z` is therefore load-bearing, not a nicety, and
+          # it also removes git's path-quoting of names with spaces or non-ASCII
+          # bytes, which the newline form would have mangled anyway.
           if git rev-parse --verify --quiet HEAD^1 >/dev/null && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
             # GitHub checks out pull_request workflow_call jobs at a synthetic
             # merge commit. Diff the merge result against the base parent; this
             # needs only fetch-depth: 2 and avoids an unfetched merge base.
-            git diff --name-only --diff-filter=ACMR HEAD^1 HEAD > "$files"
+            git diff -z --name-only --diff-filter=ACMR HEAD^1 HEAD > "$files"
           elif [ -n "${GITHUB_BASE_REF:-}" ]; then
             git fetch --no-tags --depth=50 origin "refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
             if git merge-base "origin/${GITHUB_BASE_REF}" HEAD >/dev/null; then
-              git diff --name-only --diff-filter=ACMR "origin/${GITHUB_BASE_REF}...HEAD" > "$files"
+              git diff -z --name-only --diff-filter=ACMR "origin/${GITHUB_BASE_REF}...HEAD" > "$files"
             elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
-              git diff --name-only --diff-filter=ACMR HEAD^ HEAD > "$files"
+              git diff -z --name-only --diff-filter=ACMR HEAD^ HEAD > "$files"
             else
-              git ls-files > "$files"
+              git ls-files -z > "$files"
             fi
           elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
-            git diff --name-only --diff-filter=ACMR HEAD^ HEAD > "$files"
+            git diff -z --name-only --diff-filter=ACMR HEAD^ HEAD > "$files"
           else
             # Last-resort fallback for an unusual single-commit checkout: check
             # tracked files rather than silently skipping hook coverage.
-            git ls-files > "$files"
+            git ls-files -z > "$files"
           fi
 
           if [ ! -s "$files" ]; then
@@ -294,8 +306,10 @@ jobs:
             exit 0
           fi
 
+          # The list is NUL-separated now, so render it for the log rather than
+          # cat-ing one unreadable blob.
           echo "Fork-mode lefthook file list:"
-          sed 's/^/  /' "$files"
+          tr '\0' '\n' < "$files" | sed 's/^/  /'
           mise exec -- lefthook run pre-commit --files-from-stdin < "$files"
         shell: bash
       - name: Validate commit-msg hook accepts a conventional commit
