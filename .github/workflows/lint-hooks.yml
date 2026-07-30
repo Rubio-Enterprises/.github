@@ -262,6 +262,35 @@ jobs:
         if: needs.detect.outputs.is_fork == 'true'
         env:
           MISE_ENV: ci
+          # WARN-ONLY BY DEFAULT, deliberately, and only for this fork path.
+          #
+          # The `-z` fix above does not tighten a working gate — it REVIVES a dead
+          # one. Every fork-typed consumer has been passing this step while
+          # checking zero files, across ~16 repos (mo, clipssh, SaneBar, VoiceInk,
+          # karakeep, gha-outrunner, vrt-frontend, kodus-ai, aw-server-rust,
+          # vvterm, ...). Enforcing on contact would turn all of them red
+          # simultaneously for pre-existing debt that predates the fix, on a
+          # required check, with no landing path for the fixes themselves.
+          #
+          # The debt is also mostly not bugs: vvterm's ~556 findings are
+          # `line_length` / `function_body_length` / `file_length` threshold
+          # settings that want a deliberate `.swiftlint.yml` decision, and
+          # aw-server-rust's clippy cannot even build under its pinned Rust — a
+          # repo that literally cannot go green would be wedged by an enforcing
+          # gate. Warn-only converts an invisible dead gate into a visible one
+          # today at zero blocking risk, and gives each repo its real number to
+          # work from.
+          #
+          # Flip a repo to enforcing by setting its own Actions variable
+          # LINT_HOOKS_FORK_ENFORCE=true once it is clean; set it at ORG level to
+          # flip the remaining fleet at once (a repo variable overrides the org
+          # one, so a not-yet-clean repo can still opt back out). `vars` in a
+          # reusable resolves in the CALLER's context, so this reads the
+          # consumer's value, not this repo's.
+          #
+          # The non-fork `--all-files` path above stays ENFORCING and untouched:
+          # it was never broken, so nothing that is green today can turn red.
+          ENFORCE_FORK_HOOKS: ${{ vars.LINT_HOOKS_FORK_ENFORCE || 'false' }}
         run: |
           set -euo pipefail
           files=/tmp/lefthook-changed-files.txt
@@ -310,7 +339,30 @@ jobs:
           # cat-ing one unreadable blob.
           echo "Fork-mode lefthook file list:"
           tr '\0' '\n' < "$files" | sed 's/^/  /'
-          mise exec -- lefthook run pre-commit --files-from-stdin < "$files"
+
+          # `if !` rather than `set +e`: keeps errexit armed for everything else in
+          # the step, so an unrelated failure below still fails the job.
+          if mise exec -- lefthook run pre-commit --files-from-stdin < "$files"; then
+            echo "fork-mode lefthook hooks passed"
+            exit 0
+          fi
+
+          if [ "$ENFORCE_FORK_HOOKS" = "true" ]; then
+            echo "::error::fork-mode lefthook hooks failed (LINT_HOOKS_FORK_ENFORCE=true)" >&2
+            exit 1
+          fi
+
+          # Warn, do not fail. Emitted as a titled workflow annotation so it lands
+          # on the run/Checks summary rather than only in the raw step log — a
+          # warning nobody sees is the same dead gate in a new costume. Built up in
+          # a variable because a `\`-continued string inside double quotes would
+          # fold this block's indentation into the message as runs of spaces.
+          msg="Hooks reported findings on this PR's changed files. "
+          msg+="This step is WARN-ONLY for fork-type repos until the repo is "
+          msg+="clean; it does not block the merge. Fix the findings above, then "
+          msg+="set the repo variable LINT_HOOKS_FORK_ENFORCE=true to make it "
+          msg+="blocking."
+          echo "::warning title=fork-mode lefthook hooks failed (not enforced)::${msg}"
         shell: bash
       - name: Validate commit-msg hook accepts a conventional commit
         # Writes a well-formed conventional-commit message and runs the
