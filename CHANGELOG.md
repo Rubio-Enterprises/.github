@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1](https://github.com/Rubio-Enterprises/.github/compare/v2.6.0...v2.6.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* **lint-hooks:** revive the fork gate NUL-separated, warn-only at first ([#166](https://github.com/Rubio-Enterprises/.github/issues/166)) ([6c01c61](https://github.com/Rubio-Enterprises/.github/commit/6c01c619d76154cfe09dc4a83fea78f922f38d7b))
+
 ## [2.6.0](https://github.com/Rubio-Enterprises/.github/compare/v2.5.0...v2.6.0) (2026-07-29)
 
 
