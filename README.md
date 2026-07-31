@@ -8,22 +8,12 @@ Organization GitHub Actions workflows for `Rubio-Enterprises`: seven Gate Family
 |---|---|
 | [`audit.yml`](./.github/workflows/audit.yml) | Runs `Rubio-Enterprises/standards` Layer A/B/C against the calling consumer |
 | [`e2e.yml`](./.github/workflows/e2e.yml) | Archetype-aware end-to-end harness (Playwright / pexpect / testscript / assert_cmd / MCP) |
-| [`rust-test.yml`](./.github/workflows/rust-test.yml) | Policy-routed canonical Rust tests with fail-closed aggregation |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | PR gitleaks + scheduled trufflehog deep-scan |
 
-### Rust test execution policy
-
-Direct required-workflow events read repository variables
-`RUST_TEST_WORKLOAD_CLASS` and `RUST_TEST_TIMEOUT_MINUTES`. Reusable callers must
-pass required `workload-class` and `timeout-minutes` inputs. Supported classes are
-`glue` and `linux-arm`; timeout must be an integer from 5 through 120 minutes.
-The class resolves through the private organization Runner Route when available
-and otherwise uses its public hosted fallback (`ubuntu-slim` or
-`ubuntu-24.04-arm`). Repository policy never stores physical runner labels.
-
-Invalid policy fails on the hosted slim pre-check before checkout. Valid active
-runs always execute `mise run test`, and the aggregate succeeds only when the
-workload result is exactly `success`.
+Canonical non-E2E tests are not centrally executed: each enforcing repository
+gates landing through its own `.github/workflows/test-gate.yml` required status
+(the Test Gate Contract — standards ADR-0020). The central `test-py.yml` /
+`rust-test.yml` gate workflows retired with their rulesets (standards#389).
 
 ### Gate workflow publication
 
