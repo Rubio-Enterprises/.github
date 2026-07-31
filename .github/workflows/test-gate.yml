@@ -4,8 +4,8 @@ name: test-gate
 # the suite actually EXECUTED (non-zero test count), not merely that a command
 # exited 0.
 #
-# Scope note: the gate workflows this repo *hosts* (audit.yml, test-py.yml,
-# rust-test.yml, …) are what other repos run; they are not touched here.
+# Scope note: the gate workflows this repo *hosts* (audit.yml, lint-format.yml,
+# …) are what other repos run; they are not touched here.
 # workflow-validation.yml no longer runs this suite (its unittest step was
 # retired in favor of this gate); it keeps actionlint and the retired-rollback
 # guard.

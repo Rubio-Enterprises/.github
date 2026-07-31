@@ -48,17 +48,13 @@ channel.
 | `secret-scan.yml` | `gate-secret-scan` | `mode: gitleaks` (PR diff) / `mode: trufflehog` (scheduled full-history, `--results=verified`) | channel, runtime-resolved |
 | `pr-title.yml` | `gate-pr-title` | commitlint on the PR title with rules from the channel (not a hardcoded types list) | channel, runtime-resolved |
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (ts-* archetypes), graceful no-task notice | — |
-| `test-py.yml` | `gate-python-tests` | `uv run pytest` (py-* + `has_test`) | — |
-| `rust-test.yml` | `gate-rust-tests` | validates Rust Test Execution Policy, routes `glue`/`linux-arm`, always runs `mise run test`, and fails closed through the bucket job | — |
 
-`rust-test.yml` reads `RUST_TEST_WORKLOAD_CLASS` and `RUST_TEST_TIMEOUT_MINUTES`
-for direct consumer events. Reusable callers must pass required `workload-class`
-and `timeout-minutes` inputs. Direct execution is identified from the immutable
-`github.workflow_ref` prefix because a reusable call keeps the caller's
-`github.event_name` and workflow ref. Supported classes are `glue` and `linux-arm`; timeout
-must be an integer from 5 through 120. Invalid policy runs only the hosted slim
-pre-check before failing, and only an exact successful workload lets the aggregate
-pass. There is no Cargo-manifest detector or successful no-project consumer path.
+Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
+`gate-tests` org ruleset requires each enforcing repository's own repo-local
+`test-gate` status context (the Test Gate Contract — standards ADR-0020). The
+central `test-py.yml` / `rust-test.yml` overlap workflows and their
+`gate-python-tests` / `gate-rust-tests` families retired once fleet-wide
+`test-gate` enforcement was proven (standards#389, 2026-07-30).
 
 **Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
 consumer's rendered `standards.yml` (or a release workflow):
