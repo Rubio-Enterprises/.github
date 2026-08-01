@@ -89,6 +89,14 @@
       "groupName": "mise-cli",
       "commitMessageTopic": "mise CLI",
       "automerge": false
+    },
+    {
+      "description": "uv CLI version pin (the `version:` input on astral-sh/setup-uv across the reusable workflows, tracked by the astral-sh/uv customManager below). Same human-merge posture as the mise CLI pin above, for the same reason: setup-uv runs BEFORE every linter/test in every Python-touching gate, so a bad uv release fails the fleet's gates at a step where no consumer diagnostic has run yet. uv is still 0.x, so the blanket automerge rule's matchCurrentVersion:!/^0/ already excludes it -- this rule states the intent explicitly so the posture survives uv reaching 1.0.",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["astral-sh/uv"],
+      "groupName": "uv-cli",
+      "commitMessageTopic": "uv CLI",
+      "automerge": false
     }
   ],
   "customManagers": [
@@ -101,6 +109,16 @@
       "depNameTemplate": "jdx/mise",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "description": "uv CLI pin on astral-sh/setup-uv's `version:` input. Mirrors the jdx/mise manager above; no extractVersionTemplate because astral-sh/uv tags are bare semver (`0.12.1`), not v-prefixed like mise's.",
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
+      "matchStrings": [
+        "# renovate: datasource=github-releases depName=astral-sh/uv\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "astral-sh/uv",
+      "datasourceTemplate": "github-releases"
     }
   ]
 }

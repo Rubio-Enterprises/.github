@@ -150,6 +150,25 @@ reread contract in the runbook.
   `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
   routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip
   (< 26) rejects → hard fail. Copy this step into any new mise-based reusable.
+- **uv CLI pin — `setup-uv` MUST carry an exact `version:`.** Every
+  `astral-sh/setup-uv` step pins an exact uv version behind a
+  `# renovate: datasource=github-releases depName=astral-sh/uv` marker (human-merge only,
+  like the mise pin). This is not cosmetic determinism — it changes the action's network
+  behaviour. Read `setupUv()` in the action: it calls `resolveUvVersion()` **before**
+  `tryGetFromToolCache()`. With no `version:` the specifier is `latest`, so
+  `LatestVersionResolver` must `fetch` `astral-sh/versions`'
+  `v1/uv.ndjson` from `raw.githubusercontent.com` under a hard
+  `AbortSignal.timeout(5_000)` on **every** run, before the tool cache is ever consulted —
+  an unconditional 5-second external dependency ahead of every linter and test in the
+  fleet, and the first thing to snap when the shared runners are saturated. With an exact
+  version `ExactVersionResolver` returns offline, so a warm runner tool-cache hit installs
+  uv with **zero** network calls. Keep the marker and the exact pin when you add a job.
+  **Caveat, so nobody over-claims this:** on a *cold* tool cache the pin does not remove
+  the fetch — `downloadVersion()` → `getArtifact()` → `fetchManifest()` still reads the
+  same manifest to learn the artifact URL, and the action exposes no input to bypass it
+  (`manifest-file` only swaps the URL; `fetch` is undici, so a local path is not an
+  option). The pin converts "every run, always" into "first run per runner per uv
+  version" — it does not make the dependency disappear.
 - **mise CLI pin.** Each `jdx/mise-action` version carries a
   `# renovate: datasource=github-releases depName=jdx/mise` marker so Renovate bumps them
   together (human-merge only — see below). Keep the marker when you add a job.
@@ -194,8 +213,10 @@ reread contract in the runbook.
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
   **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only** for the
-  `jdx/mise` CLI pin (`KEEP LAST`). One `customManager` remains — the `# renovate: … jdx/mise`
-  workflow `version:` markers.
+  `jdx/mise` and `astral-sh/uv` CLI pins (`KEEP LAST`). Two `customManager`s remain — the
+  `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers. They
+  are deliberately symmetric; the uv one omits `extractVersionTemplate` because uv tags are
+  bare semver (`0.12.1`) while mise's are v-prefixed.
 - **`copier.json`** is the **copier-only preset**, composed by `default.json` via `extends`. It
   holds the two pieces of copier policy: the trust switch (`copier.ignoreScripts: false`) and the
   `Rubio-Enterprises/standards` template re-render rule (Layer 3c — reads `_commit`/`_src_path`
