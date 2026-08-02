@@ -1,13 +1,13 @@
 # rubio-dotgithub
 
-Organization GitHub Actions workflows for `Rubio-Enterprises`: seven Gate Family workflows injected by organization rulesets, plus the smaller set of reusables that consumers thin-call directly.
+Organization GitHub Actions workflows for `Rubio-Enterprises`: five Gate Family workflows injected by organization rulesets, plus the smaller set of reusables that consumers thin-call directly.
 
 ## Reusable workflows
 
 | Workflow | Purpose |
 |---|---|
 | [`audit.yml`](./.github/workflows/audit.yml) | Runs `Rubio-Enterprises/standards` Layer A/B/C against the calling consumer |
-| [`e2e.yml`](./.github/workflows/e2e.yml) | Archetype-aware end-to-end harness (Playwright / pexpect / testscript / assert_cmd / MCP) |
+| [`e2e.yml`](./.github/workflows/e2e.yml) | Playwright end-to-end harness; runs `mise run e2e` (or `npm run e2e`) and does not start a dev server |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | PR gitleaks + scheduled trufflehog deep-scan |
 
 Canonical non-E2E tests are not centrally executed: each enforcing repository
