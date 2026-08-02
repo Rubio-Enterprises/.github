@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.0.0](https://github.com/Rubio-Enterprises/.github/compare/v2.6.1...v3.0.0) (2026-08-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* the `test-py.yml` / `rust-test.yml` reusable workflows are removed. No consumer `standards.yml` thin-calls them (they were injected-only), and their rulesets are gone after #169.
+
+### Features
+
+* retire the central python/rust test gate workflows ([#169](https://github.com/Rubio-Enterprises/.github/issues/169)) ([c9d7341](https://github.com/Rubio-Enterprises/.github/commit/c9d7341851e136efe0567b9318297dbc344f36af))
+
+
+### Bug Fixes
+
+* **workflows:** pin an exact uv version on every setup-uv step ([#173](https://github.com/Rubio-Enterprises/.github/issues/173)) ([b3a45b0](https://github.com/Rubio-Enterprises/.github/commit/b3a45b0c98623f6534a55c899d8ed2babae7d378))
+
 ## [2.6.1](https://github.com/Rubio-Enterprises/.github/compare/v2.6.0...v2.6.1) (2026-07-30)
 
 
