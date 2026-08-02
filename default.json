@@ -12,6 +12,7 @@
   "prConcurrentLimit": 20,
   "rangeStrategy": "bump",
   "minimumReleaseAge": "7 days",
+  "rebaseWhen": "conflicted",
   "labels": ["dependencies"],
   "packageRules": [
     {
