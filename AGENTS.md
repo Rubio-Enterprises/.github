@@ -224,6 +224,24 @@ reread contract in the runbook.
   `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers. They
   are deliberately symmetric; the uv one omits `extractVersionTemplate` because uv tags are
   bare semver (`0.12.1`) while mise's are v-prefixed.
+
+  **`rebaseWhen: "conflicted"` is load-bearing, not a tidy-up.** Renovate visits each repo
+  **once per run** and evaluates automerge at that instant; a push during that visit — a rebase
+  or a version bump — burns the repo's only merge opportunity for the whole wave. The default
+  `rebaseWhen: "auto"` resolves to `behind-base-branch` whenever `automerge: true`
+  (`determineRebaseWhenValue()` in Renovate's `reuse.ts`), so every wave rebased any PR whose
+  base had moved, and the *next* wave rebased it again if `main` had moved meanwhile. In an
+  actively-committed repo that never converges: `standards#404` sat open 6 days, and the
+  `template/v1.55.43` copier PRs 2 days, all checks green the whole time. Rebasing bought
+  nothing at the merge gate either — `.github-private`'s `protect-main` has no
+  `required_status_checks` block and `governance.tf` sets
+  `strict_required_status_checks_policy = false`, so a behind-but-clean PR is already
+  mergeable. Conflicts still self-heal: a real conflict flips the PR `dirty`, Renovate refuses
+  to merge, and `"conflicted"` rebases it. Do **not** "fix" this to `"automerging"` — that
+  resolves to `behind-base-branch` under `automerge: true` and is a no-op; and `"never"`
+  short-circuits the conflicted rebase too, stranding conflicted PRs permanently. It lives at
+  top level rather than in the copier packageRule because the starvation is manager-agnostic,
+  and `copier.json`'s contract is copier-scoped config only.
 - **`copier.json`** is the **copier-only preset**, composed by `default.json` via `extends`. It
   holds the two pieces of copier policy: the trust switch (`copier.ignoreScripts: false`) and the
   `Rubio-Enterprises/standards` template re-render rule (Layer 3c — reads `_commit`/`_src_path`
