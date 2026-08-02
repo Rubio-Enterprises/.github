@@ -8,7 +8,7 @@ working with code in this repository. `CLAUDE.md` is a symlink to this file — 
 
 `Rubio-Enterprises/.github` (local dir `Governance/dot-github`, remote `origin =
 git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
-**GitHub Actions workflows** that run the fleet's PR gates — the seven
+**GitHub Actions workflows** that run the fleet's PR gates — the five
 property-targeted gate workflows the org rulesets **inject** into consumer PRs,
 plus the handful of reusables a consumer's `.github/workflows/standards.yml` still
 thin-calls. In the three-repo governance system it is the *delivery vehicle*:
@@ -30,7 +30,7 @@ local check for the workflow files before pushing. Otherwise validation happens 
 
 Two delivery mechanisms live here now.
 
-**Gate workflows — the seven property-targeted Required Governance Workflows.** A
+**Gate workflows — the five property-targeted Required Governance Workflows.** A
 repo runs one iff it carries the matching `gate-*` custom property (set in
 `.github-private` Terraform); the org gate rulesets **inject** them into the
 consumer's PR checks. They are **not** thin-called from `standards.yml`. The
@@ -47,14 +47,21 @@ channel.
 | `lint-format.yml` | `gate-lint-format` | runtime-renders the canonical lint configs from the channel and runs the config-flag linters (markdownlint, yamllint, ruff, biome) | channel, runtime-resolved |
 | `secret-scan.yml` | `gate-secret-scan` | `mode: gitleaks` (PR diff) / `mode: trufflehog` (scheduled full-history, `--results=verified`) | channel, runtime-resolved |
 | `pr-title.yml` | `gate-pr-title` | commitlint on the PR title with rules from the channel (not a hardcoded types list) | channel, runtime-resolved |
-| `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (ts-* archetypes), graceful no-task notice | — |
+| `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
 `gate-tests` org ruleset requires each enforcing repository's own repo-local
 `test-gate` status context (the Test Gate Contract — standards ADR-0020). The
 central `test-py.yml` / `rust-test.yml` overlap workflows and their
-`gate-python-tests` / `gate-rust-tests` families retired once fleet-wide
-`test-gate` enforcement was proven (standards#389, 2026-07-30).
+`gate-python-tests` / `gate-rust-tests` families are retired (standards#389,
+2026-07-30).
+
+Beyond the gates and the thin-called reusables below, this repo also holds
+`testflight.yml` (the signed Apple build reusable — see
+[`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md)
+and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
+`test-gate.yml`, `copilot-setup-steps.yml`, `workflow-validation.yml`, and
+`plumbing-ref-publish.yml` (this repo's own ops, not reusables).
 
 **Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
 consumer's rendered `standards.yml` (or a release workflow):
@@ -65,7 +72,7 @@ consumer's rendered `standards.yml` (or a release workflow):
 | `e2e.yml` | Playwright harness; detects `scripts.e2e`, then runs `mise run e2e` / `npm run e2e`. Does **not** start a dev server (see the dev-server contract in its header) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
 
-`bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets; the legacy `tap-token` PAT secret remains a fallback until the last caller migrates. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
+`bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
 
 **The content gates resolve `standards` content by channel, not by a frozen
 `audit/v1` pin.** `audit.yml` and `secret-scan.yml` were moved off the frozen
