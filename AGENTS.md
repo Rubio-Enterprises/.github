@@ -232,12 +232,22 @@ reread contract in the runbook.
   `gate-tests` going active (2026-07-30) changed that for the 34 repos carrying
   `gate_tests = true`, which now expose a required `test-gate`. The cost of leaving it off was
   concrete: Renovate merges only *during* a wave, so eight green first-party PRs sat unmerged for
-  up to two days and were hand-merged. **The residual gap is real** — the repos with
-  `gate_tests = false` (governed: `claude-statusline`, `daily-routine`, `devenv-skills`,
-  `homebrew-tap`, `infra-skills`, `kickstart-modular.nvim`, `mattpocock-skills`,
-  `playwright-skills`) have no required test context, so native auto-merge will land their PRs
-  without waiting for repo-local tests. Onboarding a repo to `gate-tests` closes its gap; do not
-  treat this flip as making that unnecessary.
+  up to two days and were hand-merged.
+
+  **Do not read that as "the old reason expired" — it MOVED, and the residual gap is fleet-wide.**
+  `test-gate` is the *only* required status **context** in the governance plane
+  (`governance.tf` → `required_status_checks`); every other required check is an *injected* gate
+  workflow. So **`lint-hooks` is required nowhere** — and it is the CI floor for exactly the tools
+  `gate-lint-format` cannot cover (shellcheck, pyright, clippy, swiftformat). Native auto-merge
+  can therefore land a PR over a red `lint-hooks` on **any** of the 39 governed repos. Renovate's
+  own engine *did* wait for it, so this flip gives up a protection that existed; it buys
+  convergence speed. Closing it properly means making `lint-hooks` a required context too.
+  Secondary gap: the 7 governed repos with `gate_tests = false` (`claude-statusline`,
+  `daily-routine`, `devenv-skills`, `homebrew-tap`, `infra-skills`, `mattpocock-skills`,
+  `playwright-skills`) have no required test context either — but six carry **zero language
+  facets** (skills marketplaces / content carriers), so onboarding them to `gate-tests` is *not
+  applicable* rather than merely undone: there are no canonical tests, and the template renders no
+  `test-gate.yml` (the context is repo-owned, per standards ADR-0020).
 
   **`rebaseWhen: "conflicted"` is load-bearing, not a tidy-up.** Renovate visits each repo
   **once per run** and evaluates *its own* automerge at that instant; a push during that visit — a
