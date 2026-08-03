@@ -267,17 +267,41 @@ reread contract in the runbook.
   than an exact tag carries a `git describe` `_commit` (`template/v1.55.29-5-g3d6fc78`), which
   the original `$`-anchored regex rejected. `aw-server-rust` and `vibe-kanban` both carry
   exactly that `_commit` and both sat 17 template releases behind, rendering as an eternal
-  `pending` / `no PR yet`. **Note the diagnostic trap:** an unparseable `_commit` and the
-  `gh:`-shorthand datasource failure above produce byte-identical dashboard state, so the
-  regex being *sufficient* to strand a repo does not prove it is the *only* fault on any
-  given one — confirming that needs a read of the repo's own `.copier-answers.yml`
-  (`_src_path` must be the full https URL). Hence the **optional** `prerelease` group. It exists to
+  `pending` / `no PR yet`. Hence the **optional** `prerelease` group. It exists to
   parse the current value only: `standards` publishes exclusively clean `template/vX.Y.Z` tags,
   so nothing in the datasource carries a `-` suffix, and `ignoreUnstable` (default `true`)
   would refuse an unstable target regardless — it still permits the unstable-current →
   stable-target move this depends on. Keep the group optional, and keep the `^template/`
   anchor: the anchor, not the tail, is what filters the `audit/*`, `plugin/*`, `gates/*`, and
   bare `v*` streams.
+
+  **UNRESOLVED — the `prerelease` group did NOT unblock those two repos, and nobody should
+  assume it did.** A scoped Renovate drain against both, run with the fix live (verified:
+  `copier.json` `lastModified` matched the merge commit), still produced no PR. The
+  observed dep was:
+
+  ```
+  "depName":      "https://github.com/Rubio-Enterprises/standards.git"
+  "currentValue": "template/v1.55.29-5-g3d6fc78"
+  "versioning":   "regex:…(?:-(?<prerelease>.+))?$"     ← the fix WAS applied
+  "skipReason":   "invalid-value"
+  ```
+
+  What that rules out: `_src_path` is the correct full https URL on both repos (read
+  directly), so the `gh:`-shorthand datasource failure above is **not** the cause; the
+  `git-tags` datasource was queried successfully; the copier manager extracted the file
+  (`fileCount: 1, depCount: 1`) and does not itself set `skipReason`; and Renovate's
+  `RegExpVersioningApi._parse` is pure regex matching whose only constructor requirement —
+  at least one of `<major>`/`<minor>`/`<patch>` — the pattern satisfies. The pattern matches
+  the value under native JS `RegExp`. The prime remaining suspect is the **RE2 engine**
+  (`DEBUG: Using RE2 regex engine`), which Renovate prefers over native `RegExp` and which
+  was not testable in the investigating environment.
+
+  Practical consequence: **do not treat a `git describe` `_commit` as recoverable by tuning
+  this regex.** The reliable repair is to normalize the offending repo's `_commit` to an
+  exact `template/vX.Y.Z` tag — the shape every converged repo carries — which sidesteps the
+  question entirely. The group above is kept because it is harmless and strictly more
+  permissive, not because it is known to work.
 
   It is a **separate file so that repos which run their own Renovate can `extends` it directly**
   (`github>Rubio-Enterprises/.github:copier`) without inheriting the whole org preset — see
