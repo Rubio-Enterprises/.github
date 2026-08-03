@@ -225,9 +225,26 @@ reread contract in the runbook.
   are deliberately symmetric; the uv one omits `extractVersionTemplate` because uv tags are
   bare semver (`0.12.1`) while mise's are v-prefixed.
 
+  **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
+  the first-party reusable digest, and — in `copier.json` — the template re-render). It was off
+  because GitHub-native auto-merge waits only on **required** checks while Renovate's own engine
+  waits for **all** checks green, and the fleet had no required checks beyond the audit ruleset.
+  `gate-tests` going active (2026-07-30) changed that for the 34 repos carrying
+  `gate_tests = true`, which now expose a required `test-gate`. The cost of leaving it off was
+  concrete: Renovate merges only *during* a wave, so eight green first-party PRs sat unmerged for
+  up to two days and were hand-merged. **The residual gap is real** — the repos with
+  `gate_tests = false` (governed: `claude-statusline`, `daily-routine`, `devenv-skills`,
+  `homebrew-tap`, `infra-skills`, `kickstart-modular.nvim`, `mattpocock-skills`,
+  `playwright-skills`) have no required test context, so native auto-merge will land their PRs
+  without waiting for repo-local tests. Onboarding a repo to `gate-tests` closes its gap; do not
+  treat this flip as making that unnecessary.
+
   **`rebaseWhen: "conflicted"` is load-bearing, not a tidy-up.** Renovate visits each repo
-  **once per run** and evaluates automerge at that instant; a push during that visit — a rebase
-  or a version bump — burns the repo's only merge opportunity for the whole wave. The default
+  **once per run** and evaluates *its own* automerge at that instant; a push during that visit — a
+  rebase or a version bump — burns the repo's only merge opportunity for the whole wave. (With
+  `platformAutomerge` now on, GitHub holds the merge instead of the wave, which blunts this
+  particular starvation — but the rebase thrash below is independent of it and the setting stays.)
+  The default
   `rebaseWhen: "auto"` resolves to `behind-base-branch` whenever `automerge: true`
   (`determineRebaseWhenValue()` in Renovate's `reuse.ts`), so every wave rebased any PR whose
   base had moved, and the *next* wave rebased it again if `main` had moved meanwhile. In an
