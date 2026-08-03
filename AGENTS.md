@@ -250,6 +250,25 @@ reread contract in the runbook.
   PR through Renovate's own merge engine, which waits for all checks green — this replaces the
   retired `copier-sync`/`copier-check` ritual and the old `_commit` regex customManager).
 
+  **The `versioning` regex must parse the `_commit` a consumer actually carries, not just the
+  tags `standards` publishes.** Renovate skips any dep whose `currentValue` fails
+  `versioning.isValid()`, so a consumer whose `_commit` the regex cannot read is dropped
+  *silently* — no error, no PR, forever. A repo hand-rendered from a working checkout rather
+  than an exact tag carries a `git describe` `_commit` (`template/v1.55.29-5-g3d6fc78`), which
+  the original `$`-anchored regex rejected. `aw-server-rust` and `vibe-kanban` both carry
+  exactly that `_commit` and both sat 17 template releases behind, rendering as an eternal
+  `pending` / `no PR yet`. **Note the diagnostic trap:** an unparseable `_commit` and the
+  `gh:`-shorthand datasource failure above produce byte-identical dashboard state, so the
+  regex being *sufficient* to strand a repo does not prove it is the *only* fault on any
+  given one — confirming that needs a read of the repo's own `.copier-answers.yml`
+  (`_src_path` must be the full https URL). Hence the **optional** `prerelease` group. It exists to
+  parse the current value only: `standards` publishes exclusively clean `template/vX.Y.Z` tags,
+  so nothing in the datasource carries a `-` suffix, and `ignoreUnstable` (default `true`)
+  would refuse an unstable target regardless — it still permits the unstable-current →
+  stable-target move this depends on. Keep the group optional, and keep the `^template/`
+  anchor: the anchor, not the tail, is what filters the `audit/*`, `plugin/*`, `gates/*`, and
+  bare `v*` streams.
+
   It is a **separate file so that repos which run their own Renovate can `extends` it directly**
   (`github>Rubio-Enterprises/.github:copier`) without inheriting the whole org preset — see
   `mac-dev-playbook`, which is self-managed and whose ~60 hand-tuned Docker managers must not
