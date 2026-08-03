@@ -234,17 +234,28 @@ reread contract in the runbook.
   concrete: Renovate merges only *during* a wave, so eight green first-party PRs sat unmerged for
   up to two days and were hand-merged.
 
-  **Do not read that as "the old reason expired" — it MOVED, and the residual gap is fleet-wide.**
-  `test-gate` is the *only* required status **context** in the governance plane
-  (`governance.tf` → `required_status_checks`); every other required check is an *injected* gate
-  workflow. So **`lint-hooks` is required nowhere** — and it is the CI floor for exactly the tools
-  `gate-lint-format` cannot cover (shellcheck, pyright, clippy, swiftformat). Native auto-merge
-  can therefore land a PR over a red `lint-hooks` on **any** of the 39 governed repos. Renovate's
-  own engine *did* wait for it, so this flip gives up a protection that existed; it buys
-  convergence speed. Closing it properly means making `lint-hooks` a required context too.
-  Secondary gap: the 7 governed repos with `gate_tests = false` (`claude-statusline`,
+  **The gap this flip opened was real, and it was closed the same day — do not re-derive the old
+  reasoning from a stale copy of this paragraph.** When `platformAutomerge` went on, `test-gate`
+  was the *only* required status **context** in the governance plane (`governance.tf` →
+  `required_status_checks`); every other required check is an *injected* gate workflow. So
+  `lint-hooks` was required **nowhere**, and native auto-merge — which waits only on required
+  checks — could land a PR over a red `lint-hooks` on any of the 39 governed repos. That mattered
+  because `lint-hooks` is the CI floor for exactly the tools `gate-lint-format` cannot cover
+  (shellcheck, pyright, clippy, swiftformat).
+
+  **`.github-private`#179 (2026-08-03) closed it**: `lint-hooks / lint-hooks` and `e2e / e2e` are
+  now required status contexts, via `gate-lint-hooks` / `gate-e2e` property-targeted org rulesets,
+  both `active`. Verified against live enforcement rather than the plan — a
+  `repos/…/rules/branches/main` read on a gated repo returns ruleset `20320898` requiring
+  `lint-hooks / lint-hooks`, and a `gate-e2e = false` repo is correctly *not* asked for `e2e / e2e`.
+  Property targeting is what makes that safe: requiring a context on a repo that never renders the
+  job would block it permanently, because the check would never report at all. So the
+  required-checks-only wait is no longer a downgrade for the two jobs a consumer's `standards.yml`
+  actually renders on a PR.
+
+  Residual, and unchanged: the 7 governed repos with `gate_tests = false` (`claude-statusline`,
   `daily-routine`, `devenv-skills`, `homebrew-tap`, `infra-skills`, `mattpocock-skills`,
-  `playwright-skills`) have no required test context either — but six carry **zero language
+  `playwright-skills`) have no required test context — but six carry **zero language
   facets** (skills marketplaces / content carriers), so onboarding them to `gate-tests` is *not
   applicable* rather than merely undone: there are no canonical tests, and the template renders no
   `test-gate.yml` (the context is repo-owned, per standards ADR-0020).
