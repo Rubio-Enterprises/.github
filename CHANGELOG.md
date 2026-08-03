@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.1.0](https://github.com/Rubio-Enterprises/.github/compare/v3.0.0...v3.1.0) (2026-08-03)
+
+
+### Features
+
+* adopt the canonical org pull request template ([#181](https://github.com/Rubio-Enterprises/.github/issues/181)) ([2c7df54](https://github.com/Rubio-Enterprises/.github/commit/2c7df54c300381f73f373458f26acff7c6818a86))
+
+
+### Bug Fixes
+
+* **renovate:** stop rebasing behind-base PRs out of their merge window ([#176](https://github.com/Rubio-Enterprises/.github/issues/176)) ([ce376c1](https://github.com/Rubio-Enterprises/.github/commit/ce376c1b4dc692266b10db8d450aeb3ef8d5c4b3))
+
 ## [3.0.0](https://github.com/Rubio-Enterprises/.github/compare/v2.6.1...v3.0.0) (2026-08-02)
 
 
