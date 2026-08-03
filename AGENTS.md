@@ -267,17 +267,55 @@ reread contract in the runbook.
   than an exact tag carries a `git describe` `_commit` (`template/v1.55.29-5-g3d6fc78`), which
   the original `$`-anchored regex rejected. `aw-server-rust` and `vibe-kanban` both carry
   exactly that `_commit` and both sat 17 template releases behind, rendering as an eternal
-  `pending` / `no PR yet`. **Note the diagnostic trap:** an unparseable `_commit` and the
-  `gh:`-shorthand datasource failure above produce byte-identical dashboard state, so the
-  regex being *sufficient* to strand a repo does not prove it is the *only* fault on any
-  given one — confirming that needs a read of the repo's own `.copier-answers.yml`
-  (`_src_path` must be the full https URL). Hence the **optional** `prerelease` group. It exists to
+  `pending` / `no PR yet`. Hence the **optional** `prerelease` group. It exists to
   parse the current value only: `standards` publishes exclusively clean `template/vX.Y.Z` tags,
   so nothing in the datasource carries a `-` suffix, and `ignoreUnstable` (default `true`)
   would refuse an unstable target regardless — it still permits the unstable-current →
   stable-target move this depends on. Keep the group optional, and keep the `^template/`
   anchor: the anchor, not the tail, is what filters the `audit/*`, `plugin/*`, `gates/*`, and
   bare `v*` streams.
+
+  **UNRESOLVED — the `prerelease` group did NOT unblock those two repos, and nobody should
+  assume it did.** A scoped Renovate drain against both, run with the fix live (verified:
+  `copier.json` `lastModified` matched the merge commit), still produced no PR. The
+  observed dep was:
+
+  ```
+  "depName":      "https://github.com/Rubio-Enterprises/standards.git"
+  "currentValue": "template/v1.55.29-5-g3d6fc78"
+  "versioning":   "regex:…(?:-(?<prerelease>.+))?$"     ← the fix WAS applied
+  "skipReason":   "invalid-value"
+  ```
+
+  What that rules out: `_src_path` is the correct full https URL on both repos (read
+  directly), so the `gh:`-shorthand datasource failure above is **not** the cause; the
+  `git-tags` datasource was queried successfully; the copier manager extracted the file
+  (`fileCount: 1, depCount: 1`) and does not itself set `skipReason`; and Renovate's
+  `RegExpVersioningApi._parse` is pure regex matching whose only constructor requirement —
+  at least one of `<major>`/`<minor>`/`<patch>` — the pattern satisfies. The pattern matches
+  the value under native JS `RegExp`, **and under RE2** — Renovate logs
+  `DEBUG: Using RE2 regex engine`, and the pattern was subsequently tested against the real
+  `re2` module: identical results to native `RegExp`, describe-shaped value matched, foreign
+  tag streams still rejected. **RE2 is therefore eliminated as well.**
+
+  With every layer of the regex path cleared, the leading hypothesis is now **Renovate's
+  repository cache** (`repositoryCache: enabled` in `.github-private`'s `renovate/config.js`).
+  `.copier-answers.yml` was byte-identical between the wave that ran under the old regex and
+  the drain that ran under the new one, so a cache keyed on package-file content would reuse
+  the earlier dep — `skipReason` included — while config fields like `versioning` are
+  re-merged from current `packageRules` at log-dump time. That is exactly the pair of
+  observations recorded above, but it is a hypothesis, **not** a confirmed diagnosis, and it
+  is deliberately left unconfirmed rather than asserted.
+
+  Practical consequence, and the part that actually matters: **do not rely on diagnosing this
+  class of failure — it is silent by construction.** An unparseable `_commit` produces no
+  error, no warning, and dashboard state identical to a healthy repo awaiting its PR. The
+  reliable repair is to normalize the offending repo's `_commit` to an exact
+  `template/vX.Y.Z` tag, the shape every converged repo carries. The durable fix is detection:
+  a malformed `_commit` should fail a gate on the repo's own next PR rather than wait to be
+  noticed. The `prerelease` group is kept as defence in depth — it is now known to parse the
+  value correctly under Renovate's real engine — but it has never been observed to unblock a
+  repo, so it must not be treated as the mechanism anything depends on.
 
   It is a **separate file so that repos which run their own Renovate can `extends` it directly**
   (`github>Rubio-Enterprises/.github:copier`) without inheriting the whole org preset — see
