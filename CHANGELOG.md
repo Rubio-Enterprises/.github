@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.2.0](https://github.com/Rubio-Enterprises/.github/compare/v3.1.1...v3.2.0) (2026-08-03)
+
+
+### Features
+
+* **renovate:** enable platformAutomerge for the automerging classes ([#188](https://github.com/Rubio-Enterprises/.github/issues/188)) ([76e7497](https://github.com/Rubio-Enterprises/.github/commit/76e7497dc93b173f1605f1846c8000472c196f7f))
+
+
+### Bug Fixes
+
+* **renovate:** parse describe-shaped copier _commit values ([#185](https://github.com/Rubio-Enterprises/.github/issues/185)) ([307c0cb](https://github.com/Rubio-Enterprises/.github/commit/307c0cb8a044d7c5946c228d4e19534af688a480))
+
 ## [3.1.1](https://github.com/Rubio-Enterprises/.github/compare/v3.1.0...v3.1.1) (2026-08-03)
 
 
