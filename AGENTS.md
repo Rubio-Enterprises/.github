@@ -242,6 +242,16 @@ reread contract in the runbook.
   short-circuits the conflicted rebase too, stranding conflicted PRs permanently. It lives at
   top level rather than in the copier packageRule because the starvation is manager-agnostic,
   and `copier.json`'s contract is copier-scoped config only.
+
+  **The lockFileMaintenance rule carries `minimumReleaseAge: "0 days"` for the same reason —
+  a second, independent starvation.** Under the global 7-day soak Renovate stamps its own
+  `renovate/stability-days` *pending* status whenever any refreshed transitive release is
+  younger than 7 days; its merge engine waits for ALL checks including that one, and each
+  weekly refresh pulls new young releases that re-arm the clock, so the PR stays
+  green-but-unmergeable forever (`standards#404`: 8 days, hand-merged 2026-08-03). This does
+  NOT generalize: a *soaking* PR whose clock genuinely runs out (a digest bump, a
+  github-actions group) is working as designed and must not get an age-0 carve-out — the
+  distinction is whether new content keeps re-arming the clock structurally.
 - **`copier.json`** is the **copier-only preset**, composed by `default.json` via `extends`. It
   holds the two pieces of copier policy: the trust switch (`copier.ignoreScripts: false`) and the
   `Rubio-Enterprises/standards` template re-render rule (Layer 3c — reads `_commit`/`_src_path`
