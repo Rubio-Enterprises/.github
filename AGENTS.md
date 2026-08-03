@@ -225,9 +225,36 @@ reread contract in the runbook.
   are deliberately symmetric; the uv one omits `extractVersionTemplate` because uv tags are
   bare semver (`0.12.1`) while mise's are v-prefixed.
 
+  **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
+  the first-party reusable digest, and — in `copier.json` — the template re-render). It was off
+  because GitHub-native auto-merge waits only on **required** checks while Renovate's own engine
+  waits for **all** checks green, and the fleet had no required checks beyond the audit ruleset.
+  `gate-tests` going active (2026-07-30) changed that for the 34 repos carrying
+  `gate_tests = true`, which now expose a required `test-gate`. The cost of leaving it off was
+  concrete: Renovate merges only *during* a wave, so eight green first-party PRs sat unmerged for
+  up to two days and were hand-merged.
+
+  **Do not read that as "the old reason expired" — it MOVED, and the residual gap is fleet-wide.**
+  `test-gate` is the *only* required status **context** in the governance plane
+  (`governance.tf` → `required_status_checks`); every other required check is an *injected* gate
+  workflow. So **`lint-hooks` is required nowhere** — and it is the CI floor for exactly the tools
+  `gate-lint-format` cannot cover (shellcheck, pyright, clippy, swiftformat). Native auto-merge
+  can therefore land a PR over a red `lint-hooks` on **any** of the 39 governed repos. Renovate's
+  own engine *did* wait for it, so this flip gives up a protection that existed; it buys
+  convergence speed. Closing it properly means making `lint-hooks` a required context too.
+  Secondary gap: the 7 governed repos with `gate_tests = false` (`claude-statusline`,
+  `daily-routine`, `devenv-skills`, `homebrew-tap`, `infra-skills`, `mattpocock-skills`,
+  `playwright-skills`) have no required test context either — but six carry **zero language
+  facets** (skills marketplaces / content carriers), so onboarding them to `gate-tests` is *not
+  applicable* rather than merely undone: there are no canonical tests, and the template renders no
+  `test-gate.yml` (the context is repo-owned, per standards ADR-0020).
+
   **`rebaseWhen: "conflicted"` is load-bearing, not a tidy-up.** Renovate visits each repo
-  **once per run** and evaluates automerge at that instant; a push during that visit — a rebase
-  or a version bump — burns the repo's only merge opportunity for the whole wave. The default
+  **once per run** and evaluates *its own* automerge at that instant; a push during that visit — a
+  rebase or a version bump — burns the repo's only merge opportunity for the whole wave. (With
+  `platformAutomerge` now on, GitHub holds the merge instead of the wave, which blunts this
+  particular starvation — but the rebase thrash below is independent of it and the setting stays.)
+  The default
   `rebaseWhen: "auto"` resolves to `behind-base-branch` whenever `automerge: true`
   (`determineRebaseWhenValue()` in Renovate's `reuse.ts`), so every wave rebased any PR whose
   base had moved, and the *next* wave rebased it again if `main` had moved meanwhile. In an
@@ -275,8 +302,8 @@ reread contract in the runbook.
   anchor: the anchor, not the tail, is what filters the `audit/*`, `plugin/*`, `gates/*`, and
   bare `v*` streams.
 
-  **UNRESOLVED — the `prerelease` group did NOT unblock those two repos, and nobody should
-  assume it did.** A scoped Renovate drain against both, run with the fix live (verified:
+  **The `prerelease` group did NOT unblock those two repos, and nobody should assume it did**
+  (normalizing their `_commit` did). A scoped Renovate drain against both, run with the fix live (verified:
   `copier.json` `lastModified` matched the merge commit), still produced no PR. The
   observed dep was:
 
@@ -298,22 +325,41 @@ reread contract in the runbook.
   `re2` module: identical results to native `RegExp`, describe-shaped value matched, foreign
   tag streams still rejected. **RE2 is therefore eliminated as well.**
 
-  With every layer of the regex path cleared, the leading hypothesis is now **Renovate's
-  repository cache** (`repositoryCache: enabled` in `.github-private`'s `renovate/config.js`).
-  `.copier-answers.yml` was byte-identical between the wave that ran under the old regex and
-  the drain that ran under the new one, so a cache keyed on package-file content would reuse
-  the earlier dep — `skipReason` included — while config fields like `versioning` are
-  re-merged from current `packageRules` at log-dump time. That is exactly the pair of
-  observations recorded above, but it is a hypothesis, **not** a confirmed diagnosis, and it
-  is deliberately left unconfirmed rather than asserted.
+  **The mechanism of the original stall is now proven, and the caching hypothesis that once
+  sat here is refuted** (standards#440, read against Renovate's shipped dist). `skipReason:
+  "invalid-value"` for this dep is assigned in `workers/repository/process/lookup/index.js`:
+  `isValid = isString(compareValue) && versioningApi.isValid(compareValue)`, and when that is
+  false the `else if (compareValue)` branch sets the skip because the copier dep carries no
+  digest (`!pinDigests && !currentDigest`). Instantiating Renovate's own `RegExpVersioningApi`
+  with both patterns settles it: the `$`-anchored regex returns `isValid = false` for
+  `template/v1.55.29-5-g3d6fc78`, the current pattern returns `true`, and both still reject
+  `audit/v1.19.0` and bare `v1.2.3`.
+
+  Two caches were checked and **neither can be the cause**. The **repository cache** is
+  eliminated structurally: `invalid-value` is a *lookup*-stage skipReason, while the extract
+  cache stores *extract*-stage `packageFiles`, so a reused entry cannot carry it. (Worth
+  recording anyway, since it is true and surprising: `getFilteredManagerConfig` in
+  `workers/repository/extract/extract-fingerprint-config.js` enumerates the fingerprint fields
+  — manager, managerFilePatterns, npmrc, npmrcMerge, enabled, ignorePaths, includePaths,
+  skipInstalls, registryAliases, fileList — and **`versioning` and `packageRules` are absent**,
+  so a `versioning` edit really does not invalidate that cache.) The **preset cache** is
+  eliminated too: `config/presets/index.js` persists resolved presets for 15 minutes only when
+  `presetCachePersistence` is on, and `.github-private`'s `renovate/config.js` never sets it,
+  so it defaults to `false` and every run refetches `copier.json`.
+
+  What remains unexplained is only the single drain observation above, which is **not
+  reproducible** against current state. Do not replace it with a new confident story; the
+  point of this paragraph is that every layer with a plausible mechanism has been checked.
 
   Practical consequence, and the part that actually matters: **do not rely on diagnosing this
   class of failure — it is silent by construction.** An unparseable `_commit` produces no
   error, no warning, and dashboard state identical to a healthy repo awaiting its PR. The
   reliable repair is to normalize the offending repo's `_commit` to an exact
-  `template/vX.Y.Z` tag, the shape every converged repo carries. The durable fix is detection:
-  a malformed `_commit` should fail a gate on the repo's own next PR rather than wait to be
-  noticed. The `prerelease` group is kept as defence in depth — it is now known to parse the
+  `template/vX.Y.Z` tag, the shape every converged repo carries. The durable fix is detection,
+  and it has shipped: `COPIER-COMMIT-EXACT-TAG` (standards#438, on `stable` since
+  `template/v1.55.48`) FAILs a present-but-malformed `_commit` on the repo's own next PR —
+  absent is a WARN, because 13 test fixtures build minimal answers files. The `prerelease`
+  group is kept as defence in depth — it is now known to parse the
   value correctly under Renovate's real engine — but it has never been observed to unblock a
   repo, so it must not be treated as the mechanism anything depends on.
 

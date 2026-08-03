@@ -21,17 +21,17 @@
       "enabled": false
     },
     {
-      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge is OFF org-wide on purpose: these repos have no required status checks beyond the org audit ruleset, and GitHub-native automerge waits only on REQUIRED checks - it would merge PRs whose tests or gitleaks are red. Renovate's own automerge engine merges only when the branch is green across ALL checks, at the cost of merges landing on Renovate runs (cron in .github-private renovate.yml).",
+      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge is ON org-wide as of 2026-08-03; it was OFF for the reason recorded here, and that reason has partly expired. THE OLD REASON: GitHub-native automerge waits only on REQUIRED checks, and these repos had no required status checks beyond the org audit ruleset, so native automerge would land PRs whose repo-local tests or gitleaks were red; Renovate's own engine waits for ALL checks green. WHAT CHANGED: the gate-tests org ruleset went active 2026-07-30 (standards#388 wave 2), so the 34 repos carrying gate_tests=true now expose a REQUIRED `test-gate` context and native automerge does wait for their tests. WHY IT WAS WORTH CHANGING: Renovate's engine merges only DURING a wave and visits each repo once per run, so any push in that visit spends the repo's only merge opportunity - green PRs starved for days (eight v2->v3 first-party PRs sat green and unmerged up to 2 days and were hand-merged 2026-08-03; standards#404 sat 6 days). Native automerge lands a PR the moment its required checks pass, independent of the wave cadence. RESIDUAL EXPOSURE, and it is FLEET-WIDE, not confined to the gate_tests=false repos: `test-gate` is the ONLY required status CONTEXT in the whole governance plane (governance.tf required_status_checks); every other required check is an INJECTED gate workflow. `lint-hooks` is therefore required NOWHERE - and it is the CI floor for the tools gate-lint-format cannot cover (shellcheck, pyright, clippy, swiftformat). So native automerge can land a PR over a red lint-hooks on ANY of the 39 governed repos. Renovate's own engine did wait for it, so this flip genuinely gives up a protection that existed; it is a deliberate trade for convergence speed, NOT a free win because gate-tests shipped. Closing it properly means making lint-hooks a required context too. Secondary gap: the 7 governed repos with gate_tests=false (claude-statusline, daily-routine, devenv-skills, homebrew-tap, infra-skills, mattpocock-skills, playwright-skills) also have no required test context - but six of them carry ZERO language facets (skills marketplaces / content carriers), so they have no canonical tests to wait for and onboarding them to gate-tests is not applicable rather than merely undone.",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^0/",
       "automerge": true,
-      "platformAutomerge": false
+      "platformAutomerge": true
     },
     {
       "description": "Lockfile maintenance only refreshes transitive resolution inside existing ranges - the lowest-risk update class. minimumReleaseAge:0 is required for the automerge to ever fire: under the global 7-day soak, Renovate stamps its own `renovate/stability-days` pending status whenever any refreshed transitive release is younger than 7 days, its merge engine waits for ALL checks including that one, and the next weekly refresh pulls new young releases that re-arm the clock - so the PR stays green-but-unmergeable indefinitely (standards#404 sat 8 days; hand-merged 2026-08-03). The soak exists to vet just-published DIRECT updates; lockfile refreshes stay inside ranges already vetted by their own PRs.",
       "matchUpdateTypes": ["lockFileMaintenance"],
       "automerge": true,
-      "platformAutomerge": false,
+      "platformAutomerge": true,
       "minimumReleaseAge": "0 days"
     },
     {
@@ -70,7 +70,7 @@
       "groupName": "first-party reusable workflows",
       "enabled": true,
       "automerge": true,
-      "platformAutomerge": false,
+      "platformAutomerge": true,
       "minimumReleaseAge": "0 days"
     },
     {
