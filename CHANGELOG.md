@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.1.1](https://github.com/Rubio-Enterprises/.github/compare/v3.1.0...v3.1.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **gates:** route the memory-heavy TypeScript gates to glue-heavy ([#167](https://github.com/Rubio-Enterprises/.github/issues/167)) ([cffb706](https://github.com/Rubio-Enterprises/.github/commit/cffb70618b15ae224cf5392032452d52e67ca38c))
+* **renovate:** exempt lockFileMaintenance from the 7-day release-age soak ([#182](https://github.com/Rubio-Enterprises/.github/issues/182)) ([5156246](https://github.com/Rubio-Enterprises/.github/commit/5156246a1cd972df423c09c3ac793a7efe7a8364))
+
 ## [3.1.0](https://github.com/Rubio-Enterprises/.github/compare/v3.0.0...v3.1.0) (2026-08-03)
 
 
