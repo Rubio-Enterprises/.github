@@ -293,15 +293,29 @@ reread contract in the runbook.
   (`fileCount: 1, depCount: 1`) and does not itself set `skipReason`; and Renovate's
   `RegExpVersioningApi._parse` is pure regex matching whose only constructor requirement —
   at least one of `<major>`/`<minor>`/`<patch>` — the pattern satisfies. The pattern matches
-  the value under native JS `RegExp`. The prime remaining suspect is the **RE2 engine**
-  (`DEBUG: Using RE2 regex engine`), which Renovate prefers over native `RegExp` and which
-  was not testable in the investigating environment.
+  the value under native JS `RegExp`, **and under RE2** — Renovate logs
+  `DEBUG: Using RE2 regex engine`, and the pattern was subsequently tested against the real
+  `re2` module: identical results to native `RegExp`, describe-shaped value matched, foreign
+  tag streams still rejected. **RE2 is therefore eliminated as well.**
 
-  Practical consequence: **do not treat a `git describe` `_commit` as recoverable by tuning
-  this regex.** The reliable repair is to normalize the offending repo's `_commit` to an
-  exact `template/vX.Y.Z` tag — the shape every converged repo carries — which sidesteps the
-  question entirely. The group above is kept because it is harmless and strictly more
-  permissive, not because it is known to work.
+  With every layer of the regex path cleared, the leading hypothesis is now **Renovate's
+  repository cache** (`repositoryCache: enabled` in `.github-private`'s `renovate/config.js`).
+  `.copier-answers.yml` was byte-identical between the wave that ran under the old regex and
+  the drain that ran under the new one, so a cache keyed on package-file content would reuse
+  the earlier dep — `skipReason` included — while config fields like `versioning` are
+  re-merged from current `packageRules` at log-dump time. That is exactly the pair of
+  observations recorded above, but it is a hypothesis, **not** a confirmed diagnosis, and it
+  is deliberately left unconfirmed rather than asserted.
+
+  Practical consequence, and the part that actually matters: **do not rely on diagnosing this
+  class of failure — it is silent by construction.** An unparseable `_commit` produces no
+  error, no warning, and dashboard state identical to a healthy repo awaiting its PR. The
+  reliable repair is to normalize the offending repo's `_commit` to an exact
+  `template/vX.Y.Z` tag, the shape every converged repo carries. The durable fix is detection:
+  a malformed `_commit` should fail a gate on the repo's own next PR rather than wait to be
+  noticed. The `prerelease` group is kept as defence in depth — it is now known to parse the
+  value correctly under Renovate's real engine — but it has never been observed to unblock a
+  repo, so it must not be treated as the mechanism anything depends on.
 
   It is a **separate file so that repos which run their own Renovate can `extends` it directly**
   (`github>Rubio-Enterprises/.github:copier`) without inheriting the whole org preset — see
