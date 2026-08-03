@@ -8,7 +8,7 @@ working with code in this repository. `CLAUDE.md` is a symlink to this file — 
 
 `Rubio-Enterprises/.github` (local dir `Governance/dot-github`, remote `origin =
 git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
-**GitHub Actions workflows** that run the fleet's PR gates — the seven
+**GitHub Actions workflows** that run the fleet's PR gates — the five
 property-targeted gate workflows the org rulesets **inject** into consumer PRs,
 plus the handful of reusables a consumer's `.github/workflows/standards.yml` still
 thin-calls. In the three-repo governance system it is the *delivery vehicle*:
@@ -30,7 +30,7 @@ local check for the workflow files before pushing. Otherwise validation happens 
 
 Two delivery mechanisms live here now.
 
-**Gate workflows — the seven property-targeted Required Governance Workflows.** A
+**Gate workflows — the five property-targeted Required Governance Workflows.** A
 repo runs one iff it carries the matching `gate-*` custom property (set in
 `.github-private` Terraform); the org gate rulesets **inject** them into the
 consumer's PR checks. They are **not** thin-called from `standards.yml`. The
@@ -47,18 +47,21 @@ channel.
 | `lint-format.yml` | `gate-lint-format` | runtime-renders the canonical lint configs from the channel and runs the config-flag linters (markdownlint, yamllint, ruff, biome) | channel, runtime-resolved |
 | `secret-scan.yml` | `gate-secret-scan` | `mode: gitleaks` (PR diff) / `mode: trufflehog` (scheduled full-history, `--results=verified`) | channel, runtime-resolved |
 | `pr-title.yml` | `gate-pr-title` | commitlint on the PR title with rules from the channel (not a hardcoded types list) | channel, runtime-resolved |
-| `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (ts-* archetypes), graceful no-task notice | — |
-| `test-py.yml` | `gate-python-tests` | `uv run pytest` (py-* + `has_test`) | — |
-| `rust-test.yml` | `gate-rust-tests` | validates Rust Test Execution Policy, routes `glue`/`linux-arm`, always runs `mise run test`, and fails closed through the bucket job | — |
+| `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
 
-`rust-test.yml` reads `RUST_TEST_WORKLOAD_CLASS` and `RUST_TEST_TIMEOUT_MINUTES`
-for direct consumer events. Reusable callers must pass required `workload-class`
-and `timeout-minutes` inputs. Direct execution is identified from the immutable
-`github.workflow_ref` prefix because a reusable call keeps the caller's
-`github.event_name` and workflow ref. Supported classes are `glue` and `linux-arm`; timeout
-must be an integer from 5 through 120. Invalid policy runs only the hosted slim
-pre-check before failing, and only an exact successful workload lets the aggregate
-pass. There is no Cargo-manifest detector or successful no-project consumer path.
+Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
+`gate-tests` org ruleset requires each enforcing repository's own repo-local
+`test-gate` status context (the Test Gate Contract — standards ADR-0020). The
+central `test-py.yml` / `rust-test.yml` overlap workflows and their
+`gate-python-tests` / `gate-rust-tests` families are retired (standards#389,
+2026-07-30).
+
+Beyond the gates and the thin-called reusables below, this repo also holds
+`testflight.yml` (the signed Apple build reusable — see
+[`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md)
+and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
+`test-gate.yml`, `copilot-setup-steps.yml`, `workflow-validation.yml`, and
+`plumbing-ref-publish.yml` (this repo's own ops, not reusables).
 
 **Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
 consumer's rendered `standards.yml` (or a release workflow):
@@ -69,7 +72,7 @@ consumer's rendered `standards.yml` (or a release workflow):
 | `e2e.yml` | Playwright harness; detects `scripts.e2e`, then runs `mise run e2e` / `npm run e2e`. Does **not** start a dev server (see the dev-server contract in its header) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
 
-`bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets; the legacy `tap-token` PAT secret remains a fallback until the last caller migrates. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
+`bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
 
 **The content gates resolve `standards` content by channel, not by a frozen
 `audit/v1` pin.** `audit.yml` and `secret-scan.yml` were moved off the frozen
@@ -154,6 +157,25 @@ reread contract in the runbook.
   `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
   routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip
   (< 26) rejects → hard fail. Copy this step into any new mise-based reusable.
+- **uv CLI pin — `setup-uv` MUST carry an exact `version:`.** Every
+  `astral-sh/setup-uv` step pins an exact uv version behind a
+  `# renovate: datasource=github-releases depName=astral-sh/uv` marker (human-merge only,
+  like the mise pin). This is not cosmetic determinism — it changes the action's network
+  behaviour. Read `setupUv()` in the action: it calls `resolveUvVersion()` **before**
+  `tryGetFromToolCache()`. With no `version:` the specifier is `latest`, so
+  `LatestVersionResolver` must `fetch` `astral-sh/versions`'
+  `v1/uv.ndjson` from `raw.githubusercontent.com` under a hard
+  `AbortSignal.timeout(5_000)` on **every** run, before the tool cache is ever consulted —
+  an unconditional 5-second external dependency ahead of every linter and test in the
+  fleet, and the first thing to snap when the shared runners are saturated. With an exact
+  version `ExactVersionResolver` returns offline, so a warm runner tool-cache hit installs
+  uv with **zero** network calls. Keep the marker and the exact pin when you add a job.
+  **Caveat, so nobody over-claims this:** on a *cold* tool cache the pin does not remove
+  the fetch — `downloadVersion()` → `getArtifact()` → `fetchManifest()` still reads the
+  same manifest to learn the artifact URL, and the action exposes no input to bypass it
+  (`manifest-file` only swaps the URL; `fetch` is undici, so a local path is not an
+  option). The pin converts "every run, always" into "first run per runner per uv
+  version" — it does not make the dependency disappear.
 - **mise CLI pin.** Each `jdx/mise-action` version carries a
   `# renovate: datasource=github-releases depName=jdx/mise` marker so Renovate bumps them
   together (human-merge only — see below). Keep the marker when you add a job.
@@ -171,6 +193,22 @@ reread contract in the runbook.
   one — while `RUNNER_MACOS` (the scarce self-hosted Tart pool) is reserved for long,
   high-frequency Xcode work such as `testflight`'s signed build. Do not promote a lint job
   onto `RUNNER_MACOS` to "match" the other macOS job.
+- **Consumer-set Actions variables these reusables read.** `vars` in a reusable resolves in
+  the **caller's** context, so each of these is set on (or above) the consumer repo, not here.
+  A repo-level value overrides an org-level one.
+
+  | Variable | Read by | Effect when set |
+  |---|---|---|
+  | `GO_PRIVATE_MODULE_REPOS` | `lint-hooks` | comma-separated repo names whose private Go modules get an App-token `insteadOf` route; both steps no-op when unset |
+  | `LINT_HOOKS_FORK_ENFORCE` | `lint-hooks` | `true` makes the **fork-mode** hook run blocking. Default (unset) is **warn-only** |
+
+  `LINT_HOOKS_FORK_ENFORCE` exists because #166's `-z` fix does not tighten a working gate —
+  it *revives a dead one*. Fork-mode hooks had been passing while resolving zero files, so
+  every fork-typed consumer (~16 repos) would turn red simultaneously on a required check for
+  pre-existing debt. Warn-only makes the gate visible now; flip repos to enforcing as they
+  are cleaned, then set it org-wide once the cohort is clean. The non-fork `--all-files` path
+  has no such switch on purpose — it was never broken, and a warn-only escape hatch there
+  would let genuinely-green repos start hiding regressions.
 
 ## Renovate config — three files, three roles
 
@@ -182,8 +220,38 @@ reread contract in the runbook.
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
   **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only** for the
-  `jdx/mise` CLI pin (`KEEP LAST`). One `customManager` remains — the `# renovate: … jdx/mise`
-  workflow `version:` markers.
+  `jdx/mise` and `astral-sh/uv` CLI pins (`KEEP LAST`). Two `customManager`s remain — the
+  `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers. They
+  are deliberately symmetric; the uv one omits `extractVersionTemplate` because uv tags are
+  bare semver (`0.12.1`) while mise's are v-prefixed.
+
+  **`rebaseWhen: "conflicted"` is load-bearing, not a tidy-up.** Renovate visits each repo
+  **once per run** and evaluates automerge at that instant; a push during that visit — a rebase
+  or a version bump — burns the repo's only merge opportunity for the whole wave. The default
+  `rebaseWhen: "auto"` resolves to `behind-base-branch` whenever `automerge: true`
+  (`determineRebaseWhenValue()` in Renovate's `reuse.ts`), so every wave rebased any PR whose
+  base had moved, and the *next* wave rebased it again if `main` had moved meanwhile. In an
+  actively-committed repo that never converges: `standards#404` sat open 6 days, and the
+  `template/v1.55.43` copier PRs 2 days, all checks green the whole time. Rebasing bought
+  nothing at the merge gate either — `.github-private`'s `protect-main` has no
+  `required_status_checks` block and `governance.tf` sets
+  `strict_required_status_checks_policy = false`, so a behind-but-clean PR is already
+  mergeable. Conflicts still self-heal: a real conflict flips the PR `dirty`, Renovate refuses
+  to merge, and `"conflicted"` rebases it. Do **not** "fix" this to `"automerging"` — that
+  resolves to `behind-base-branch` under `automerge: true` and is a no-op; and `"never"`
+  short-circuits the conflicted rebase too, stranding conflicted PRs permanently. It lives at
+  top level rather than in the copier packageRule because the starvation is manager-agnostic,
+  and `copier.json`'s contract is copier-scoped config only.
+
+  **The lockFileMaintenance rule carries `minimumReleaseAge: "0 days"` for the same reason —
+  a second, independent starvation.** Under the global 7-day soak Renovate stamps its own
+  `renovate/stability-days` *pending* status whenever any refreshed transitive release is
+  younger than 7 days; its merge engine waits for ALL checks including that one, and each
+  weekly refresh pulls new young releases that re-arm the clock, so the PR stays
+  green-but-unmergeable forever (`standards#404`: 8 days, hand-merged 2026-08-03). This does
+  NOT generalize: a *soaking* PR whose clock genuinely runs out (a digest bump, a
+  github-actions group) is working as designed and must not get an age-0 carve-out — the
+  distinction is whether new content keeps re-arming the clock structurally.
 - **`copier.json`** is the **copier-only preset**, composed by `default.json` via `extends`. It
   holds the two pieces of copier policy: the trust switch (`copier.ignoreScripts: false`) and the
   `Rubio-Enterprises/standards` template re-render rule (Layer 3c — reads `_commit`/`_src_path`

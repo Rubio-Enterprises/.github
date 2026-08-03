@@ -30,8 +30,6 @@ GATE_WORKFLOWS = {
     "gate-secret-scan": ".github/workflows/secret-scan.yml",
     "gate-pr-title": ".github/workflows/pr-title.yml",
     "gate-typescript": ".github/workflows/typecheck-ts.yml",
-    "gate-python-tests": ".github/workflows/test-py.yml",
-    "gate-rust-tests": ".github/workflows/rust-test.yml",
 }
 REQUEST_PATH = Path(".github/plumbing-ref/publication-request.json")
 MANIFEST_PATH = Path(".github/plumbing-ref/gate-family-workflows.json")
@@ -243,7 +241,7 @@ class PublicationRequestTests(unittest.TestCase):
                 "references": ["https://example.com/?value=<unsafe>"],
                 "changed_files": [str(REQUEST_PATH)],
                 "required_workflows": sorted(GATE_WORKFLOWS.values()),
-                "affected_workflows": [GATE_WORKFLOWS["gate-rust-tests"]],
+                "affected_workflows": [GATE_WORKFLOWS["gate-typescript"]],
                 "final_observed_sha": "1" * 40,
             }
         )
@@ -259,8 +257,8 @@ class CliTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -359,8 +357,8 @@ class CliTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             target = fixture.create_floor()
             expected = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: newer rust gate\n"},
-                "publish newer rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: newer typescript gate\n"},
+                "publish newer typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(
@@ -408,7 +406,7 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
-            missing_path = GATE_WORKFLOWS["gate-python-tests"]
+            missing_path = GATE_WORKFLOWS["gate-pr-title"]
             target = fixture.commit({missing_path: None}, "remove required Python gate")
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -460,8 +458,8 @@ class ForwardPublicationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -485,7 +483,7 @@ class ForwardPublicationTests(unittest.TestCase):
             self.assertEqual(fixture.live_sha(), target)
             self.assertEqual(
                 report["affected_workflows"],
-                [GATE_WORKFLOWS["gate-rust-tests"]],
+                [GATE_WORKFLOWS["gate-typescript"]],
             )
 
     def test_bootstrap_allows_mixed_change_without_mutation(self) -> None:
@@ -677,7 +675,7 @@ class ForwardPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
-            missing_path = GATE_WORKFLOWS["gate-python-tests"]
+            missing_path = GATE_WORKFLOWS["gate-pr-title"]
             target = fixture.commit({missing_path: None}, "remove Python gate")
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -701,8 +699,8 @@ class ForwardPublicationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -735,8 +733,8 @@ class ForwardPublicationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -773,8 +771,8 @@ class ForwardPublicationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -881,8 +879,8 @@ class CasCompetitionTests(unittest.TestCase):
                 "change audit gate",
             )
             target_b = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             run_git(fixture.repo, "switch", "-c", "request-a")
@@ -957,8 +955,8 @@ class CasVerificationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -993,8 +991,8 @@ class CasVerificationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -1032,8 +1030,8 @@ class CasVerificationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -1082,7 +1080,7 @@ class CasVerificationTests(unittest.TestCase):
             affected_section = summary.split(
                 "### Affected Gate Family workflow files", 1
             )[1]
-            self.assertIn(GATE_WORKFLOWS["gate-rust-tests"], affected_section)
+            self.assertIn(GATE_WORKFLOWS["gate-typescript"], affected_section)
             self.assertIn("exact-lease update failed", summary)
 
     def test_failed_post_write_reread_keeps_mutation_and_affected_workflows(
@@ -1092,8 +1090,8 @@ class CasVerificationTests(unittest.TestCase):
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
             target = fixture.commit(
-                {GATE_WORKFLOWS["gate-rust-tests"]: "name: candidate rust gate\n"},
-                "change rust gate",
+                {GATE_WORKFLOWS["gate-typescript"]: "name: candidate typescript gate\n"},
+                "change typescript gate",
             )
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
@@ -1142,7 +1140,7 @@ class CasVerificationTests(unittest.TestCase):
             affected_section = summary.split(
                 "### Affected Gate Family workflow files", 1
             )[1]
-            self.assertIn(GATE_WORKFLOWS["gate-rust-tests"], affected_section)
+            self.assertIn(GATE_WORKFLOWS["gate-typescript"], affected_section)
             self.assertIn("post-write verification failed", summary)
 
 
@@ -1190,8 +1188,8 @@ class OwnerRecoveryRunbookTests(unittest.TestCase):
         fixture = GitFixture(root)
         target = fixture.create_floor()
         expected = fixture.commit(
-            {GATE_WORKFLOWS["gate-rust-tests"]: "name: broken rust gate\n"},
-            "publish broken rust gate",
+            {GATE_WORKFLOWS["gate-typescript"]: "name: broken typescript gate\n"},
+            "publish broken typescript gate",
         )
         fixture.push_main()
         fixture.set_live_ref(expected)

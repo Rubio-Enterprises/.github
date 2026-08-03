@@ -1,5 +1,40 @@
 # Changelog
 
+## [3.1.0](https://github.com/Rubio-Enterprises/.github/compare/v3.0.0...v3.1.0) (2026-08-03)
+
+
+### Features
+
+* adopt the canonical org pull request template ([#181](https://github.com/Rubio-Enterprises/.github/issues/181)) ([2c7df54](https://github.com/Rubio-Enterprises/.github/commit/2c7df54c300381f73f373458f26acff7c6818a86))
+
+
+### Bug Fixes
+
+* **renovate:** stop rebasing behind-base PRs out of their merge window ([#176](https://github.com/Rubio-Enterprises/.github/issues/176)) ([ce376c1](https://github.com/Rubio-Enterprises/.github/commit/ce376c1b4dc692266b10db8d450aeb3ef8d5c4b3))
+
+## [3.0.0](https://github.com/Rubio-Enterprises/.github/compare/v2.6.1...v3.0.0) (2026-08-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* the `test-py.yml` / `rust-test.yml` reusable workflows are removed. No consumer `standards.yml` thin-calls them (they were injected-only), and their rulesets are gone after #169.
+
+### Features
+
+* retire the central python/rust test gate workflows ([#169](https://github.com/Rubio-Enterprises/.github/issues/169)) ([c9d7341](https://github.com/Rubio-Enterprises/.github/commit/c9d7341851e136efe0567b9318297dbc344f36af))
+
+
+### Bug Fixes
+
+* **workflows:** pin an exact uv version on every setup-uv step ([#173](https://github.com/Rubio-Enterprises/.github/issues/173)) ([b3a45b0](https://github.com/Rubio-Enterprises/.github/commit/b3a45b0c98623f6534a55c899d8ed2babae7d378))
+
+## [2.6.1](https://github.com/Rubio-Enterprises/.github/compare/v2.6.0...v2.6.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* **lint-hooks:** revive the fork gate NUL-separated, warn-only at first ([#166](https://github.com/Rubio-Enterprises/.github/issues/166)) ([6c01c61](https://github.com/Rubio-Enterprises/.github/commit/6c01c619d76154cfe09dc4a83fea78f922f38d7b))
+
 ## [2.6.0](https://github.com/Rubio-Enterprises/.github/compare/v2.5.0...v2.6.0) (2026-07-29)
 
 
