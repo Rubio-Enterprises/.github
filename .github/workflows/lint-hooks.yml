@@ -54,6 +54,13 @@ jobs:
         env:
           MACOS_RUNNER: ${{ vars.RUNNER_MACOS_LITE || '["macos-15"]' }}
           GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
+          # Fallback CHAIN, not a plain default: `|| vars.RUNNER_GLUE` means this
+          # file is safe to merge before the routing variable exists — behavior is
+          # then byte-identical to today rather than silently diverting the
+          # fleet's gates to hosted minutes.
+          HEAVY_RUNNER: >-
+            ${{ vars.RUNNER_GLUE_HEAVY || vars.RUNNER_GLUE
+            || '["ubuntu-slim"]' }}
         shell: bash
         run: |
           # has_swift routes to the macOS runner (swiftlint needs sourcekitd),
@@ -65,6 +72,22 @@ jobs:
             grep -qE '^has_homebrew_formulae:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
             printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
+          # TypeScript consumers go to the memory-bounded glue-heavy pool. This
+          # gate's `pnpm install` step is the fleet's single biggest OOM site:
+          # of 37 kodus-ai standards.yml runs on 2026-07-29, 21 failed and EVERY
+          # one failed in lint-hooks — 16 of them in that install (exit 137 kills
+          # and registry timeouts, roughly evenly split). Zero were lint errors.
+          # glue is sized around a measured p90 of 0.74 GB per container; a pnpm
+          # install on a 9-importer workspace peaks near 2 GB, so it does not
+          # belong in the same 24-slot pool as seconds-long glue work.
+          #
+          # Keyed on has_typescript rather than sniffing for pnpm-lock.yaml
+          # because `detect` sparse-checks out ONLY .copier-answers.yml — the
+          # lockfile is not on disk here, and widening the sparse-checkout to
+          # find it would cost every consumer a second fetch to answer a
+          # question the answers file already answers.
+          elif grep -qE '^has_typescript:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
+            printf 'runner=%s\n' "$HEAVY_RUNNER" >> "$GITHUB_OUTPUT"
           else
             printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
           fi

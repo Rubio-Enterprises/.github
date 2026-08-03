@@ -39,7 +39,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   typecheck:
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    # RUNNER_GLUE_HEAVY, not RUNNER_GLUE: this job's `pnpm install` + `tsc` peak
+    # at 1.73-2.22 GB, while the glue pool is sized around a measured p90 of
+    # 0.74 GB per container. Sharing all 24 glue slots with that tail is what let
+    # three kodus-ai containers get SIGKILLed simultaneously on 2026-07-28, on a
+    # day with 42 host `global_oom` kills whose invokers included postgres and
+    # frigate. glue-heavy is the same image bounded to 3 slots
+    # (mac-dev-playbook cue/mac/config_outrunner.cue).
+    #
+    # The fallback CHAIN is deliberate: `|| vars.RUNNER_GLUE` means this file is
+    # safe to merge before the routing variable exists — behavior is then
+    # byte-identical to today rather than silently diverting the fleet's gates
+    # to hosted minutes. `["ubuntu-slim"]` remains the last resort for a
+    # bootstrap/`fleet ci mode github-hosted` state where neither var is set.
+    runs-on: >-
+      ${{ fromJSON(vars.RUNNER_GLUE_HEAVY || vars.RUNNER_GLUE
+      || '["ubuntu-slim"]') }}
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
