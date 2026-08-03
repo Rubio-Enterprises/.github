@@ -28,10 +28,11 @@
       "platformAutomerge": false
     },
     {
-      "description": "Lockfile maintenance only refreshes transitive resolution inside existing ranges - the lowest-risk update class.",
+      "description": "Lockfile maintenance only refreshes transitive resolution inside existing ranges - the lowest-risk update class. minimumReleaseAge:0 is required for the automerge to ever fire: under the global 7-day soak, Renovate stamps its own `renovate/stability-days` pending status whenever any refreshed transitive release is younger than 7 days, its merge engine waits for ALL checks including that one, and the next weekly refresh pulls new young releases that re-arm the clock - so the PR stays green-but-unmergeable indefinitely (standards#404 sat 8 days; hand-merged 2026-08-03). The soak exists to vet just-published DIRECT updates; lockfile refreshes stay inside ranges already vetted by their own PRs.",
       "matchUpdateTypes": ["lockFileMaintenance"],
       "automerge": true,
-      "platformAutomerge": false
+      "platformAutomerge": false,
+      "minimumReleaseAge": "0 days"
     },
     {
       "matchManagers": ["npm"],
