@@ -38,23 +38,71 @@ concurrency:
   group: typecheck-ts-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  typecheck:
-    # RUNNER_GLUE_HEAVY, not RUNNER_GLUE: this job's `pnpm install` + `tsc` peak
-    # at 1.73-2.22 GB, while the glue pool is sized around a measured p90 of
-    # 0.74 GB per container. Sharing all 24 glue slots with that tail is what let
-    # three kodus-ai containers get SIGKILLed simultaneously on 2026-07-28, on a
-    # day with 42 host `global_oom` kills whose invokers included postgres and
-    # frigate. glue-heavy is the same image bounded to 3 slots
-    # (mac-dev-playbook cue/mac/config_outrunner.cue).
+  route:
+    # Resolve the runner from the consumer's DECLARED Workload Class
+    # (`typecheck_workload_class`, standards ADR-0022) instead of routing every
+    # selected repo to glue-heavy.
     #
-    # The fallback CHAIN is deliberate: `|| vars.RUNNER_GLUE` means this file is
-    # safe to merge before the routing variable exists — behavior is then
-    # byte-identical to today rather than silently diverting the fleet's gates
-    # to hosted minutes. `["ubuntu-slim"]` remains the last resort for a
-    # bootstrap/`fleet ci mode github-hosted` state where neither var is set.
-    runs-on: >-
-      ${{ fromJSON(vars.RUNNER_GLUE_HEAVY || vars.RUNNER_GLUE
-      || '["ubuntu-slim"]') }}
+    # Why this job exists: this workload's `pnpm install` + `tsc` peak at
+    # 1.73-2.22 GB while glue is sized around a measured p90 of 0.74 GB per
+    # container, and sharing all 24 glue slots with that tail is what let three
+    # kodus-ai containers get SIGKILLed simultaneously on 2026-07-28 (a day with
+    # 42 host `global_oom` kills whose invokers included postgres and frigate).
+    # But glue-heavy is the same image bounded to just 3 slots
+    # (mac-dev-playbook cue/mac/config_outrunner.cue), and the gate-typescript
+    # selector already means "this repo has TypeScript" — so routing on
+    # selection alone put all 15 has_typescript repos onto those 3 slots, where
+    # a repo that does not need the tier takes a slot from one that does.
+    #
+    # A SEPARATE JOB because `runs-on:` is evaluated before any checkout, so the
+    # typecheck job cannot read the answers file to choose its own runner.
+    # Named `route`, not `detect`, because the typecheck job below already has a
+    # `detect` STEP that resolves the mise task.
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - name: Sparse-checkout the consumer's .copier-answers.yml
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          sparse-checkout: .copier-answers.yml
+          sparse-checkout-cone-mode: false
+      - name: Pick the runner from the declared Workload Class
+        id: pick
+        env:
+          GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
+          # Fallback CHAIN, not a plain default: `|| vars.RUNNER_GLUE` means a
+          # glue-heavy declaration is safe to land before the routing variable
+          # exists — it degrades to glue rather than silently diverting the
+          # fleet's gates to hosted minutes. `["ubuntu-slim"]` remains the last
+          # resort for a bootstrap / `fleet ci mode github-hosted` state where
+          # neither variable is set.
+          HEAVY_RUNNER: >-
+            ${{ vars.RUNNER_GLUE_HEAVY || vars.RUNNER_GLUE
+            || '["ubuntu-slim"]' }}
+        shell: bash
+        run: |
+          # Anchored and quote-tolerant. The answers file is copier-generated so
+          # the value is unquoted, but the `$` anchor stops a future class whose
+          # name merely STARTS with glue-heavy from matching by prefix.
+          # Case-insensitive per ADR-0018: classes are stored canonically in
+          # lowercase but are case-insensitive at workflow boundaries.
+          #
+          # An absent file or absent answer falls through to glue. That is the
+          # intended degradation for a repo that has not re-rendered yet, and it
+          # is why the answer carries no copier `when:` mask — a pruned answer
+          # would be indistinguishable from a deliberate `glue` declaration.
+          if grep -qiE \
+            "^typecheck_workload_class:[[:space:]]*[\"']?glue-heavy[\"']?[[:space:]]*\$" \
+            .copier-answers.yml 2>/dev/null; then
+            printf 'runner=%s\n' "$HEAVY_RUNNER" >> "$GITHUB_OUTPUT"
+          else
+            printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
+          fi
+
+  typecheck:
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -280,7 +328,12 @@ jobs:
 
   gate:
     # Bucket job — always reports so the required check never hangs "Expected".
-    needs: [typecheck]
+    #
+    # `route` is in `needs` deliberately, not just `typecheck`. A failed `route`
+    # SKIPS typecheck, and `skipped` matches neither `failure` nor `cancelled`
+    # below — so without this the gate would report PASS on a routing failure
+    # while nothing was typechecked. Depending on both keeps that fail-closed.
+    needs: [route, typecheck]
     if: always()
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     steps:
