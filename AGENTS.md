@@ -193,6 +193,22 @@ reread contract in the runbook.
   one — while `RUNNER_MACOS` (the scarce self-hosted Tart pool) is reserved for long,
   high-frequency Xcode work such as `testflight`'s signed build. Do not promote a lint job
   onto `RUNNER_MACOS` to "match" the other macOS job.
+- **The `glue-heavy` tier is DECLARED by the consumer, never derived.** `lint-hooks` and
+  `typecheck-ts` route their Linux job by the repo's `lint_hooks_workload_class` /
+  `typecheck_workload_class` answer (standards
+  [ADR-0022](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0022-glue-heavy-workload-class.md)),
+  read out of the sparse-checked-out `.copier-answers.yml` in a small `detect` / `route`
+  job — `runs-on:` is evaluated before checkout, which is the only reason that job exists.
+  Both previously keyed on `has_typescript`, which is a proxy for *language*, not memory:
+  it is true for `static-webpage-template` and `kodus-ai` alike, so it put **15 repos onto
+  a 3-slot pool**, where a repo that does not need the tier takes a slot from one that
+  does. Two answers rather than one repo-wide flag because ADR-0018 rejected the repo-wide
+  scalar and required workload-keying. **Capability outranks resource:** a `has_swift` /
+  `has_homebrew_formulae` repo goes to macOS regardless of its declared class, because a
+  Linux tier cannot satisfy a requirement Linux cannot satisfy at all. `RUNNER_GLUE_HEAVY`
+  is deliberately absent from `runners.tf` until the pool converges, so a `glue-heavy`
+  declaration degrades through the fallback chain to glue rather than to hosted minutes —
+  declaring a class does not create its route.
 - **Consumer-set Actions variables these reusables read.** `vars` in a reusable resolves in
   the **caller's** context, so each of these is set on (or above) the consumer repo, not here.
   A repo-level value overrides an org-level one.
