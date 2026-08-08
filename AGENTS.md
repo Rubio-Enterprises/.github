@@ -430,12 +430,13 @@ reread contract in the runbook.
   value correctly under Renovate's real engine — but it has never been observed to unblock a
   repo, so it must not be treated as the mechanism anything depends on.
 
-  It is a **separate file so that repos which run their own Renovate can `extends` it directly**
-  (`github>Rubio-Enterprises/.github:copier`) without inheriting the whole org preset — see
-  `mac-dev-playbook`, which is self-managed and whose ~60 hand-tuned Docker managers must not
-  pick up `config:best-practices`, the 7-day `minimumReleaseAge`, or the blanket automerge rule.
-  The org and the self-managed repos therefore share ONE definition of the copier rule instead of
-  copying it.
+  It is a **separate file so that centrally dispatched repos needing bespoke repo-owned Renovate
+  configuration can `extends` it directly** (`github>Rubio-Enterprises/.github:copier`) without
+  inheriting the whole org preset — see `mac-dev-playbook`, whose repo-owned `renovate.json` carries
+  ~60 hand-tuned Docker managers and must not pick up `config:best-practices`, the 7-day
+  `minimumReleaseAge`, or the blanket automerge rule. That repository is centrally dispatched; its
+  bespoke configuration changes policy, not dispatch ownership. Both config paths therefore share
+  ONE definition of the copier rule instead of copying it.
 
   **Ordering caveat:** Renovate concatenates a preset's `packageRules` *before* the extending
   config's own (`mergeChildConfig`: `parent.concat(child)`), so the copier rule now sits *ahead*
