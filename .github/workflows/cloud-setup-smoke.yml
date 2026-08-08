@@ -54,18 +54,25 @@ name: cloud-setup smoke (reusable)
         required: false
         type: string
         default: "1"
-  # Required so GitHub's org-ruleset `required_workflows` validator would accept
-  # this file if it is ever promoted to a Gate Family (422 otherwise — the
-  # audit.yml / lint-hooks.yml precedent). Direct events against `.github` itself
-  # are a no-op: this repo is the source of the reusable, not a consumer, and
-  # ships no cloud-setup chain to smoke.
+  # Both direct triggers are required so GitHub's org-ruleset
+  # `required_workflows` validator would accept this file if it is ever promoted
+  # to a Gate Family (422 otherwise — the audit.yml / lint-hooks.yml precedent).
+  # Direct events against `.github` itself are a no-op: this repo is the source
+  # of the reusable, not a consumer, and ships no cloud-setup chain to smoke.
   pull_request:
+  merge_group:
 permissions:
   contents: read
 jobs:
   cloud-setup-smoke:
+    # Skip only direct events against the `.github` source repo. Keyed on
+    # `github.workflow_ref` rather than `github.event_name` (the audit.yml
+    # pattern): a reusable call inherits the CALLER's workflow ref, so consumer
+    # `workflow_call` invocations stay strict even though the caller's own event
+    # is a pull_request — and every direct event is covered uniformly, with no
+    # per-event list to keep in sync.
     if: >-
-      github.event_name != 'pull_request' ||
+      !startsWith(github.workflow_ref, 'Rubio-Enterprises/.github/.github/workflows/cloud-setup-smoke.yml@') ||
       github.repository != 'Rubio-Enterprises/.github'
     # Hosted x64 on purpose, and it is the one place this workflow departs from
     # the glue default. The cloud environment is x64 Ubuntu; the glue pool is
@@ -85,6 +92,13 @@ jobs:
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          # This job executes the checked-out consumer's own shell scripts
+          # (`bash "$SHIM"`), so a persisted push token would be readable by
+          # repo-owned code. Nothing in the smoke path does authenticated Git —
+          # the cloud-only credential-helper section is skipped in smoke mode —
+          # so dropping the credential is free. (zizmor: artipacked.)
+          persist-credentials: false
 
       # Fast, cheap gate BEFORE the toolchain steps, and load-bearing for safety
       # rather than just for minutes: a consumer whose rendered core predates
