@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.0](https://github.com/Rubio-Enterprises/.github/compare/v3.3.0...v3.4.0) (2026-08-08)
+
+
+### Features
+
+* add the cloud-setup-smoke reusable ([#200](https://github.com/Rubio-Enterprises/.github/issues/200)) ([f725c9e](https://github.com/Rubio-Enterprises/.github/commit/f725c9eef18ad37c7d1195e08e2f1ad1f53a636e))
+
 ## [3.3.0](https://github.com/Rubio-Enterprises/.github/compare/v3.2.0...v3.3.0) (2026-08-04)
 
 
