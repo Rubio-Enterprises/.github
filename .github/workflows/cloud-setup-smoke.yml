@@ -175,7 +175,7 @@ jobs:
         with:
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.7.7"
+          version: "2026.7.18"
 
       - name: Run the cloud setup chain under CLOUD_SETUP_SMOKE
         if: steps.probe.outputs.runnable == 'true'
