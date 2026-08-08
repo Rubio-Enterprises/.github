@@ -21,7 +21,7 @@
       "enabled": false
     },
     {
-      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge is ON org-wide as of 2026-08-03; it was OFF for the reason recorded here, and that reason has partly expired. THE OLD REASON: GitHub-native automerge waits only on REQUIRED checks, and these repos had no required status checks beyond the org audit ruleset, so native automerge would land PRs whose repo-local tests or gitleaks were red; Renovate's own engine waits for ALL checks green. WHAT CHANGED: the gate-tests org ruleset went active 2026-07-30 (standards#388 wave 2), so the 34 repos carrying gate_tests=true now expose a REQUIRED `test-gate` context and native automerge does wait for their tests. WHY IT WAS WORTH CHANGING: Renovate's engine merges only DURING a wave and visits each repo once per run, so any push in that visit spends the repo's only merge opportunity - green PRs starved for days (eight v2->v3 first-party PRs sat green and unmerged up to 2 days and were hand-merged 2026-08-03; standards#404 sat 6 days). Native automerge lands a PR the moment its required checks pass, independent of the wave cadence. RESIDUAL EXPOSURE, and it is FLEET-WIDE, not confined to the gate_tests=false repos: `test-gate` is the ONLY required status CONTEXT in the whole governance plane (governance.tf required_status_checks); every other required check is an INJECTED gate workflow. `lint-hooks` is therefore required NOWHERE - and it is the CI floor for the tools gate-lint-format cannot cover (shellcheck, pyright, clippy, swiftformat). So native automerge can land a PR over a red lint-hooks on ANY of the 39 governed repos. Renovate's own engine did wait for it, so this flip genuinely gives up a protection that existed; it is a deliberate trade for convergence speed, NOT a free win because gate-tests shipped. Closing it properly means making lint-hooks a required context too. Secondary gap: the 7 governed repos with gate_tests=false (claude-statusline, daily-routine, devenv-skills, homebrew-tap, infra-skills, mattpocock-skills, playwright-skills) also have no required test context - but six of them carry ZERO language facets (skills marketplaces / content carriers), so they have no canonical tests to wait for and onboarding them to gate-tests is not applicable rather than merely undone.",
+      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge has been ON for this rule since 2026-08-03. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original fleet had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. Native auto-merge therefore waits for every PR check the consumer template renders and requires. The speed benefit remains concrete: Renovate's engine merges only during a wave and visits each repo once per run, while native auto-merge lands a PR as soon as its required checks pass. The 7 governed repos with `gate_tests=false` still have no required test context, but six carry zero language facets and have no canonical test suite, so that is an explicit non-applicability rather than an unclosed gate gap.",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^0/",
       "automerge": true,
@@ -91,6 +91,33 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "Runtime dependency updates that change a shipped tool (`rubio-cli-kit` or `typer`) must use `fix(deps)` so release-please cuts a patch release. This rule changes commit semantics only; the separate fast-lane rule below preserves the standing manual posture for major and 0.x updates.",
+      "matchDepNames": ["rubio-cli-kit", "typer"],
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "Stable non-major tool runtime dependencies use the first-party fast lane: group related updates, skip the third-party 7-day soak, and hand the merge to GitHub as soon as every required check passes. Major and 0.x updates remain manual.",
+      "matchDepNames": ["rubio-cli-kit", "typer"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchCurrentVersion": "!/^v?0/",
+      "groupName": "tool runtime dependencies",
+      "automerge": true,
+      "platformAutomerge": true,
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "Git-sourced tool pins in `home/.chezmoidata/uv-tools.toml` are authoritative first-party fleet inputs. Group stable non-major tag/SHA advances into one PR, skip the org release-age soak, and use scoped platform auto-merge; major and 0.x tool releases stay manual.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["home/.chezmoidata/uv-tools.toml"],
+      "matchPackageNames": ["/^Rubio-Enterprises\\//"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
+      "matchCurrentVersion": "!/^v?0/",
+      "groupName": "first-party tool pins",
+      "automerge": true,
+      "platformAutomerge": true,
+      "minimumReleaseAge": "0 days"
+    },
+    {
       "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows, tracked by the jdx/mise customManager below). Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["jdx/mise"],
@@ -127,6 +154,21 @@
       ],
       "depNameTemplate": "astral-sh/uv",
       "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "Git-sourced uv-tools entries use recursive matching: the outer expression binds one TOML table to its GitHub repo, and the inner expression replaces only that table's `version` line. `pinDigests` bootstraps tag-only pins and every update writes the immutable SHA plus readable tag (`version = \"<sha>\"  # vX.Y.Z`).",
+      "customType": "regex",
+      "fileMatch": ["^home/\\.chezmoidata/uv-tools\\.toml$"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "(?m)^\\[tools\\.(?<depName>[A-Za-z0-9._-]+)\\]\\r?\\n(?:(?:[^\\[\\r\\n][^\\r\\n]*)?\\r?\\n)*?^[ \\t]*source[ \\t]*=[ \\t]*\"git\\+ssh://git@github\\.com/(?<packageName>Rubio-Enterprises/[A-Za-z0-9._-]+)\"[^\\r\\n]*$",
+        "(?m)^(?<indentation>[ \\t]*)version[ \\t]*=[ \\t]*\"(?:(?<currentDigest>[a-f0-9]{40})\"[ \\t]*#[ \\t]*(?<taggedValue>[^ \\t\\r\\n][^\\r\\n]*?)|(?<bareValue>[^\" \\t\\r\\n#][^\"\\r\\n#]*)\")[ \\t]*$"
+      ],
+      "currentValueTemplate": "{{#if taggedValue}}{{{taggedValue}}}{{else}}{{{bareValue}}}{{/if}}",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "loose",
+      "pinDigests": true,
+      "autoReplaceStringTemplate": "{{{indentation}}}version = \"{{{newDigest}}}\"  # {{{newValue}}}"
     }
   ]
 }
