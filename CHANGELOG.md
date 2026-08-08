@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.5.0](https://github.com/Rubio-Enterprises/.github/compare/v3.4.0...v3.5.0) (2026-08-08)
+
+
+### Features
+
+* **renovate:** add first-party git tool dependency automation ([#206](https://github.com/Rubio-Enterprises/.github/issues/206)) ([634064f](https://github.com/Rubio-Enterprises/.github/commit/634064ffca4fbafebef4bceca9b3ac523766b5a9))
+
+
+### Bug Fixes
+
+* cover the rendered cloud-setup-smoke.yml in the Renovate preset ([#202](https://github.com/Rubio-Enterprises/.github/issues/202)) ([2931779](https://github.com/Rubio-Enterprises/.github/commit/2931779520a94c6db036908dfc4fdda98ff038bf))
+
 ## [3.4.0](https://github.com/Rubio-Enterprises/.github/compare/v3.3.0...v3.4.0) (2026-08-08)
 
 
