@@ -71,6 +71,32 @@ consumer's rendered `standards.yml` (or a release workflow):
 | `lint-hooks.yml` | `lefthook run pre-commit --all-files` + a commit-msg smoke test — the CI floor for tools with no config-path flag (shellcheck, pyright, clippy…) that `gate-lint-format` doesn't cover; **stays rendered in `standards.yml`** | — |
 | `e2e.yml` | Playwright harness; detects `scripts.e2e`, then runs `mise run e2e` / `npm run e2e`. Does **not** start a dev server (see the dev-server contract in its header) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
+| `cloud-setup-smoke.yml` | Runs the consumer's Claude Code on the web setup chain (`cloud-setup-shim.sh` → `common/cloud-setup.sh` → `repo-local/cloud-setup.sh`) on Linux under `CLOUD_SETUP_SMOKE`, so a cloud-environment defect fails the PR that introduces it | — |
+
+`cloud-setup-smoke.yml` is the only reusable here that runs **hosted x64 by
+default** rather than glue. That is the point of it: the cloud environment is x64
+Ubuntu and the glue pool is arm64, so routing it to glue would add
+architecture-specific false positives to a check whose whole question is "would
+this work in the cloud?". It reads `vars.RUNNER_CLOUD_SMOKE` with an
+`ubuntu-latest` fallback; that variable is deliberately **not** declared in
+`.github-private`'s `runners.tf` (declaring it would create it live and could
+point the job at a label no pool advertises — the 2026-07-21 stall). Absent
+variable means "behave as written", per the `RUNNER_GLUE_HEAVY` precedent.
+
+Two things about it are load-bearing and easy to break:
+
+- **It probes before it runs, and the probe is a safety gate, not an
+  optimization.** A consumer whose rendered `scripts/common/cloud-setup.sh`
+  predates `CLOUD_SETUP_SMOKE` (standards < `template/v1.55.56`) does not ignore
+  the variable — it runs the **full cloud path** on the runner, registering a
+  global git credential helper and attempting marketplace clones. The workflow
+  greps the core for `CLOUD_SETUP_SMOKE` and skips with a notice when absent.
+  Never invoke a core that cannot honour the contract.
+- **It installs mise before invoking the chain.** The chain's own toolchain
+  bootstrap (the SessionStart hook core) opens with
+  `command -v mise >/dev/null 2>&1 || exit 0` — abort-proof, so on a runner
+  without mise it silently no-ops, every warm step is then skipped for want of a
+  tool, and the smoke passes green while proving nothing.
 
 `bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
 

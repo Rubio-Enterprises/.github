@@ -1,0 +1,178 @@
+name: cloud-setup smoke (reusable)
+# Runs a consumer's Claude Code on the web setup chain — scripts/cloud-setup-shim.sh
+# -> scripts/common/cloud-setup.sh -> scripts/repo-local/cloud-setup.sh — on a Linux
+# runner, so a defect that would break the cloud environment surfaces on the PR
+# that introduces it instead of in a snapshot build log nobody reads.
+#
+# WHY THIS EXISTS
+# ---------------
+# The setup chain is ABORT-PROOF BY CONTRACT: a Setup script that exits non-zero
+# blocks the cloud session from starting, so every step swallows its own failure
+# and the script always ends in `exit 0`. Correct, and also why the chain had no
+# CI coverage of any kind — there was no exit code to check. A PATH-keyed node
+# fallback consequently ran `pnpm install` at a manifest-less repo root on EVERY
+# snapshot build of EVERY has_embedded_web consumer, reported success, and went
+# unnoticed until someone read a build log (standards template/v1.55.56).
+#
+# `CLOUD_SETUP_SMOKE` (standards) inverts that contract for CI only: steps still
+# all run, but failures are recorded and re-raised as a non-zero exit at the end.
+# This workflow is the consumer-side half — the template render canary covers the
+# template-side half against freshly rendered fixtures.
+#
+# WHAT IT DOES *NOT* REPLICATE (deliberate)
+# -----------------------------------------
+# Not root, not a snapshot, no GH_PAT, no `claude` CLI. The core skips its
+# cloud-only sections in smoke mode accordingly: apt, the marketplace credential
+# helper + pre-seed, plugin-cache materialization, workflow seeding, and the
+# drift fingerprint. Skipping the credential helper also keeps this job from
+# writing a global `insteadOf` rewrite into the runner's git config.
+#
+# What IS replicated is the part where repos actually break: Linux, the pinned
+# toolchain, the archetype cache warm against the repo's REAL manifests, and the
+# repo-owned scripts/repo-local/cloud-setup.sh — the one link in the chain the
+# template cannot see.
+#
+# NOT A GATE FAMILY. This is a thin-called reusable (`uses:` from the consumer's
+# own rendered caller), not one of the property-targeted Required Governance
+# Workflows the org rulesets inject. It therefore needs no `gate-*` custom
+# property, no governance.tf ruleset, and no `gates/wf-v1` plumbing-ref
+# publication — it rides the ordinary `.github` release + floating `v1` like
+# lint-hooks / e2e / bump-brew. Promoting it to a required status context later
+# would first require moving its caller into standards.yml's unconditional job
+# set: a paths-filtered workflow can never be a required context, because a run
+# that never reports blocks the merge forever.
+"on":
+  workflow_call:
+    inputs:
+      level:
+        description: >-
+          CLOUD_SETUP_SMOKE level. `1` (default) runs the pinned toolchain
+          bootstrap and then the cache warm + repo-local against real manifests.
+          `warm` skips the bootstrap — only useful for a dependency-free tree,
+          since without the toolchain every warm step no-ops and the smoke is
+          vacuous.
+        required: false
+        type: string
+        default: "1"
+  # Required so GitHub's org-ruleset `required_workflows` validator would accept
+  # this file if it is ever promoted to a Gate Family (422 otherwise — the
+  # audit.yml / lint-hooks.yml precedent). Direct events against `.github` itself
+  # are a no-op: this repo is the source of the reusable, not a consumer, and
+  # ships no cloud-setup chain to smoke.
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  cloud-setup-smoke:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'Rubio-Enterprises/.github'
+    # Hosted x64 on purpose, and it is the one place this workflow departs from
+    # the glue default. The cloud environment is x64 Ubuntu; the glue pool is
+    # arm64, which would add architecture-specific false positives to a check
+    # whose entire job is to answer "would this work in the cloud?".
+    #
+    # `RUNNER_CLOUD_SMOKE` is deliberately NOT declared in .github-private's
+    # runners.tf — declaring it would CREATE the variable live on the next apply
+    # and could point this job at a label no pool advertises, the 2026-07-21
+    # stall. Referencing it with a fallback is the safe direction (the
+    # RUNNER_GLUE_HEAVY precedent): absent variable means "behave exactly as
+    # written here", and the org gains a routing lever the day a pool exists.
+    runs-on: ${{ fromJSON(vars.RUNNER_CLOUD_SMOKE || '["ubuntu-latest"]') }}
+    # The cloud snapshot build has a ~5 min budget; this runs the same work with
+    # a cold cache, so the cap is generous but still bounded.
+    timeout-minutes: 15
+    steps:
+      - name: Check out the consumer repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      # Fast, cheap gate BEFORE the toolchain steps, and load-bearing for safety
+      # rather than just for minutes: a consumer whose rendered core predates
+      # CLOUD_SETUP_SMOKE does not merely ignore the variable — it runs the FULL
+      # CLOUD PATH on this runner, registering a global git credential helper and
+      # attempting marketplace clones. Never invoke a core that cannot honour the
+      # smoke contract.
+      - name: Resolve whether this repo has a smoke-capable cloud-setup chain
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          shim=""
+          for candidate in scripts/cloud-setup-shim.sh Scripts/cloud-setup-shim.sh; do
+            [ -f "$candidate" ] && { shim="$candidate"; break; }
+          done
+          if [ -z "$shim" ]; then
+            echo "runnable=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no cloud-setup chain in this repo; nothing to smoke"
+            exit 0
+          fi
+          core="$(dirname "$shim")/common/cloud-setup.sh"
+          if [ ! -f "$core" ]; then
+            echo "runnable=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$shim present but $core is not; nothing to smoke"
+            exit 0
+          fi
+          if ! grep -q 'CLOUD_SETUP_SMOKE' "$core"; then
+            echo "runnable=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$core predates CLOUD_SETUP_SMOKE and would run the full cloud path; skipping until this repo re-renders (standards >= template/v1.55.56)"
+            exit 0
+          fi
+          echo "runnable=true" >> "$GITHUB_OUTPUT"
+          echo "shim=$shim" >> "$GITHUB_OUTPUT"
+          echo "smoke-capable chain: $shim -> $core"
+
+      # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
+      # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
+      # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
+      # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
+      - name: Install uv (routes mise pipx installs through uvx)
+        if: steps.probe.outputs.runnable == 'true'
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.1"
+
+      # Fingerprint the uv-resolved python into the mise cache key (standards#331):
+      # a uv default-python bump otherwise hands back pipx venvs whose shebang
+      # points at an interpreter this VM lacks — a poisoned cache no re-run fixes.
+      - name: Fingerprint the uv-resolved python for the mise cache key
+        id: uv-python
+        if: steps.probe.outputs.runnable == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv python install
+          version="$(uv python find --managed-python --show-version)"
+          if [ -z "$version" ]; then
+            echo "::error::could not resolve the uv-managed python version for the mise cache key" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      # The chain's own toolchain bootstrap (the SessionStart hook core) begins
+      # `command -v mise || exit 0` — abort-proof, so on a runner with no mise it
+      # silently no-ops and every warm step is then skipped for want of a tool.
+      # That would make level `1` vacuous AND make it report tools "missing after
+      # the bootstrap". Provisioning mise here is what gives the hook something to
+      # bootstrap, exactly as the cloud base image does.
+      - name: Install the consumer's pinned toolchain
+        if: steps.probe.outputs.runnable == 'true'
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        with:
+          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.7.7"
+
+      - name: Run the cloud setup chain under CLOUD_SETUP_SMOKE
+        if: steps.probe.outputs.runnable == 'true'
+        shell: bash
+        env:
+          CLOUD_SETUP_SMOKE: ${{ inputs.level || '1' }}
+          SHIM: ${{ steps.probe.outputs.shim }}
+        run: |
+          set -euo pipefail
+          # Invoke the SHIM, not the core: the shim is the frozen entry point the
+          # cloud UI wrapper execs, so running it exercises the real chain
+          # including the shim's own core-resolution logic.
+          bash "$SHIM"
+          echo "cloud setup chain is clean on Linux at level '$CLOUD_SETUP_SMOKE'" >> "$GITHUB_STEP_SUMMARY"
