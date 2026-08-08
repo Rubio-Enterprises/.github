@@ -431,7 +431,7 @@ reread contract in the runbook.
   repo, so it must not be treated as the mechanism anything depends on.
 
   It is a **separate file so that centrally dispatched repos needing bespoke repo-owned Renovate
-  configuration can `extends` it directly** (`github>Rubio-Enterprises/.github:copier`) without
+  configuration can extend it directly using `extends`** (`github>Rubio-Enterprises/.github:copier`) without
   inheriting the whole org preset — see `mac-dev-playbook`, whose repo-owned `renovate.json` carries
   ~60 hand-tuned Docker managers and must not pick up `config:best-practices`, the 7-day
   `minimumReleaseAge`, or the blanket automerge rule. That repository is centrally dispatched; its
