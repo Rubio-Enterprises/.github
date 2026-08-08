@@ -262,13 +262,24 @@ reread contract in the runbook.
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
   **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only** for the
-  `jdx/mise` and `astral-sh/uv` CLI pins (`KEEP LAST`). Two `customManager`s remain — the
-  `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers. They
-  are deliberately symmetric; the uv one omits `extractVersionTemplate` because uv tags are
-  bare semver (`0.12.1`) while mise's are v-prefixed.
+  `jdx/mise` and `astral-sh/uv` CLI pins (`KEEP LAST`). Three `customManager`s remain. The first
+  two track the `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:`
+  markers; they are deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while
+  mise's are v-prefixed and need `extractVersionTemplate`. The third tracks git-sourced entries in
+  `home/.chezmoidata/uv-tools.toml`: recursive matching first binds one TOML table to its GitHub
+  repo, then replaces only that table's `version` line. `pinDigests: true` bootstraps tag-only
+  entries, and the explicit replacement always writes `version = "<sha>"  # <tag>`.
+
+  The tool dependency policy is split deliberately. A semantic-only rule maps runtime updates to
+  `rubio-cli-kit` or `typer` to `fix(deps)` so release-please cuts a tool release even when the
+  update remains manual. Separate fast-lane rules cover stable non-major runtime updates and the
+  registry's first-party tool pins: both skip the third-party release-age soak and use scoped
+  platform auto-merge, while major and 0.x updates retain the standing manual posture. Registry
+  pins are grouped into one dotfiles PR; the runtime group applies independently in each tool repo.
 
   **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
-  the first-party reusable digest, and — in `copier.json` — the template re-render). It was off
+  the first-party reusable digest, stable non-major tool runtime dependencies and registry pins,
+  and — in `copier.json` — the template re-render). It was off
   because GitHub-native auto-merge waits only on **required** checks while Renovate's own engine
   waits for **all** checks green, and the fleet had no required checks beyond the audit ruleset.
   `gate-tests` going active (2026-07-30) changed that for the 34 repos carrying
@@ -329,9 +340,12 @@ reread contract in the runbook.
   younger than 7 days; its merge engine waits for ALL checks including that one, and each
   weekly refresh pulls new young releases that re-arm the clock, so the PR stays
   green-but-unmergeable forever (`standards#404`: 8 days, hand-merged 2026-08-03). This does
-  NOT generalize: a *soaking* PR whose clock genuinely runs out (a digest bump, a
-  github-actions group) is working as designed and must not get an age-0 carve-out — the
-  distinction is whether new content keeps re-arming the clock structurally.
+  NOT generalize to ordinary third-party updates: a *soaking* PR whose clock genuinely runs out
+  is working as designed and must not get an age-0 carve-out. The separate first-party reusable
+  and tool-dependency exemptions have a different justification: the org deliberately publishes
+  and gates those releases itself, so the third-party supply-chain quarantine does not apply. For
+  lockfile maintenance, the distinction is instead whether new content structurally re-arms the
+  clock before it can expire.
 - **`copier.json`** is the **copier-only preset**, composed by `default.json` via `extends`. It
   holds the two pieces of copier policy: the trust switch (`copier.ignoreScripts: false`) and the
   `Rubio-Enterprises/standards` template re-render rule (Layer 3c — reads `_commit`/`_src_path`
