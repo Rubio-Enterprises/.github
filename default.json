@@ -96,11 +96,17 @@
       "semanticCommitType": "fix"
     },
     {
-      "description": "Stable non-major tool runtime dependencies use the first-party fast lane: group related updates, skip the third-party 7-day soak, and hand the merge to GitHub as soon as every required check passes. Major and 0.x updates remain manual.",
+      "description": "Group related tool runtime dependencies even when Typer is 0.x. A kit release can raise its Typer floor; separate branches make uv lock fail before either PR exists. This rule controls grouping and the age exemption only. Automerge remains per-upgrade, so a group containing a 0.x Typer update stays manual because Renovate automerges a branch only when every upgrade is automerge-enabled.",
+      "matchDepNames": ["rubio-cli-kit", "typer"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "tool runtime dependencies",
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "Stable non-major tool runtime dependencies use the first-party fast lane: skip the third-party 7-day soak and hand the merge to GitHub as soon as every required check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable without widening automerge. Major and 0.x updates remain manual.",
       "matchDepNames": ["rubio-cli-kit", "typer"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^v?0/",
-      "groupName": "tool runtime dependencies",
       "automerge": true,
       "platformAutomerge": true,
       "minimumReleaseAge": "0 days"

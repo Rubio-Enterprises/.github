@@ -63,21 +63,51 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertNotIn("matchPackageNames", release_rule)
         self.assertNotIn("automerge", release_rule)
 
-    def test_first_party_fast_lanes_exclude_major_and_zero_x_updates(self) -> None:
-        for group_name in ("tool runtime dependencies", "first-party tool pins"):
-            with self.subTest(group_name=group_name):
-                rule = _rule_with_group(group_name)
-                self.assertEqual(
-                    set(rule["matchUpdateTypes"]),
-                    {"minor", "patch", "pin", "digest"}
-                    | ({"pinDigest"} if group_name == "first-party tool pins" else set()),
-                )
-                self.assertEqual(rule["matchCurrentVersion"], "!/^v?0/")
-                self.assertTrue(rule["automerge"])
-                self.assertTrue(rule["platformAutomerge"])
-                self.assertEqual(rule["minimumReleaseAge"], "0 days")
+    def test_runtime_dependency_group_keeps_coupled_updates_solvable(self) -> None:
+        group_rule = _rule_with_group("tool runtime dependencies")
+        self.assertEqual(
+            set(group_rule["matchDepNames"]), {"rubio-cli-kit", "typer"}
+        )
+        self.assertEqual(
+            set(group_rule["matchUpdateTypes"]),
+            {"minor", "patch", "pin", "digest"},
+        )
+        self.assertNotIn("matchCurrentVersion", group_rule)
+        self.assertNotIn("automerge", group_rule)
+        self.assertNotIn("platformAutomerge", group_rule)
+        self.assertEqual(group_rule["minimumReleaseAge"], "0 days")
 
+    def test_stable_runtime_fast_lane_excludes_zero_x_updates(self) -> None:
+        fast_lane = next(
+            rule
+            for rule in CONFIG["packageRules"]
+            if rule.get("description", "").startswith(
+                "Stable non-major tool runtime dependencies"
+            )
+        )
+        self.assertEqual(
+            set(fast_lane["matchDepNames"]), {"rubio-cli-kit", "typer"}
+        )
+        self.assertEqual(
+            set(fast_lane["matchUpdateTypes"]),
+            {"minor", "patch", "pin", "digest"},
+        )
+        self.assertEqual(fast_lane["matchCurrentVersion"], "!/^v?0/")
+        self.assertNotIn("groupName", fast_lane)
+        self.assertTrue(fast_lane["automerge"])
+        self.assertTrue(fast_lane["platformAutomerge"])
+        self.assertEqual(fast_lane["minimumReleaseAge"], "0 days")
+
+    def test_first_party_tool_pin_fast_lane_excludes_zero_x_updates(self) -> None:
         pin_rule = _rule_with_group("first-party tool pins")
+        self.assertEqual(
+            set(pin_rule["matchUpdateTypes"]),
+            {"minor", "patch", "pin", "digest", "pinDigest"},
+        )
+        self.assertEqual(pin_rule["matchCurrentVersion"], "!/^v?0/")
+        self.assertTrue(pin_rule["automerge"])
+        self.assertTrue(pin_rule["platformAutomerge"])
+        self.assertEqual(pin_rule["minimumReleaseAge"], "0 days")
         self.assertEqual(pin_rule["matchManagers"], ["custom.regex"])
         self.assertEqual(
             pin_rule["matchFileNames"], ["home/.chezmoidata/uv-tools.toml"]
