@@ -272,10 +272,15 @@ reread contract in the runbook.
 
   The tool dependency policy is split deliberately. A semantic-only rule maps runtime updates to
   `rubio-cli-kit` or `typer` to `fix(deps)` so release-please cuts a tool release even when the
-  update remains manual. Separate fast-lane rules cover stable non-major runtime updates and the
-  registry's first-party tool pins: both skip the third-party release-age soak and use scoped
-  platform auto-merge, while major and 0.x updates retain the standing manual posture. Registry
-  pins are grouped into one dotfiles PR; the runtime group applies independently in each tool repo.
+  update remains manual. A separate grouping rule puts related non-major updates on one branch even
+  while Typer is 0.x: a kit release can raise its Typer floor, and separate branches make `uv lock`
+  reject the kit branch before either PR exists. Grouping does not widen automerge. Renovate sets a
+  grouped branch's `automerge` only when **every** upgrade enables it, so a group containing a 0.x
+  Typer update remains manual; a stable-only group can still use the fast lane. Separate fast-lane
+  rules cover stable non-major runtime updates and the registry's first-party tool pins: both skip
+  the release-age soak and use scoped platform auto-merge, while major and 0.x updates retain the
+  standing manual posture. Registry pins are grouped into one dotfiles PR; the runtime group applies
+  independently in each tool repo.
 
   **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
   the first-party reusable digest, stable non-major tool runtime dependencies and registry pins,
