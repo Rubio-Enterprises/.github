@@ -2,8 +2,10 @@ name: bump-homebrew-git (reusable)
 # Bump a :git-strategy Homebrew formula in the tap to the tag that triggered the
 # caller. These formulae build from source — `url "git@…", using: :git, tag:,
 # revision:` — so there is no release tarball or sha256 to update. The workflow
-# updates the tag, the commit it points at, and an explicit Homebrew version line so
-# `brew outdated` can detect post-release tag bumps. This replaces
+# updates the tag and the commit it points at, plus an explicit Homebrew `version`
+# line where one already exists (needed only when Homebrew cannot scan the version
+# out of the tag, e.g. a PEP 440 `v0.4.4.post2`, so that `brew outdated` still
+# detects post-release tag bumps). This replaces
 # mislav/bump-homebrew-formula-action, which
 # only rewrites url+sha256 tarball formulae and 404s on a private repo's archive.
 #
@@ -151,13 +153,20 @@ jobs:
             lines[index].match?(/^  version\s+"[^"]*"\s*$/)
           end
 
+          # Update an existing version line; never insert one. `brew audit` fails
+          # with "`version X` is redundant with version scanned from URL" whenever
+          # Homebrew can derive the version from the tag itself, which is every
+          # plain vX.Y.Z tag — so inserting a line broke the tap's own lint gate on
+          # exactly the formulae that did not need it (caught on
+          # homebrew-tap#135). A formula whose tag Homebrew cannot parse — omlx's
+          # PEP 440 `v0.4.4.post2` is the live example — carries the line already,
+          # and that one keeps being maintained here. Adding the first line for a
+          # new unparseable-tag formula stays a human, one-time act.
           if version_line_indexes.length > 1
             warn "::error::#{formula_path} has multiple top-level version lines"
             exit 1
           elsif version_line_indexes.one?
             lines[version_line_indexes.first] = %(  version "#{version}"\n)
-          else
-            lines.insert(finish_index + 1, %(  version "#{version}"\n))
           end
 
           File.write(formula_path, lines.join)
