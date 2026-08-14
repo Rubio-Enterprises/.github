@@ -34,13 +34,20 @@ permissions:
 jobs:
   bump:
     # NOT RUNNER_GLUE. The glue pool is a rootless, locked-down container with no
-    # build toolchain and no ruby, so the formula rewrite below died with
-    # `ruby: command not found` (exit 127) on every tag push once RUNNER_GLUE was
-    # flipped to that pool — silently breaking the tap-release path for every
-    # caller. Caught by Rubio-Enterprises/clipssh v1.4.0 (2026-08-14); the last
-    # green bump was clipssh v1.3.1 in May, when RUNNER_GLUE still resolved to
-    # hosted ubuntu-latest. Tap bumps only fire on release tags, which is why the
-    # regression stayed invisible for months.
+    # build toolchain and no ruby — it never had ruby — so the ruby heredoc below
+    # fails there with `ruby: command not found`, exit 127.
+    #
+    # The regression was THIS workflow's own sed → ruby swap (54f84651,
+    # 2026-06-26T02:45Z, "fix: scope homebrew formula revision bumps" #67), first
+    # released in v1.5.0 — not a runner change. Do not re-derive it as one: omlx
+    # bumped successfully ON glue 24 minutes earlier (run 28213030752, 02:21Z)
+    # using v1.4.1, whose rewrite step was sed. v1.4.6 and earlier work on glue;
+    # v1.5.0 and later do not, so the break reached each caller silently when
+    # Renovate advanced its pin past v1.4.6 — gmaps-sync 2026-08-09, clipssh
+    # 2026-08-14 (v1.4.0). Tap bumps only fire on release tags, and the failure
+    # never surfaces on the release PR, which is why it stayed invisible for two
+    # months. Reverting to sed is not the fix: #67 swapped it in to scope the
+    # rewrite to the top-level :git stanza, which sed could not do safely.
     #
     # VM-class it is: both RUNNER_LINUX_ARM routes (the self-hosted linux-arm64
     # Tart VMs and the hosted ubuntu-24.04-arm fallback) have passwordless sudo,
