@@ -33,7 +33,20 @@ permissions:
   contents: read
 jobs:
   bump:
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    # NOT RUNNER_GLUE. The glue pool is a rootless, locked-down container with no
+    # build toolchain and no ruby, so the formula rewrite below died with
+    # `ruby: command not found` (exit 127) on every tag push once RUNNER_GLUE was
+    # flipped to that pool — silently breaking the tap-release path for every
+    # caller. Caught by Rubio-Enterprises/clipssh v1.4.0 (2026-08-14); the last
+    # green bump was clipssh v1.3.1 in May, when RUNNER_GLUE still resolved to
+    # hosted ubuntu-latest. Tap bumps only fire on release tags, which is why the
+    # regression stayed invisible for months.
+    #
+    # VM-class it is: both RUNNER_LINUX_ARM routes (the self-hosted linux-arm64
+    # Tart VMs and the hosted ubuntu-24.04-arm fallback) have passwordless sudo,
+    # which the ruby preflight below needs. Same reasoning as the kcov coverage
+    # job in clipssh — the glue pool cannot host a job with toolchain needs.
+    runs-on: ${{ fromJSON(vars.RUNNER_LINUX_ARM || '["ubuntu-24.04-arm"]') }}
     env:
       TAP_APP_CONFIGURED: ${{ secrets.TAP_PUSH_APP_ID != '' && secrets.TAP_PUSH_APP_PRIVATE_KEY != '' }}
     steps:
@@ -63,6 +76,18 @@ jobs:
         with:
           repository: ${{ inputs.tap }}
           token: ${{ steps.tap-app.outputs.token }}
+      # The rewrite below is a ruby script. Ruby ships on GitHub's hosted images
+      # but is NOT guaranteed on the self-hosted linux-arm64 Tart VM template
+      # (an externally baked playwright image), so install it when absent instead
+      # of assuming. No-op when already present.
+      - name: Ensure ruby is available
+        run: |
+          set -euo pipefail
+          if ! command -v ruby >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ruby
+          fi
+          ruby --version
       - name: Rewrite formula tag + revision
         env:
           FORMULA: ${{ inputs.formula-name }}
