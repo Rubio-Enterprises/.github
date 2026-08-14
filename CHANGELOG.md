@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.5.0](https://github.com/Rubio-Enterprises/.github/compare/v3.4.0...v3.5.0) (2026-08-14)
+
+
+### Features
+
+* **renovate:** add first-party git tool dependency automation ([#206](https://github.com/Rubio-Enterprises/.github/issues/206)) ([634064f](https://github.com/Rubio-Enterprises/.github/commit/634064ffca4fbafebef4bceca9b3ac523766b5a9))
+
+
+### Bug Fixes
+
+* **bump-brew:** route off the glue pool and guarantee ruby ([#216](https://github.com/Rubio-Enterprises/.github/issues/216)) ([992d24b](https://github.com/Rubio-Enterprises/.github/commit/992d24b0d4612e4b1729848f7517d13c7abb2862))
+* cover the rendered cloud-setup-smoke.yml in the Renovate preset ([#202](https://github.com/Rubio-Enterprises/.github/issues/202)) ([2931779](https://github.com/Rubio-Enterprises/.github/commit/2931779520a94c6db036908dfc4fdda98ff038bf))
+
 ## [3.4.0](https://github.com/Rubio-Enterprises/.github/compare/v3.3.0...v3.4.0) (2026-08-08)
 
 
