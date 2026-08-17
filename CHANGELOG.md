@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.1](https://github.com/Rubio-Enterprises/.github/compare/v3.5.0...v3.5.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **bump-brew:** update the version line instead of inserting one, and correct the root-cause comment ([#217](https://github.com/Rubio-Enterprises/.github/issues/217)) ([810ef51](https://github.com/Rubio-Enterprises/.github/commit/810ef5134e50b09c33d0ec3cd86250332430eeb4))
+
 ## [3.5.0](https://github.com/Rubio-Enterprises/.github/compare/v3.4.0...v3.5.0) (2026-08-14)
 
 
