@@ -220,8 +220,7 @@
       "platformAutomerge": false
     },
     {
-      "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows, tracked by the jdx/mise customManager below). Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
-      "matchManagers": ["custom.regex"],
+      "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows). Renovate can extract this pin through either the built-in github-actions `uses-with` path or the jdx/mise customManager below, so this dep-name override is deliberately manager-independent. Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
       "matchDepNames": ["jdx/mise"],
       "groupName": "mise-cli",
       "groupSlug": "mise-cli",

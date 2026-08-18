@@ -340,6 +340,36 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertTrue(resolved["platformAutomerge"])
         self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
+    def test_mise_cli_override_is_manager_independent(self) -> None:
+        mise_update = {
+            "depName": "jdx/mise",
+            "packageName": "jdx/mise",
+            "fileName": ".github/workflows/test-gate.yml",
+            "currentVersion": "v2026.8.3",
+            "updateType": "patch",
+        }
+        for manager in ("custom.regex", "github-actions"):
+            with self.subTest(manager=manager):
+                resolved = _resolve_dependency({**mise_update, "manager": manager})
+                self.assertEqual(resolved["groupSlug"], "mise-cli")
+                self.assertFalse(resolved["automerge"])
+                self.assertFalse(resolved["platformAutomerge"])
+                self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+
+        unrelated = _resolve_dependency(
+            {
+                "manager": "github-actions",
+                "depName": "actions/cache",
+                "packageName": "actions/cache",
+                "fileName": ".github/workflows/test-gate.yml",
+                "currentVersion": "v4.2.3",
+                "updateType": "patch",
+            }
+        )
+        self.assertTrue(unrelated["automerge"])
+        self.assertTrue(unrelated["platformAutomerge"])
+        self.assertEqual(unrelated["minimumReleaseAge"], "7 days")
+
     def test_later_manual_exceptions_override_the_safe_lane(self) -> None:
         fixtures = [
             (
