@@ -261,14 +261,19 @@ reread contract in the runbook.
   re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
-  **automerge** for non-major updates of stable (≥ 1.0.0) deps; **human-merge-only** for the
-  `jdx/mise` and `astral-sh/uv` CLI pins (`KEEP LAST`). Four `customManager`s remain. The first
+  **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
+  the global seven-day soak; **human-merge-only** for majors, pre-1.0 updates, TestFlight, and the
+  `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
+  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. Four
+  `customManager`s remain. The first
   two track the `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:`
   markers; they are deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while
   mise's are v-prefixed and need `extractVersionTemplate`. The third tracks git-sourced entries in
   `home/.chezmoidata/uv-tools.toml`: recursive matching first binds one TOML table to its GitHub
-  repo, then replaces only that table's `version` line. `pinDigests: true` bootstraps tag-only
-  entries, and the explicit replacement always writes `version = "<sha>"  # <tag>`. The fourth
+  repo, then replaces only that table's `version` line. A narrow package rule owns
+  `pinDigests: true` (the field is not valid inside a custom manager), bootstrapping tag-only
+  entries before update classification; the explicit replacement always writes
+  `version = "<sha>"  # <tag>`. The fourth
   reads a Claude Code version out of a Dockerfile `RUN npm install -g @anthropic-ai/claude-code@…`
   line sitting under the conventional `# renovate:` annotation.
 
@@ -290,7 +295,7 @@ reread contract in the runbook.
   (`kustomize.config.k8s.io/v1beta1`) and ordinary Kubernetes YAML under `infrastructure/` yield
   no deps.
 
-  Three consumer-driven rules are worth knowing before editing this file:
+  Four consumer-driven rules are worth knowing before editing this file:
 
   - **The `deb` datasource has no default registry.** A `datasource=deb` marker carrying no
     `registryUrl` looks up `null` and the pin silently never advances — verified against renovate
@@ -300,15 +305,21 @@ reread contract in the runbook.
     different suite would be offered versions its own apt repo does not serve and needs a
     path-scoped override. The durable fix is a `registryUrl=` field on the consumer's own
     `# renovate:` comment line, which keeps the suite beside the `FROM` that determines it.
-  - **`matchCurrentVersion: "!/^0/"` does not exclude a v-prefixed 0.x.** The predicate runs
-    against the raw `currentValue`, so `v0.5.5` never matches `^0` and the standing automerge rule
-    *applies*. Confirmed with `applyPackageRules`: `0.5.5` leaves `automerge` unset, `v0.5.5`
-    yields `automerge: true`. The fast-lane rules in this file already spell the guard `!/^v?0/`;
-    the blanket rule does not. Until that is reconciled fleet-wide, any v-prefixed pre-1.0 dep
-    needs an explicit `automerge: false`. Both `agent-sandbox` deps have one, and they share a
-    `groupName` so the GitRepository tag (CRDs/manifests) and the controller image move in one
-    PR — a split bump briefly runs new CRDs against an old controller
-    (kubernetes-sigs/agent-sandbox#844).
+  - **The stable-version guard is `!/^v?0/`, not `!/^0/`.** Renovate evaluates
+    `matchCurrentVersion` against the raw `currentValue`, so the shorter predicate classifies
+    `v0.5.5` as stable. The standing safe rule and every stable npm, Cargo, and pin group use
+    `!/^v?0/`; their manual pre-1.0 counterparts use the complementary `/^v?0/`. Keep the
+    explicit `agent-sandbox` manual override as defense in depth: its GitRepository tag
+    (CRDs/manifests) and controller image must move in one reviewed PR because a split bump briefly
+    runs new CRDs against an old controller (kubernetes-sigs/agent-sandbox#844).
+  - **Stable and pre-1.0 grouping is deliberately disjoint.** npm and Cargo minor/patch updates,
+    plus Renovate's general pin-update branch, have distinct current-version predicates, names,
+    and slugs. Stable members inherit the standing safe automerge rule and seven-day soak; pre-1.0
+    members are explicitly unarmed. The broad grouping rules apply only when no earlier rule has
+    already assigned `groupName`, preserving `config:best-practices`' narrower monorepo groups.
+    Later local groups (GitHub Actions, tool runtime dependencies, first-party tool pins,
+    TestFlight, and agent-sandbox) set both name and slug so their safer coupled-update boundaries
+    remain authoritative.
   - **`@anthropic-ai/claude-code` follows the npm `stable` dist-tag, not `latest`.** `followTag`
     skips Renovate's normal major/minor/patch logic and the stability-days check, so
     `matchUpdateTypes` gating cannot hold it back and automerge is all-or-nothing; it is ON
@@ -363,26 +374,14 @@ reread contract in the runbook.
   applicable* rather than merely undone: there are no canonical tests, and the template renders no
   `test-gate.yml` (the context is repo-owned, per standards ADR-0020).
 
-  **`rebaseWhen: "conflicted"` is load-bearing, not a tidy-up.** Renovate visits each repo
-  **once per run** and evaluates *its own* automerge at that instant; a push during that visit — a
-  rebase or a version bump — burns the repo's only merge opportunity for the whole wave. (With
-  `platformAutomerge` now on, GitHub holds the merge instead of the wave, which blunts this
-  particular starvation — but the rebase thrash below is independent of it and the setting stays.)
-  The default
-  `rebaseWhen: "auto"` resolves to `behind-base-branch` whenever `automerge: true`
-  (`determineRebaseWhenValue()` in Renovate's `reuse.ts`), so every wave rebased any PR whose
-  base had moved, and the *next* wave rebased it again if `main` had moved meanwhile. In an
-  actively-committed repo that never converges: `standards#404` sat open 6 days, and the
-  `template/v1.55.43` copier PRs 2 days, all checks green the whole time. Rebasing bought
-  nothing at the merge gate either — `.github-private`'s `protect-main` has no
-  `required_status_checks` block and `governance.tf` sets
-  `strict_required_status_checks_policy = false`, so a behind-but-clean PR is already
-  mergeable. Conflicts still self-heal: a real conflict flips the PR `dirty`, Renovate refuses
-  to merge, and `"conflicted"` rebases it. Do **not** "fix" this to `"automerging"` — that
-  resolves to `behind-base-branch` under `automerge: true` and is a no-op; and `"never"`
-  short-circuits the conflicted rebase too, stranding conflicted PRs permanently. It lives at
-  top level rather than in the copier packageRule because the starvation is manager-agnostic,
-  and `copier.json`'s contract is copier-scoped config only.
+  **`rebaseWhen: "automerging"` is the exact fleet posture.** A branch Renovate is configured to
+  auto-merge may be rebased while GitHub is holding that merge; manual branches are not churned
+  merely for falling behind the base. Keep this at top level because the posture is
+  manager-agnostic; `copier.json`'s contract remains copier-scoped configuration only.
+
+  **`prConcurrentLimit: 10` is the ordinary creation limit.** It bounds normal open Renovate PRs;
+  it does not close existing backlog and is not a recovery drain. Any explicit force mode remains
+  operationally separate from this shared preset, and force is never cleanup.
 
   **The lockFileMaintenance rule carries `minimumReleaseAge: "0 days"` for the same reason —
   a second, independent starvation.** Under the global 7-day soak Renovate stamps its own
