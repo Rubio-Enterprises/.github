@@ -10,10 +10,10 @@
   ],
   "timezone": "America/Chicago",
   "prHourlyLimit": 0,
-  "prConcurrentLimit": 20,
+  "prConcurrentLimit": 10,
   "rangeStrategy": "bump",
   "minimumReleaseAge": "7 days",
-  "rebaseWhen": "conflicted",
+  "rebaseWhen": "automerging",
   "labels": ["dependencies"],
   "flux": {
     "description": "Widen the flux manager past its gotk-only default. Renovate ships flux with managerFilePatterns of just `/(?:^|/)gotk-components\\.ya?ml$/`, which finds the Flux distribution itself and nothing a consumer writes — so a `GitRepository.spec.ref.tag` (github-tags) or a Flux `Kustomization.spec.images` entry (docker) in a repo's own manifests is invisible until the pattern is widened. Keep the upstream pattern in the list: managerFilePatterns REPLACES the default rather than extending it, so dropping it would stop tracking gotk-components fleet-wide. Widening to `infrastructure/**` is safe against false positives because Renovate's flux schema validates apiVersion prefixes (`kustomize.toolkit.fluxcd.io/`, `source.toolkit.fluxcd.io/`, `helm.toolkit.fluxcd.io/`): a plain kustomize `kustomization.yaml` is `kustomize.config.k8s.io/v1beta1` and is skipped, so ordinary Kubernetes YAML under infrastructure/ yields no deps.",
@@ -29,9 +29,9 @@
       "enabled": false
     },
     {
-      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge has been ON for this rule since 2026-08-03. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original fleet had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. Native auto-merge therefore waits for every PR check the consumer template renders and requires. The speed benefit remains concrete: Renovate's engine merges only during a wave and visits each repo once per run, while native auto-merge lands a PR as soon as its required checks pass. The 7 governed repos with `gate_tests=false` still have no required test context, but six carry zero language facets and have no canonical test suite, so that is an explicit non-applicability rather than an unclosed gate gap.",
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "matchCurrentVersion": "!/^0/",
+      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge has been ON for this rule since 2026-08-03. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original fleet had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. platformAutomerge is safe here because the checks each consumer actually renders are required before GitHub merges.",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
+      "matchCurrentVersion": "!/^v?0/",
       "automerge": true,
       "platformAutomerge": true
     },
@@ -43,21 +43,67 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "Ungrouped stable npm minor and patch updates share one rolling PR while inheriting the standing safe automerge posture. The current-version guard keeps pre-1.0 packages out, and the JSONata guard preserves an earlier narrower monorepo group.",
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "all non-major npm dependencies",
-      "groupSlug": "npm-non-major"
+      "matchCurrentVersion": "!/^v?0/",
+      "matchJsonata": ["$exists(groupName) = false"],
+      "groupName": "stable non-major npm dependencies",
+      "groupSlug": "npm-stable-non-major"
     },
     {
-      "description": "Same per-repo consolidation as npm: one rolling PR per repo for non-major crate bumps instead of one PR per crate (vibe-kanban alone accumulated 100+ individual crate PRs).",
+      "description": "Ungrouped pre-1.0 npm minor and patch updates remain human-reviewed in a branch distinct from stable npm updates. The JSONata guard preserves an earlier narrower monorepo group.",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "/^v?0/",
+      "matchJsonata": ["$exists(groupName) = false"],
+      "groupName": "pre-1.0 npm dependencies",
+      "groupSlug": "npm-pre-1-0",
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
+      "description": "Ungrouped stable Cargo minor and patch updates share one rolling PR while inheriting the standing safe automerge posture. The current-version guard keeps pre-1.0 crates out, and the JSONata guard preserves an earlier narrower monorepo group.",
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "all non-major cargo dependencies",
-      "groupSlug": "cargo-non-major"
+      "matchCurrentVersion": "!/^v?0/",
+      "matchJsonata": ["$exists(groupName) = false"],
+      "groupName": "stable non-major cargo dependencies",
+      "groupSlug": "cargo-stable-non-major"
+    },
+    {
+      "description": "Ungrouped pre-1.0 Cargo minor and patch updates remain human-reviewed in a branch distinct from stable Cargo updates. The JSONata guard preserves an earlier narrower monorepo group.",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "/^v?0/",
+      "matchJsonata": ["$exists(groupName) = false"],
+      "groupName": "pre-1.0 cargo dependencies",
+      "groupSlug": "cargo-pre-1-0",
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
+      "description": "Ungrouped stable dependency pin updates share a safe automerge branch without being blocked by a pre-1.0 pin. The JSONata guard preserves earlier narrower groups, and later package-specific grouping rules remain authoritative.",
+      "matchUpdateTypes": ["pin"],
+      "matchCurrentVersion": "!/^v?0/",
+      "matchJsonata": ["$exists(groupName) = false"],
+      "groupName": "stable dependency pins",
+      "groupSlug": "stable-dependency-pins"
+    },
+    {
+      "description": "Ungrouped pre-1.0 dependency pin updates remain human-reviewed in a branch distinct from stable pins. The JSONata guard preserves earlier narrower groups, and later package-specific grouping rules remain authoritative.",
+      "matchUpdateTypes": ["pin"],
+      "matchCurrentVersion": "/^v?0/",
+      "matchJsonata": ["$exists(groupName) = false"],
+      "groupName": "pre-1.0 dependency pins",
+      "groupSlug": "pre-1-0-dependency-pins",
+      "automerge": false,
+      "platformAutomerge": false
     },
     {
       "matchManagers": ["github-actions"],
-      "groupName": "github-actions"
+      "groupName": "github-actions",
+      "groupSlug": "github-actions"
     },
     {
       "matchManagers": ["github-actions"],
@@ -93,6 +139,7 @@
       "matchFileNames": [".github/workflows/testflight-release.yml"],
       "matchDepNames": ["Rubio-Enterprises/.github"],
       "groupName": "testflight release workflow",
+      "groupSlug": "testflight-release-workflow",
       "enabled": true,
       "automerge": false,
       "platformAutomerge": false,
@@ -108,6 +155,7 @@
       "matchDepNames": ["rubio-cli-kit", "typer"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "groupName": "tool runtime dependencies",
+      "groupSlug": "tool-runtime-dependencies",
       "minimumReleaseAge": "0 days"
     },
     {
@@ -120,6 +168,13 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "Git-sourced uv-tools entries must resolve readable tags to immutable commit SHAs. This narrow rule owns pinDigests because it is a package option, not a custom-manager field; keeping it independent of update type and current version lets Renovate bootstrap a tag-only entry before it can classify the resulting pinDigest update.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["home/.chezmoidata/uv-tools.toml"],
+      "matchPackageNames": ["/^Rubio-Enterprises\\//"],
+      "pinDigests": true
+    },
+    {
       "description": "Git-sourced tool pins in `home/.chezmoidata/uv-tools.toml` are authoritative first-party fleet inputs. Group stable non-major tag/SHA advances into one PR, skip the org release-age soak, and use scoped platform auto-merge; major and 0.x tool releases stay manual.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["home/.chezmoidata/uv-tools.toml"],
@@ -127,6 +182,7 @@
       "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
       "matchCurrentVersion": "!/^v?0/",
       "groupName": "first-party tool pins",
+      "groupSlug": "first-party-tool-pins",
       "automerge": true,
       "platformAutomerge": true,
       "minimumReleaseAge": "0 days"
@@ -152,13 +208,14 @@
       "commitMessageTopic": "Claude Code"
     },
     {
-      "description": "agent-sandbox is consumed as TWO deps that must move as ONE: the Flux GitRepository tag carries the CRDs and manifests (github-tags), and the Flux Kustomization spec.images entry pins the controller image (docker). Renovate would otherwise open a PR per dep, and a split bump briefly runs new CRDs against an old controller — the crash mode reported upstream as kubernetes-sigs/agent-sandbox#844 — so groupName forces one branch carrying both. Human-merge only, for two further reasons. (1) agent-sandbox is pre-1.0 and its CRDs are applied by Flux rather than Helm-upgraded, so a bump can carry a hand-driven v1beta1 -> v1 migration and the release notes have to be read first. (2) The standing automerge rule above does NOT already exclude it, contrary to the natural assumption that 0.x is covered: `matchCurrentVersion: \"!/^0/\"` is evaluated against the raw currentValue, and these deps are v-prefixed (`v0.5.5`), so `^0` never matches and the negated predicate lets them through. Verified against renovate 43.288.0 via applyPackageRules — currentValue `0.5.5` leaves automerge unset, currentValue `v0.5.5` yields automerge true. The other fast-lane rules in this file already spell the guard `!/^v?0/`; widening the blanket rule to match is a separate fleet-wide change with its own blast radius, so this rule closes the hole for the deps that hit it today. Must come AFTER the standing automerge rule (later rules win). minimumGroupSize:2 holds the branch back until BOTH deps have an update, so a lone sibling can never open a singleton PR that lands the CRDs without the controller (verified wired at renovate 43.288.0: getMinimumGroupSize in updates/generate.js takes the max across a branch's upgrades, and update/branch/index.js returns `minimum-group-size-not-met` when upgrades.length is short — it skips only branch CREATION, so an existing branch is never retro-cancelled and a Dependency Dashboard tick still forces one through).",
+      "description": "agent-sandbox is consumed as TWO deps that must move as ONE: the Flux GitRepository tag carries the CRDs and manifests (github-tags), and the Flux Kustomization spec.images entry pins the controller image (docker). Renovate would otherwise open a PR per dep, and a split bump briefly runs new CRDs against an old controller — the crash mode reported upstream as kubernetes-sigs/agent-sandbox#844 — so groupName forces one branch carrying both. Human-merge only: agent-sandbox is pre-1.0 and its CRDs are applied by Flux rather than Helm-upgraded, so a bump can carry a hand-driven v1beta1 -> v1 migration and the release notes have to be read first. The standing safe rule now excludes both plain and v-prefixed 0.x values with `!/^v?0/`; this later explicit override remains as defense in depth for the coupled migration-sensitive class. minimumGroupSize:2 holds the branch back until BOTH deps have an update, so a lone sibling can never open a singleton PR that lands the CRDs without the controller (verified wired at renovate 43.288.0: getMinimumGroupSize in updates/generate.js takes the max across a branch's upgrades, and update/branch/index.js returns `minimum-group-size-not-met` when upgrades.length is short — it skips only branch CREATION, so an existing branch is never retro-cancelled and a Dependency Dashboard tick still forces one through).",
       "matchPackageNames": [
         "kubernetes-sigs/agent-sandbox",
         "registry.k8s.io/agent-sandbox/agent-sandbox-controller"
       ],
       "groupName": "agent-sandbox",
       "minimumGroupSize": 2,
+      "groupSlug": "agent-sandbox",
       "automerge": false,
       "platformAutomerge": false
     },
@@ -167,16 +224,20 @@
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["jdx/mise"],
       "groupName": "mise-cli",
+      "groupSlug": "mise-cli",
       "commitMessageTopic": "mise CLI",
-      "automerge": false
+      "automerge": false,
+      "platformAutomerge": false
     },
     {
-      "description": "uv CLI version pin (the `version:` input on astral-sh/setup-uv across the reusable workflows, tracked by the astral-sh/uv customManager below). Same human-merge posture as the mise CLI pin above, for the same reason: setup-uv runs BEFORE every linter/test in every Python-touching gate, so a bad uv release fails the fleet's gates at a step where no consumer diagnostic has run yet. uv is still 0.x, so the blanket automerge rule's matchCurrentVersion:!/^0/ already excludes it -- this rule states the intent explicitly so the posture survives uv reaching 1.0.",
+      "description": "uv CLI version pin (the `version:` input on astral-sh/setup-uv across the reusable workflows, tracked by the astral-sh/uv customManager below). Same human-merge posture as the mise CLI pin above, for the same reason: setup-uv runs BEFORE every linter/test in every Python-touching gate, so a bad uv release fails the fleet's gates at a step where no consumer diagnostic has run yet. uv is still 0.x, so the blanket automerge rule's `matchCurrentVersion: !/^v?0/` excludes it today; this explicit override keeps the pin manual after uv reaches 1.0.",
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["astral-sh/uv"],
       "groupName": "uv-cli",
+      "groupSlug": "uv-cli",
       "commitMessageTopic": "uv CLI",
-      "automerge": false
+      "automerge": false,
+      "platformAutomerge": false
     }
   ],
   "customManagers": [
@@ -201,7 +262,7 @@
       "datasourceTemplate": "github-releases"
     },
     {
-      "description": "Git-sourced uv-tools entries use recursive matching: the outer expression binds one TOML table to its GitHub repo, and the inner expression replaces only that table's `version` line. `pinDigests` bootstraps tag-only pins and every update writes the immutable SHA plus readable tag (`version = \"<sha>\"  # vX.Y.Z`).",
+      "description": "Git-sourced uv-tools entries use recursive matching: the outer expression binds one TOML table to its GitHub repo, and the inner expression replaces only that table's `version` line. The paired package rule enables `pinDigests` so tag-only entries bootstrap, and the explicit replacement always writes the immutable SHA plus readable tag (`version = \"<sha>\"  # vX.Y.Z`).",
       "customType": "regex",
       "fileMatch": ["^home/\\.chezmoidata/uv-tools\\.toml$"],
       "matchStringsStrategy": "recursive",
@@ -212,7 +273,6 @@
       "currentValueTemplate": "{{#if taggedValue}}{{{taggedValue}}}{{else}}{{{bareValue}}}{{/if}}",
       "datasourceTemplate": "github-tags",
       "versioningTemplate": "loose",
-      "pinDigests": true,
       "autoReplaceStringTemplate": "{{{indentation}}}version = \"{{{newDigest}}}\"  # {{{newValue}}}"
     },
     {

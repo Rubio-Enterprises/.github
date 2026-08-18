@@ -92,7 +92,472 @@ def _rule_with_group(group_name: str) -> dict[str, Any]:
     return matches[0]
 
 
+def _selector_matches(selectors: list[str], value: str) -> bool:
+    for selector in selectors:
+        if selector.startswith("/") and selector.endswith("/"):
+            if re.search(selector[1:-1], value):
+                return True
+        elif selector == value:
+            return True
+    return False
+
+
+def _rule_matches(
+    rule: dict[str, Any],
+    dependency: dict[str, str],
+    resolved: dict[str, Any],
+) -> bool:
+    selector_fields = {
+        "matchManagers": "manager",
+        "matchUpdateTypes": "updateType",
+        "matchDepNames": "depName",
+        "matchPackageNames": "packageName",
+        "matchFileNames": "fileName",
+        "matchDatasources": "datasource",
+    }
+    for rule_field, dependency_field in selector_fields.items():
+        if rule_field not in rule:
+            continue
+        value = dependency.get(dependency_field)
+        if value is None or not _selector_matches(rule[rule_field], value):
+            return False
+
+    current_version = rule.get("matchCurrentVersion")
+    if current_version is not None:
+        negate = current_version.startswith("!")
+        pattern = current_version[2:-1] if negate else current_version[1:-1]
+        matched = re.search(pattern, dependency["currentVersion"]) is not None
+        if matched == negate:
+            return False
+
+    for expression in rule.get("matchJsonata", []):
+        if expression != "$exists(groupName) = false":
+            raise AssertionError(f"unsupported test fixture JSONata: {expression}")
+        if "groupName" in resolved:
+            return False
+    return True
+
+
+def _resolve_dependency(
+    dependency: dict[str, str],
+    initial: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved: dict[str, Any] = {
+        "automerge": False,
+        "platformAutomerge": False,
+        "minimumReleaseAge": CONFIG["minimumReleaseAge"],
+    }
+    if initial is not None:
+        resolved.update(initial)
+    resolved_fields = {
+        "automerge",
+        "enabled",
+        "groupName",
+        "groupSlug",
+        "minimumReleaseAge",
+        "platformAutomerge",
+    }
+    for rule in CONFIG["packageRules"]:
+        if _rule_matches(rule, dependency, resolved):
+            resolved.update(
+                {key: value for key, value in rule.items() if key in resolved_fields}
+            )
+    return resolved
+
+
 class RenovateConfigContractTests(unittest.TestCase):
+    def test_global_backlog_posture_is_exact(self) -> None:
+        self.assertEqual(CONFIG["rebaseWhen"], "automerging")
+        self.assertEqual(CONFIG["minimumReleaseAge"], "7 days")
+        self.assertEqual(CONFIG["prConcurrentLimit"], 10)
+
+    def test_stable_and_pre_one_groups_resolve_to_distinct_branches(self) -> None:
+        fixtures = [
+            (
+                "stable npm",
+                {
+                    "manager": "npm",
+                    "depName": "stable-npm",
+                    "packageName": "stable-npm",
+                    "fileName": "package.json",
+                    "currentVersion": "1.2.3",
+                    "updateType": "patch",
+                },
+                "stable non-major npm dependencies",
+                "npm-stable-non-major",
+                True,
+            ),
+            (
+                "plain pre-1.0 npm",
+                {
+                    "manager": "npm",
+                    "depName": "zero-npm",
+                    "packageName": "zero-npm",
+                    "fileName": "package.json",
+                    "currentVersion": "0.8.0",
+                    "updateType": "minor",
+                },
+                "pre-1.0 npm dependencies",
+                "npm-pre-1-0",
+                False,
+            ),
+            (
+                "v-prefixed pre-1.0 npm",
+                {
+                    "manager": "npm",
+                    "depName": "v-zero-npm",
+                    "packageName": "v-zero-npm",
+                    "fileName": "package.json",
+                    "currentVersion": "v0.8.0",
+                    "updateType": "patch",
+                },
+                "pre-1.0 npm dependencies",
+                "npm-pre-1-0",
+                False,
+            ),
+            (
+                "stable Cargo",
+                {
+                    "manager": "cargo",
+                    "depName": "stable-cargo",
+                    "packageName": "stable-cargo",
+                    "fileName": "Cargo.toml",
+                    "currentVersion": "2.1.0",
+                    "updateType": "minor",
+                },
+                "stable non-major cargo dependencies",
+                "cargo-stable-non-major",
+                True,
+            ),
+            (
+                "plain pre-1.0 Cargo",
+                {
+                    "manager": "cargo",
+                    "depName": "zero-cargo",
+                    "packageName": "zero-cargo",
+                    "fileName": "Cargo.toml",
+                    "currentVersion": "0.4.0",
+                    "updateType": "patch",
+                },
+                "pre-1.0 cargo dependencies",
+                "cargo-pre-1-0",
+                False,
+            ),
+            (
+                "v-prefixed pre-1.0 Cargo",
+                {
+                    "manager": "cargo",
+                    "depName": "v-zero-cargo",
+                    "packageName": "v-zero-cargo",
+                    "fileName": "Cargo.toml",
+                    "currentVersion": "v0.4.0",
+                    "updateType": "minor",
+                },
+                "pre-1.0 cargo dependencies",
+                "cargo-pre-1-0",
+                False,
+            ),
+            (
+                "stable pin",
+                {
+                    "manager": "pep621",
+                    "depName": "stable-pin",
+                    "packageName": "stable-pin",
+                    "fileName": "pyproject.toml",
+                    "currentVersion": "3.0.0",
+                    "updateType": "pin",
+                },
+                "stable dependency pins",
+                "stable-dependency-pins",
+                True,
+            ),
+            (
+                "plain pre-1.0 pin",
+                {
+                    "manager": "pep621",
+                    "depName": "zero-pin",
+                    "packageName": "zero-pin",
+                    "fileName": "pyproject.toml",
+                    "currentVersion": "0.12.0",
+                    "updateType": "pin",
+                },
+                "pre-1.0 dependency pins",
+                "pre-1-0-dependency-pins",
+                False,
+            ),
+            (
+                "v-prefixed pre-1.0 pin",
+                {
+                    "manager": "pep621",
+                    "depName": "v-zero-pin",
+                    "packageName": "v-zero-pin",
+                    "fileName": "pyproject.toml",
+                    "currentVersion": "v0.12.0",
+                    "updateType": "pin",
+                },
+                "pre-1.0 dependency pins",
+                "pre-1-0-dependency-pins",
+                False,
+            ),
+        ]
+
+        slugs_by_group: dict[str, str] = {}
+        for fixture_name, dependency, expected_group, expected_slug, should_merge in fixtures:
+            with self.subTest(fixture=fixture_name):
+                resolved = _resolve_dependency(dependency)
+                self.assertEqual(resolved["groupName"], expected_group)
+                self.assertEqual(resolved["groupSlug"], expected_slug)
+                self.assertEqual(resolved["automerge"], should_merge)
+                self.assertEqual(resolved["platformAutomerge"], should_merge)
+                self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+                slugs_by_group[expected_group] = expected_slug
+
+        self.assertEqual(len(slugs_by_group), len(set(slugs_by_group.values())))
+
+    def test_stable_pin_digest_inherits_the_soaked_safe_lane(self) -> None:
+        standing = next(
+            rule
+            for rule in CONFIG["packageRules"]
+            if rule.get("description", "").startswith("Standing automerge")
+        )
+        self.assertEqual(
+            set(standing["matchUpdateTypes"]),
+            {"minor", "patch", "pin", "digest", "pinDigest"},
+        )
+        self.assertEqual(standing["matchCurrentVersion"], "!/^v?0/")
+
+        resolved = _resolve_dependency(
+            {
+                "manager": "dockerfile",
+                "depName": "stable-image",
+                "packageName": "stable-image",
+                "fileName": "Dockerfile",
+                "currentVersion": "4.5.6",
+                "updateType": "pinDigest",
+            }
+        )
+        self.assertTrue(resolved["automerge"])
+        self.assertTrue(resolved["platformAutomerge"])
+        self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+
+    def test_later_manual_exceptions_override_the_safe_lane(self) -> None:
+        fixtures = [
+            (
+                "stable major",
+                {
+                    "manager": "npm",
+                    "depName": "major-dependency",
+                    "packageName": "major-dependency",
+                    "fileName": "package.json",
+                    "currentVersion": "3.0.0",
+                    "updateType": "major",
+                },
+            ),
+            (
+                "plain pre-1.0 pinDigest",
+                {
+                    "manager": "dockerfile",
+                    "depName": "zero-image",
+                    "packageName": "zero-image",
+                    "fileName": "Dockerfile",
+                    "currentVersion": "0.9.0",
+                    "updateType": "pinDigest",
+                },
+            ),
+            (
+                "v-prefixed pre-1.0 pinDigest",
+                {
+                    "manager": "dockerfile",
+                    "depName": "v-zero-image",
+                    "packageName": "v-zero-image",
+                    "fileName": "Dockerfile",
+                    "currentVersion": "v0.9.0",
+                    "updateType": "pinDigest",
+                },
+            ),
+            (
+                "TestFlight",
+                {
+                    "manager": "github-actions",
+                    "depName": "Rubio-Enterprises/.github",
+                    "packageName": "Rubio-Enterprises/.github",
+                    "fileName": ".github/workflows/testflight-release.yml",
+                    "currentVersion": "2.0.0",
+                    "updateType": "digest",
+                },
+            ),
+            (
+                "mise CLI",
+                {
+                    "manager": "custom.regex",
+                    "depName": "jdx/mise",
+                    "packageName": "jdx/mise",
+                    "fileName": ".github/workflows/lint-hooks.yml",
+                    "currentVersion": "v2026.8.1",
+                    "updateType": "patch",
+                },
+            ),
+            (
+                "uv CLI",
+                {
+                    "manager": "custom.regex",
+                    "depName": "astral-sh/uv",
+                    "packageName": "astral-sh/uv",
+                    "fileName": ".github/workflows/lint-hooks.yml",
+                    "currentVersion": "0.12.1",
+                    "updateType": "patch",
+                },
+            ),
+            (
+                "agent-sandbox",
+                {
+                    "manager": "github-tags",
+                    "depName": "kubernetes-sigs/agent-sandbox",
+                    "packageName": "kubernetes-sigs/agent-sandbox",
+                    "fileName": "infrastructure/agent-sandbox.yaml",
+                    "currentVersion": "v0.5.5",
+                    "updateType": "minor",
+                },
+            ),
+        ]
+
+        for fixture_name, dependency in fixtures:
+            with self.subTest(fixture=fixture_name):
+                resolved = _resolve_dependency(dependency)
+                self.assertFalse(resolved["automerge"])
+                self.assertFalse(resolved["platformAutomerge"])
+
+    def test_narrower_groups_override_the_general_pin_group(self) -> None:
+        fixtures = [
+            (
+                {
+                    "manager": "pep621",
+                    "depName": "rubio-cli-kit",
+                    "packageName": "rubio-cli-kit",
+                    "fileName": "pyproject.toml",
+                    "currentVersion": "1.4.0",
+                    "updateType": "pin",
+                },
+                "tool runtime dependencies",
+                "tool-runtime-dependencies",
+            ),
+            (
+                {
+                    "manager": "github-actions",
+                    "depName": "actions/checkout",
+                    "packageName": "actions/checkout",
+                    "fileName": ".github/workflows/release.yml",
+                    "currentVersion": "4.0.0",
+                    "updateType": "pin",
+                },
+                "github-actions",
+                "github-actions",
+            ),
+        ]
+        for dependency, expected_group, expected_slug in fixtures:
+            with self.subTest(group=expected_group):
+                resolved = _resolve_dependency(dependency)
+                self.assertEqual(resolved["groupName"], expected_group)
+                self.assertEqual(resolved["groupSlug"], expected_slug)
+
+    def test_existing_narrow_monorepo_groups_are_not_flattened(self) -> None:
+        fixtures = [
+            {
+                "manager": "npm",
+                "depName": "@example/core",
+                "packageName": "@example/core",
+                "fileName": "package.json",
+                "currentVersion": "2.0.0",
+                "updateType": "patch",
+            },
+            {
+                "manager": "cargo",
+                "depName": "example-core",
+                "packageName": "example-core",
+                "fileName": "Cargo.toml",
+                "currentVersion": "2.0.0",
+                "updateType": "patch",
+            },
+            {
+                "manager": "pep621",
+                "depName": "example-core",
+                "packageName": "example-core",
+                "fileName": "pyproject.toml",
+                "currentVersion": "2.0.0",
+                "updateType": "pin",
+            },
+        ]
+        existing_group = {
+            "groupName": "example monorepo",
+            "groupSlug": "example-monorepo",
+        }
+        for dependency in fixtures:
+            with self.subTest(manager=dependency["manager"]):
+                resolved = _resolve_dependency(dependency, existing_group)
+                self.assertEqual(resolved["groupName"], "example monorepo")
+                self.assertEqual(resolved["groupSlug"], "example-monorepo")
+                self.assertTrue(resolved["automerge"])
+
+        pre_one = dict(fixtures[0], currentVersion="v0.9.0")
+        resolved_pre_one = _resolve_dependency(pre_one, existing_group)
+        self.assertEqual(resolved_pre_one["groupName"], "example monorepo")
+        self.assertFalse(resolved_pre_one["automerge"])
+
+    def test_mixed_runtime_group_stays_manual(self) -> None:
+        stable_member = _resolve_dependency(
+            {
+                "manager": "pep621",
+                "depName": "rubio-cli-kit",
+                "packageName": "rubio-cli-kit",
+                "fileName": "pyproject.toml",
+                "currentVersion": "1.4.0",
+                "updateType": "patch",
+            }
+        )
+        zero_member = _resolve_dependency(
+            {
+                "manager": "pep621",
+                "depName": "typer",
+                "packageName": "typer",
+                "fileName": "pyproject.toml",
+                "currentVersion": "0.16.0",
+                "updateType": "minor",
+            }
+        )
+        self.assertEqual(stable_member["groupSlug"], zero_member["groupSlug"])
+        self.assertTrue(stable_member["automerge"])
+        self.assertFalse(zero_member["automerge"])
+        self.assertFalse(
+            all(member["automerge"] for member in (stable_member, zero_member))
+        )
+
+    def test_manual_overrides_follow_the_standing_safe_rule(self) -> None:
+        rules = CONFIG["packageRules"]
+        standing = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.get("description", "").startswith("Standing automerge")
+        )
+        manual_groups = {
+            "pre-1.0 npm dependencies",
+            "pre-1.0 cargo dependencies",
+            "pre-1.0 dependency pins",
+            "testflight release workflow",
+            "agent-sandbox",
+            "mise-cli",
+            "uv-cli",
+        }
+        for group_name in manual_groups:
+            with self.subTest(group=group_name):
+                index = next(
+                    index
+                    for index, rule in enumerate(rules)
+                    if rule.get("groupName") == group_name
+                )
+                self.assertGreater(index, standing)
+                self.assertFalse(rules[index]["automerge"])
+                self.assertFalse(rules[index]["platformAutomerge"])
+
     def test_runtime_dependencies_cut_releases_without_widening_automerge(self) -> None:
         matches = [
             rule
@@ -157,6 +622,22 @@ class RenovateConfigContractTests(unittest.TestCase):
         )
         self.assertEqual(pin_rule["matchPackageNames"], ["/^Rubio-Enterprises\\//"])
 
+        pin_digest_rule = next(
+            rule
+            for rule in CONFIG["packageRules"]
+            if rule.get("pinDigests") is True
+        )
+        self.assertEqual(pin_digest_rule["matchManagers"], ["custom.regex"])
+        self.assertEqual(
+            pin_digest_rule["matchFileNames"], ["home/.chezmoidata/uv-tools.toml"]
+        )
+        self.assertEqual(
+            pin_digest_rule["matchPackageNames"], ["/^Rubio-Enterprises\\//"]
+        )
+        self.assertNotIn("matchUpdateTypes", pin_digest_rule)
+        self.assertNotIn("matchCurrentVersion", pin_digest_rule)
+        self.assertNotIn("automerge", pin_digest_rule)
+
     def test_standing_automerge_description_records_closed_gate_gap(self) -> None:
         rule = next(
             rule
@@ -178,7 +659,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(len(managers), 1)
         manager = managers[0]
         self.assertEqual(manager["matchStringsStrategy"], "recursive")
-        self.assertTrue(manager["pinDigests"])
+        self.assertNotIn("pinDigests", manager)
         self.assertEqual(
             manager["autoReplaceStringTemplate"],
             '{{{indentation}}}version = "{{{newDigest}}}"  # {{{newValue}}}',
@@ -351,11 +832,10 @@ class RenovateConfigContractTests(unittest.TestCase):
         # update, so the CRDs can never land without the controller.
         self.assertEqual(rule["minimumGroupSize"], len(AGENT_SANDBOX_DEPS))
 
-    def test_agent_sandbox_stays_manual_despite_the_v_prefix_hole(self) -> None:
-        # `matchCurrentVersion: "!/^0/"` on the standing automerge rule is tested
-        # against the raw currentValue, so a v-prefixed 0.x (`v0.5.5`) slips
-        # through it. agent-sandbox needs an explicit manual posture, placed
-        # after the standing rule so it wins.
+    def test_agent_sandbox_stays_explicitly_manual(self) -> None:
+        # The stable-version matcher now excludes plain and v-prefixed 0.x
+        # versions. Keep the later explicit override as defense in depth for
+        # this coupled, migration-sensitive dependency.
         rules = CONFIG["packageRules"]
         standing = next(
             index
