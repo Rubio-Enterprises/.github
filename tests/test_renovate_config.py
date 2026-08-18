@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import re
 import unittest
-from pathlib import Path
+from fnmatch import fnmatch
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +59,21 @@ CLAUDE_CODE_DEP = "@anthropic-ai/claude-code"
 # Renovate ships flux scoped to the Flux distribution's own manifest, and
 # managerFilePatterns REPLACES that default rather than extending it.
 FLUX_DEFAULT_PATTERN = "/(?:^|/)gotk-components\\.ya?ml$/"
+
+
+def _selects_file(rule: dict[str, Any], path: str) -> bool:
+    """Mirror matchFileNames for the `**/<basename>` globs this preset uses.
+
+    Every glob here is anchored as `**/<basename-pattern>`, and minimatch's `**/`
+    matches zero or more leading segments — so the decision reduces exactly to a
+    basename match at any depth, root included. Renovate's own engine is the
+    authority; this keeps the contract honest without reimplementing minimatch.
+    """
+    basenames = []
+    for glob in rule["matchFileNames"]:
+        assert glob.startswith("**/"), f"unexpected glob shape: {glob}"
+        basenames.append(glob.removeprefix("**/"))
+    return any(fnmatch(PurePosixPath(path).name, pattern) for pattern in basenames)
 
 
 def _python_regex(pattern: str) -> re.Pattern[str]:
@@ -240,6 +256,45 @@ class RenovateConfigContractTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("automerge", rule)
+        # A trixie-specific registry must never be inherited on package identity
+        # alone — a `deb`/`tailscale` dep reached by any other manager keeps
+        # Renovate's default of no registry rather than the wrong suite.
+        self.assertEqual(rule["matchManagers"], ["custom.regex"])
+        self.assertTrue(_selects_file(rule, "image/Dockerfile"))
+        self.assertFalse(_selects_file(rule, "infrastructure/cluster/apps.yaml"))
+
+    def test_scoped_rules_cannot_match_on_package_identity_alone(self) -> None:
+        # Both rules configure image-specific behavior, so both must be pinned to
+        # the custom.regex manager AND to Dockerfile-shaped files.
+        deb_rule = next(
+            rule
+            for rule in CONFIG["packageRules"]
+            if rule.get("matchDatasources") == ["deb"]
+        )
+        claude_rule = next(
+            rule
+            for rule in CONFIG["packageRules"]
+            if rule.get("matchPackageNames") == [CLAUDE_CODE_DEP]
+        )
+        for rule in (deb_rule, claude_rule):
+            self.assertEqual(rule["matchManagers"], ["custom.regex"])
+            # Positive: Dockerfile-shaped files at any depth, root included.
+            for path in (
+                "image/Dockerfile",
+                "Dockerfile",
+                "a/b/c/Dockerfile",
+                "Dockerfile.ci",
+                "build.Dockerfile",
+            ):
+                self.assertTrue(_selects_file(rule, path), path)
+            # Negative: an ordinary npm dependency of the same name, or any
+            # non-Dockerfile file, must fall outside the rule.
+            for path in ("package.json", "app/package.json", "pyproject.toml"):
+                self.assertFalse(_selects_file(rule, path), path)
+            # The manager selector is the second, independent guard: even a
+            # Dockerfile reached by a built-in manager must not inherit these.
+            self.assertNotIn("npm", rule["matchManagers"])
+            self.assertNotIn("dockerfile", rule["matchManagers"])
 
     def test_claude_code_manager_reads_the_run_line_not_an_assignment(self) -> None:
         managers = [
@@ -273,6 +328,10 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertTrue(rule["automerge"])
         self.assertEqual(rule["schedule"], ["before 6am on monday"])
         self.assertEqual(rule["commitMessageTopic"], "Claude Code")
+        # These are image decisions, not opinions about the npm package, so a
+        # plain package.json dependency of the same name must not inherit them.
+        self.assertEqual(rule["matchManagers"], ["custom.regex"])
+        self.assertFalse(_selects_file(rule, "package.json"))
 
     def test_flux_widening_keeps_the_upstream_gotk_pattern(self) -> None:
         # managerFilePatterns REPLACES the manager default rather than extending
@@ -287,6 +346,10 @@ class RenovateConfigContractTests(unittest.TestCase):
         # (kubernetes-sigs/agent-sandbox#844), so both deps share a branch.
         rule = _rule_with_group("agent-sandbox")
         self.assertEqual(rule["matchPackageNames"], AGENT_SANDBOX_DEPS)
+        # groupName alone still lets Renovate open a branch carrying just one of
+        # the two. minimumGroupSize holds branch creation until both have an
+        # update, so the CRDs can never land without the controller.
+        self.assertEqual(rule["minimumGroupSize"], len(AGENT_SANDBOX_DEPS))
 
     def test_agent_sandbox_stays_manual_despite_the_v_prefix_hole(self) -> None:
         # `matchCurrentVersion: "!/^0/"` on the standing automerge rule is tested
