@@ -34,7 +34,7 @@ jobs:
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.1"
+          version: "0.12.4"
 
       - name: Install pytest
         # The suite is stdlib-only unittest, so an isolated uv tool install is

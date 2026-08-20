@@ -82,7 +82,7 @@ jobs:
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.1"
+          version: "0.12.4"
       # Fingerprint the uv-resolved python into the mise cache key (standards#331).
       # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
       # at the uv-MANAGED python under ~/.local/share/uv/python — OUTSIDE the
