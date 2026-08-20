@@ -85,7 +85,7 @@ jobs:
       # Checks out the caller's dispatch revision, not the branch's later head:
       # a release must build exactly the commit the operator attested to.
       - name: Check out caller revision
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Create run-scoped signing keychain
         run: |
