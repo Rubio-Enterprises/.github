@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.6.0](https://github.com/Rubio-Enterprises/.github/compare/v3.5.1...v3.6.0) (2026-08-21)
+
+
+### Features
+
+* **renovate:** add agent-workspaces custom managers ([#220](https://github.com/Rubio-Enterprises/.github/issues/220)) ([27e3b72](https://github.com/Rubio-Enterprises/.github/commit/27e3b728f18f08fbe487a1746b809597e690d529))
+* **renovate:** bound fleet update admission ([#233](https://github.com/Rubio-Enterprises/.github/issues/233)) ([e4b3b0d](https://github.com/Rubio-Enterprises/.github/commit/e4b3b0dc10f41875d16283275c315cea02ac2884))
+
+
+### Bug Fixes
+
+* keep mise cli updates manual ([#225](https://github.com/Rubio-Enterprises/.github/issues/225)) ([36956fd](https://github.com/Rubio-Enterprises/.github/commit/36956fdd380a4f77fa9531bbed08e539654fe240))
+* **renovate:** harden dependency update policy ([#221](https://github.com/Rubio-Enterprises/.github/issues/221)) ([1868695](https://github.com/Rubio-Enterprises/.github/commit/186869560c1c418de648c59af8218eb121d67f4a))
+* **secret-scan:** supersede in-flight gitleaks runs on the same PR ([#226](https://github.com/Rubio-Enterprises/.github/issues/226)) ([7134a75](https://github.com/Rubio-Enterprises/.github/commit/7134a75ed73fc2eecf17f8d5bdc00f14c0d97db5))
+
 ## [3.5.1](https://github.com/Rubio-Enterprises/.github/compare/v3.5.0...v3.5.1) (2026-08-17)
 
 
