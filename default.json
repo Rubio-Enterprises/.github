@@ -2,15 +2,17 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices",
-    ":disableDependencyDashboard",
     ":semanticCommits",
     "helpers:pinGitHubActionDigests",
     "customManagers:dockerfileVersions",
     "github>Rubio-Enterprises/.github:copier"
   ],
   "timezone": "America/Chicago",
-  "prHourlyLimit": 0,
-  "prConcurrentLimit": 10,
+  "dependencyDashboard": true,
+  "commitHourlyLimit": 1,
+  "prHourlyLimit": 1,
+  "prConcurrentLimit": 5,
+  "branchConcurrentLimit": 5,
   "rangeStrategy": "bump",
   "minimumReleaseAge": "7 days",
   "rebaseWhen": "automerging",
@@ -27,6 +29,16 @@
       "description": "Disable Renovate's built-in mise manager fleet-wide: consumer .mise.toml tool pins are TEMPLATE-OWNED (enforced by standards' normalize-mise-pins.sh against template/.mise.toml.jinja floors). Letting Renovate also bump .mise.toml created an infinite thrash (Renovate bumps up, copier-sync reverts to floor). Currency for these tools is driven from the template's .mise.toml.jinja via custom managers in the standards repo, so one reviewed bump propagates uniformly to the whole fleet. NOTE: does NOT affect the jdx/mise CLI pin below — that is a custom.regex manager (workflow YAML), a different manager.",
       "matchManagers": ["mise"],
       "enabled": false
+    },
+    {
+      "description": "Major updates are migrations, not background maintenance. Keep them visible in the Dependency Dashboard but do not create a branch, PR, or downstream CI run until an operator explicitly approves the update.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Pre-1.0 dependencies can break on any release, so require explicit Dependency Dashboard approval before Renovate creates their branch and triggers downstream CI.",
+      "matchCurrentVersion": "/^v?0/",
+      "dependencyDashboardApproval": true
     },
     {
       "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge has been ON for this rule since 2026-08-03. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original fleet had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. platformAutomerge is safe here because the checks each consumer actually renders are required before GitHub merges.",

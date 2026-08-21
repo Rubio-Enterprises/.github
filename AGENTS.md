@@ -262,9 +262,11 @@ reread contract in the runbook.
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
   **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
-  the global seven-day soak; **human-merge-only** for majors, pre-1.0 updates, TestFlight, and the
-  `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
-  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. Four
+  the global seven-day soak; **Dependency Dashboard approval before branch creation** for majors
+  and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
+  them; human-merge-only after approval for TestFlight and the `jdx/mise` and `astral-sh/uv` CLI
+  pins. Stable and pre-1.0 npm, Cargo, and pin updates use distinct groups so a manual member cannot
+  disarm an otherwise-safe stable branch. Four
   `customManager`s remain. The first
   two track the `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:`
   markers; they are deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while
@@ -379,9 +381,12 @@ reread contract in the runbook.
   merely for falling behind the base. Keep this at top level because the posture is
   manager-agnostic; `copier.json`'s contract remains copier-scoped configuration only.
 
-  **`prConcurrentLimit: 10` is the ordinary creation limit.** It bounds normal open Renovate PRs;
-  it does not close existing backlog and is not a recovery drain. Any explicit force mode remains
-  operationally separate from this shared preset, and force is never cleanup.
+  **The fleet admission limits are `commitHourlyLimit: 1`, `prHourlyLimit: 1`,
+  `prConcurrentLimit: 5`, and `branchConcurrentLimit: 5`.** The hourly commit limit is the direct
+  consumer-CI guard because it counts both new branch pushes and automatic rebases; the PR limit
+  separately bounds new PR admission. The concurrent limits bound future ordinary branch/PR
+  population but do not close the existing backlog. All four are per repository, not org-wide.
+  Explicit force modes and security PRs remain operationally separate, and force is never cleanup.
 
   **The lockFileMaintenance rule carries `minimumReleaseAge: "0 days"` for the same reason —
   a second, independent starvation.** Under the global 7-day soak Renovate stamps its own
