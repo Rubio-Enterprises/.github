@@ -144,6 +144,7 @@ def _resolve_dependency(
 ) -> dict[str, Any]:
     resolved: dict[str, Any] = {
         "automerge": False,
+        "dependencyDashboardApproval": False,
         "platformAutomerge": False,
         "minimumReleaseAge": CONFIG["minimumReleaseAge"],
     }
@@ -151,6 +152,7 @@ def _resolve_dependency(
         resolved.update(initial)
     resolved_fields = {
         "automerge",
+        "dependencyDashboardApproval",
         "enabled",
         "groupName",
         "groupSlug",
@@ -167,9 +169,14 @@ def _resolve_dependency(
 
 class RenovateConfigContractTests(unittest.TestCase):
     def test_global_backlog_posture_is_exact(self) -> None:
+        self.assertTrue(CONFIG["dependencyDashboard"])
+        self.assertNotIn(":disableDependencyDashboard", CONFIG["extends"])
+        self.assertEqual(CONFIG["commitHourlyLimit"], 1)
+        self.assertEqual(CONFIG["prHourlyLimit"], 1)
+        self.assertEqual(CONFIG["prConcurrentLimit"], 5)
+        self.assertEqual(CONFIG["branchConcurrentLimit"], 5)
         self.assertEqual(CONFIG["rebaseWhen"], "automerging")
         self.assertEqual(CONFIG["minimumReleaseAge"], "7 days")
-        self.assertEqual(CONFIG["prConcurrentLimit"], 10)
 
     def test_stable_and_pre_one_groups_resolve_to_distinct_branches(self) -> None:
         fixtures = [
@@ -310,9 +317,72 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertEqual(resolved["automerge"], should_merge)
                 self.assertEqual(resolved["platformAutomerge"], should_merge)
                 self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+                self.assertEqual(
+                    resolved["dependencyDashboardApproval"], not should_merge
+                )
                 slugs_by_group[expected_group] = expected_slug
 
         self.assertEqual(len(slugs_by_group), len(set(slugs_by_group.values())))
+
+    def test_major_and_pre_one_updates_require_dashboard_approval(self) -> None:
+        fixtures = [
+            (
+                "stable patch remains automatic",
+                {
+                    "manager": "npm",
+                    "depName": "stable-patch",
+                    "packageName": "stable-patch",
+                    "fileName": "package.json",
+                    "currentVersion": "1.2.3",
+                    "updateType": "patch",
+                },
+                False,
+            ),
+            (
+                "stable major requires approval",
+                {
+                    "manager": "npm",
+                    "depName": "stable-major",
+                    "packageName": "stable-major",
+                    "fileName": "package.json",
+                    "currentVersion": "1.2.3",
+                    "updateType": "major",
+                },
+                True,
+            ),
+            (
+                "pre-one patch requires approval",
+                {
+                    "manager": "cargo",
+                    "depName": "unstable-crate",
+                    "packageName": "unstable-crate",
+                    "fileName": "Cargo.toml",
+                    "currentVersion": "0.9.0",
+                    "updateType": "patch",
+                },
+                True,
+            ),
+            (
+                "v-prefixed pre-one minor requires approval",
+                {
+                    "manager": "dockerfile",
+                    "depName": "unstable-image",
+                    "packageName": "unstable-image",
+                    "fileName": "Dockerfile",
+                    "currentVersion": "v0.9.0",
+                    "updateType": "minor",
+                },
+                True,
+            ),
+        ]
+
+        for fixture_name, dependency, should_require_approval in fixtures:
+            with self.subTest(fixture=fixture_name):
+                resolved = _resolve_dependency(dependency)
+                self.assertEqual(
+                    resolved["dependencyDashboardApproval"],
+                    should_require_approval,
+                )
 
     def test_stable_pin_digest_inherits_the_soaked_safe_lane(self) -> None:
         standing = next(
