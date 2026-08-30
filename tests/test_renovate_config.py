@@ -51,6 +51,12 @@ RUN npm install -g @anthropic-ai/claude-code@9.9.9
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 """
 
+WORKSPACE_IMAGE_FIXTURE = """\
+          image: ghcr.io/rubio-enterprises/agent-workspace:main@sha256:ede3515b153a907eedc3a2a674683e7c2521b47a18eeb7e8bbccb205cb9e187c
+          image: ghcr.io/rubio-enterprises/agent-workspace:main
+          image: registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.5.5@sha256:fda9c503fda9c503fda9c503fda9c503fda9c503fda9c503fda9c503fda9c50
+"""
+
 AGENT_SANDBOX_DEPS = [
     "kubernetes-sigs/agent-sandbox",
     "registry.k8s.io/agent-sandbox/agent-sandbox-controller",
@@ -811,6 +817,37 @@ class RenovateConfigContractTests(unittest.TestCase):
                 [line for line in updated.splitlines() if not line.startswith("version")],
                 [line for line in table.splitlines() if not line.startswith("version")],
             )
+
+    def test_workspace_image_manager_tracks_main_by_digest(self) -> None:
+        manager_file_patterns = [
+            "/^workspaces/(?:template-interactive|examples/workspace-interactive)\\.yaml$/"
+        ]
+        managers = [
+            manager
+            for manager in CONFIG["customManagers"]
+            if manager.get("managerFilePatterns") == manager_file_patterns
+        ]
+        self.assertEqual(len(managers), 1)
+        manager = managers[0]
+        self.assertEqual(len(manager["matchStrings"]), 1)
+
+        regex = _python_regex(manager["matchStrings"][0])
+        matches = list(regex.finditer(WORKSPACE_IMAGE_FIXTURE))
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].group("currentValue"), "main")
+        self.assertEqual(
+            matches[0].group("currentDigest"),
+            "sha256:ede3515b153a907eedc3a2a674683e7c2521b47a18eeb7e8bbccb205cb9e187c",
+        )
+        for decoy in WORKSPACE_IMAGE_FIXTURE.splitlines()[1:]:
+            self.assertIsNone(regex.search(decoy))
+
+        self.assertEqual(
+            manager["depNameTemplate"],
+            "ghcr.io/rubio-enterprises/agent-workspace",
+        )
+        self.assertEqual(manager["datasourceTemplate"], "docker")
+        self.assertEqual(manager["versioningTemplate"], "docker")
 
     def test_dockerfile_arg_versions_use_the_shipped_preset(self) -> None:
         # The `# renovate: datasource=... ARG X_VERSION=...` idiom is invisible to

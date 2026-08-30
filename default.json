@@ -295,6 +295,17 @@
       ],
       "depNameTemplate": "@anthropic-ai/claude-code",
       "datasourceTemplate": "npm"
+    },
+    {
+      "description": "Private first-party agent-workspace image pins in the agent-workspaces consumer's workspaces manifests. managerFilePatterns treats an entry as a glob unless it is slash-wrapped as a regex, so this pattern is /…/-wrapped; copying it bare into a fileMatch sibling would instead make the slashes literal and match nothing. The tracked value is the branch tag main because the consumer has no releases, so digest updates are the only possible update type.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^workspaces/(?:template-interactive|examples/workspace-interactive)\\.yaml$/"],
+      "matchStrings": [
+        "image:\\s*ghcr\\.io/rubio-enterprises/agent-workspace:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "depNameTemplate": "ghcr.io/rubio-enterprises/agent-workspace",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ]
 }
