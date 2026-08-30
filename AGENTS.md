@@ -266,18 +266,25 @@ reread contract in the runbook.
   and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
   them; human-merge-only after approval for TestFlight and the `jdx/mise` and `astral-sh/uv` CLI
   pins. Stable and pre-1.0 npm, Cargo, and pin updates use distinct groups so a manual member cannot
-  disarm an otherwise-safe stable branch. Four
-  `customManager`s remain. The first
-  two track the `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:`
-  markers; they are deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while
-  mise's are v-prefixed and need `extractVersionTemplate`. The third tracks git-sourced entries in
+  disarm an otherwise-safe stable branch. Five `customManager`s remain. The first two track the
+  `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers; they are
+  deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while mise's are
+  v-prefixed and need `extractVersionTemplate`. The third tracks git-sourced entries in
   `home/.chezmoidata/uv-tools.toml`: recursive matching first binds one TOML table to its GitHub
   repo, then replaces only that table's `version` line. A narrow package rule owns
   `pinDigests: true` (the field is not valid inside a custom manager), bootstrapping tag-only
   entries before update classification; the explicit replacement always writes
-  `version = "<sha>"  # <tag>`. The fourth
-  reads a Claude Code version out of a Dockerfile `RUN npm install -g @anthropic-ai/claude-code@…`
-  line sitting under the conventional `# renovate:` annotation.
+  `version = "<sha>"  # <tag>`. The fourth reads a Claude Code version out of a Dockerfile
+  `RUN npm install -g @anthropic-ai/claude-code@…` line sitting under the conventional
+  `# renovate:` annotation. The fifth tracks the private first-party workspace image in the
+  `agent-workspaces` consumer's `workspaces/` manifests as tag-and-digest. The digest governs what
+  the kubelet pulls, so `tag@digest` is a pin, not a floating tag; the tag exists as Renovate's
+  tracking key. It tracks the branch tag `main` because that consumer has no releases, so only
+  digest updates are possible. The docker datasource cannot read this private package without a
+  credential, making the pin dependent on the `ghcr.io` hostRule in the self-hosted runner's
+  `renovate/config.js` (a sibling change in `.github-private`). Before that hostRule, every
+  first-party `ghcr.io/rubio-enterprises/*` pin in the fleet silently never updated, including
+  `mac-dev-playbook`'s three.
 
   **Dockerfile `ARG`/`ENV` `…_VERSION` pins** ride the shipped `customManagers:dockerfileVersions`
   preset (in `extends`) rather than a hand-rolled regex, because the built-in `dockerfile` manager
