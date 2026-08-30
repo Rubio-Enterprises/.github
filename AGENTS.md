@@ -281,10 +281,15 @@ reread contract in the runbook.
   the kubelet pulls, so `tag@digest` is a pin, not a floating tag; the tag exists as Renovate's
   tracking key. It tracks the branch tag `main` because that consumer has no releases, so only
   digest updates are possible. The docker datasource cannot read this private package without a
-  credential, making the pin dependent on the `ghcr.io` hostRule in the self-hosted runner's
-  `renovate/config.js` (a sibling change in `.github-private`). Before that hostRule, every
-  first-party `ghcr.io/rubio-enterprises/*` pin in the fleet silently never updated, including
-  `mac-dev-playbook`'s three.
+  credential, and **two** things must hold before the pin can ever resolve, neither of them in this
+  file: the self-hosted runner's `renovate/config.js` presents a `ghcr.io` hostRule whose password is
+  the workflow's `GITHUB_TOKEN` (**not** an App installation token — GitHub documents only a classic
+  PAT and the Actions token as GHCR credentials, and our App's token returns HTTP 403 on a manifest
+  HEAD despite holding `packages: read`), **and** the package itself grants read to the runner's
+  repository under its **Manage Actions access**, which has no REST API and must be set by hand per
+  package. Until both hold, the manager extracts the dependency correctly and then logs
+  `Could not determine new digest` on every run — which is exactly why `mac-dev-playbook`'s three
+  first-party managers appeared to exist while never once updating a pin.
 
   **Dockerfile `ARG`/`ENV` `…_VERSION` pins** ride the shipped `customManagers:dockerfileVersions`
   preset (in `extends`) rather than a hand-rolled regex, because the built-in `dockerfile` manager
