@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.6.0](https://github.com/Rubio-Enterprises/.github/compare/v3.5.1...v3.6.0) (2026-09-01)
+
+
+### Features
+
+* lint biome.jsonc, fail on stale generated configs, stage legacy-root error ([#244](https://github.com/Rubio-Enterprises/.github/issues/244)) ([3e1d336](https://github.com/Rubio-Enterprises/.github/commit/3e1d3366a5fcc1e2f3aa048a5702f8e2d885002b))
+* **lint-hooks:** fail when a hook rewrites a tracked file ([#246](https://github.com/Rubio-Enterprises/.github/issues/246)) ([432322c](https://github.com/Rubio-Enterprises/.github/commit/432322c4d2fc7e658f683eef3aa65c678da1e58b))
+* **renovate:** add agent-workspaces custom managers ([#220](https://github.com/Rubio-Enterprises/.github/issues/220)) ([27e3b72](https://github.com/Rubio-Enterprises/.github/commit/27e3b728f18f08fbe487a1746b809597e690d529))
+* **renovate:** bound fleet update admission ([#233](https://github.com/Rubio-Enterprises/.github/issues/233)) ([e4b3b0d](https://github.com/Rubio-Enterprises/.github/commit/e4b3b0dc10f41875d16283275c315cea02ac2884))
+* track agent workspace image digest ([#241](https://github.com/Rubio-Enterprises/.github/issues/241)) ([ec3c6e3](https://github.com/Rubio-Enterprises/.github/commit/ec3c6e33567e9bb5bb3fef30f79171572a88e44b))
+
+
+### Bug Fixes
+
+* keep mise cli updates manual ([#225](https://github.com/Rubio-Enterprises/.github/issues/225)) ([36956fd](https://github.com/Rubio-Enterprises/.github/commit/36956fdd380a4f77fa9531bbed08e539654fe240))
+* **renovate:** harden dependency update policy ([#221](https://github.com/Rubio-Enterprises/.github/issues/221)) ([1868695](https://github.com/Rubio-Enterprises/.github/commit/186869560c1c418de648c59af8218eb121d67f4a))
+* **secret-scan:** supersede in-flight gitleaks runs on the same PR ([#226](https://github.com/Rubio-Enterprises/.github/issues/226)) ([7134a75](https://github.com/Rubio-Enterprises/.github/commit/7134a75ed73fc2eecf17f8d5bdc00f14c0d97db5))
+
 ## [3.5.1](https://github.com/Rubio-Enterprises/.github/compare/v3.5.0...v3.5.1) (2026-08-17)
 
 
