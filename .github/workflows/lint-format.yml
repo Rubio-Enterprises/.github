@@ -247,16 +247,32 @@ jobs:
           # This byte comparison is the same computation the consumer's
           # `mise run lint-config -- --check` performs, so the two cannot
           # disagree.
+          #
+          # Set true once the fleet has re-rendered on the banner floor
+          # (standards#519) and a sweep shows zero drift. Measured at
+          # authoring time: the fleet spans 12 template pins and the
+          # markdownlint floor changed across that range, so flipping this
+          # before the Renovate re-render wave lands would fail repos on
+          # drift they never authored. Until then a stale config is reported,
+          # not fatal.
+          CONFIG_DRIFT_IS_ERROR=false
           fail=0
           configs=(ruff.toml biome.jsonc .yamllint .markdownlint-cli2.jsonc)
           for config in "${configs[@]}"; do
             [ -f "$RENDER_DIR/$config" ] || continue
             if git ls-files --error-unmatch "$config" >/dev/null 2>&1 \
               && ! cmp -s "$config" "$RENDER_DIR/$config"; then
-              echo "::error file=$config::committed lint config is stale:" \
-                "$config differs from the canonical render;" \
-                "run mise run lint-config"
-              fail=1
+              if [ "$CONFIG_DRIFT_IS_ERROR" = "true" ]; then
+                echo "::error file=$config::committed lint config is stale:" \
+                  "$config differs from the canonical render;" \
+                  "run mise run lint-config"
+                fail=1
+              else
+                echo "::notice file=$config::committed lint config is stale:" \
+                  "$config differs from the canonical render;" \
+                  "run mise run lint-config (becomes an error once" \
+                  "CONFIG_DRIFT_IS_ERROR flips)"
+              fi
             fi
           done
           [ "$fail" -eq 0 ] || exit 1
@@ -423,8 +439,25 @@ jobs:
           fi
           [ "$has_embedded_web" = "true" ] && run_biome=true
           if [ "$run_biome" = "true" ]; then
+            # Which name did the render produce? `biome.jsonc` once the
+            # resolved standards channel carries the `.json` -> `.jsonc`
+            # rename (standards#519); `biome.json` on a channel that predates
+            # it. Accepting either decouples this gate from channel
+            # promotion: it lands before the template change reaches stable
+            # and keeps linting correctly after. With both names present
+            # biome silently prefers `biome.json`, which is why a rendered
+            # `.jsonc` is materialized below only after any root
+            # `biome.json` is cleared from the ephemeral checkout.
+            rendered_biome=""
+            if [ -f "$RENDER_DIR/biome.jsonc" ]; then
+              rendered_biome=biome.jsonc
+            elif [ -f "$RENDER_DIR/biome.json" ]; then
+              rendered_biome=biome.json
+            fi
             legacy_biome_blocked=false
-            if [ -f biome.json ]; then
+            # A committed root biome.json is only "legacy" once the channel
+            # renders biome.jsonc; before that it is simply the current name.
+            if [ -f biome.json ] && [ "$rendered_biome" = "biome.jsonc" ]; then
               if [ "$LEGACY_BIOME_IS_ERROR" = "true" ]; then
                 echo "::error file=biome.json::legacy root biome.json" \
                   "must be removed; it silently wins over biome.jsonc"
@@ -432,8 +465,9 @@ jobs:
                 legacy_biome_blocked=true
               else
                 echo "::notice file=biome.json::legacy root biome.json" \
-                  "detected; this repo is unconverted or has a stale" \
-                  "legacy config; it silently wins over biome.jsonc"
+                  "detected; this repo is unconverted or has not yet" \
+                  "re-rendered on the biome.jsonc floor; it silently wins" \
+                  "over biome.jsonc"
               fi
             fi
             # Exclude lint/tooling config files from the lint INPUTS (this is
@@ -481,17 +515,20 @@ jobs:
               if [ "$legacy_biome_blocked" = "true" ]; then
                 echo "skipping biome: legacy root config is forbidden"
               elif [ -f biome.json.local ]; then
-                if [ ! -f "$RENDER_DIR/biome.jsonc" ]; then
+                if [ -z "$rendered_biome" ]; then
                   # The resolved standards channel predates the biome
-                  # fragment rename — linting config-less here would apply
-                  # biome defaults, not the org floor. Fail loudly instead.
+                  # fragment — linting config-less here would apply biome
+                  # defaults, not the org floor. Fail loudly instead.
                   echo "::error::biome.json.local is committed but the render" \
-                    "produced no biome.jsonc; the resolved standards channel" \
-                    "predates the biome floor fragment"
+                    "produced no biome config; the resolved standards" \
+                    "channel predates the biome floor fragment"
                   fail=1
                 else
-                  echo "== biome check (floor + delta render) =="
-                  cp "$RENDER_DIR/biome.jsonc" biome.jsonc
+                  echo "== biome check (floor + delta render, $rendered_biome) =="
+                  if [ "$rendered_biome" = "biome.jsonc" ]; then
+                    rm -f biome.json
+                  fi
+                  cp "$RENDER_DIR/$rendered_biome" "$rendered_biome"
                   mise exec -- biome check \
                     --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
                 fi
@@ -501,9 +538,9 @@ jobs:
                 echo "== biome check (consumer config; unconverted repo) =="
                 mise exec -- biome check \
                   --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
-              elif [ -f "$RENDER_DIR/biome.jsonc" ]; then
-                echo "== biome check (floor render) =="
-                cp "$RENDER_DIR/biome.jsonc" biome.jsonc
+              elif [ -n "$rendered_biome" ]; then
+                echo "== biome check (floor render, $rendered_biome) =="
+                cp "$RENDER_DIR/$rendered_biome" "$rendered_biome"
                 mise exec -- biome check \
                   --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
               else
@@ -512,7 +549,7 @@ jobs:
                 # here, which is not the org floor. Fail loudly, mirroring
                 # the converted-repo branch above.
                 echo "::error::no biome config available — the render" \
-                  "produced no biome.jsonc and the repo commits none;" \
+                  "produced no biome config and the repo commits none;" \
                   "the resolved standards channel predates the" \
                   "biome floor fragment"
                 fail=1
