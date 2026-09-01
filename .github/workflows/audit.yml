@@ -171,7 +171,7 @@ jobs:
           # deno.json / deno.jsonc are included so the Layer C deno rules
           # (policy/deno/overrides.rego) can fire on deno-cli repos.
           inputs=()
-          for f in biome.json ruff.toml .golangci.yml package.json deno.json deno.jsonc; do
+          for f in biome.jsonc ruff.toml .golangci.yml package.json deno.json deno.jsonc; do
             [ -f "$f" ] && inputs+=("$f")
           done
           # Use an explicit `if`/`fi` instead of `[ … ] && conftest …` — under
@@ -184,7 +184,7 @@ jobs:
               --data   .standards/skills/audit-standards/data/base \
               "${inputs[@]}"
           else
-            echo "no conftest inputs (biome.json/ruff.toml/.golangci.yml/package.json/deno.json/deno.jsonc all absent); skipping"
+            echo "no conftest inputs (biome.jsonc/ruff.toml/.golangci.yml/package.json/deno.json/deno.jsonc all absent); skipping"
           fi
       - name: Managed-content drift (strict gate)
         # §8-END enforcement flip. Runs the MD-* managed-content drift checker
