@@ -17,7 +17,10 @@ name: pr-title (gate)
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Keyed on `github.workflow_sha` too, so a Candidate Validation injection of
+  # this file at another commit never shares (and cancels) the live one's group
+  # — rationale in lint-format.yml.
+  group: ${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   pr-title:
