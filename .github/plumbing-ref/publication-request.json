@@ -1,16 +1,19 @@
 {
-  "expected_current_sha": "7134a75ed73fc2eecf17f8d5bdc00f14c0d97db5",
-  "target_sha": "d36c6f4bcd36819543216d4356f09f79b53f251b",
-  "reason": "Publish v3.6.0 so the injected gates carry #244: lint-format learns the biome.jsonc name that standards renders since v1.55.77 (#519), and gains the switch-gated generated-config drift check plus the legacy-root biome.json notice, both warn-only (CONFIG_DRIFT_IS_ERROR / LEGACY_BIOME_IS_ERROR default false). The live tag's hard `render produced no biome.json` assertion has failed every converted-Biome repo's PRs since that promotion (observed 2026-09-02: claude-workflows#116/#117, todoist-classify#257, riveroaks-scraper#207, bookmark-scraper#295, activity-planner#212, vvterm-notifications#22), stalling the template/v1.55.80 re-render wave. Gate Family surface of this transition: lint-format.yml and audit.yml (#244 is the only gate-family commit in 7134a75..d36c6f4; secret-scan.yml, pr-title.yml and typecheck-ts.yml are byte-identical at both). Candidate Validation per the runbook: the temporary evaluate-mode duplicate ruleset gate-lint-format-candidate (.github-private#247, pinned at refs/tags/v3.6.0) ran the candidate on real PRs across five repo shapes, all green with the intended path taken - py+ts converted (todoist-classify#260, `biome check (floor + delta render, biome.jsonc)`), ts+js converted (claude-workflows#116), js unconverted (claude-lsps#159, consumer config path), python-only (aw-gateway#50, ruff floor+delta; drift notice only), extended fork (kodus-ai#233, changed-files path). The duplicate ruleset is removed in a follow-up .github-private PR once this publishes.",
+  "expected_current_sha": "d36c6f4bcd36819543216d4356f09f79b53f251b",
+  "target_sha": "cc4ed878e38103c88f738eca18198e360c50be1e",
+  "reason": "Publish v3.6.1 so the injected gates carry #252: the four gates with a concurrency group (lint-format, secret-scan, pr-title, typecheck-ts) now key it on github.workflow_sha as well as workflow name and PR ref. Gate Family surface of this transition is exactly that one commit (ae45de1): audit.yml is byte-identical at d36c6f4 and cc4ed87, and the other four differ only in their concurrency group and its comment. Why: a Candidate Validation injects the same file a second time from an evaluate-mode ruleset at the candidate commit; with the old key both injections shared one group and cancel-in-progress killed whichever registered first, at random (v3.6.0 publication, #251: the candidate survived 1 of 4 first attempts, and reruns re-resolve to the live tag so only fresh events could produce evidence). With the SHA in the key a newer commit on the same PR still supersedes an in-flight run of the same version, while different versions coexist. Candidate Validation per the runbook: .github-private#249 added evaluate-mode duplicates of all four families at refs/tags/v3.6.1; forced pull_request events on four repos (claude-workflows#116, aw-gateway#50, claude-lsps#159, todoist-classify#260) produced 14 family-pairs = 28 runs, every one completed successfully and none cancelled - at the v3.6.0 validation exactly one run of every pair was cancelled. Runs: claude-workflows lint-format 33667930031/33667929871, pr-title 33667929889/33667929869, secret-scan 33667929897/33667929817, typecheck-ts 33667929893/33667929892; todoist-classify lint-format 33667953075/33667952931, typecheck-ts 33667953035/33667953004; aw-gateway lint-format 33667938266/33667938331; claude-lsps secret-scan 33667945234/33667945248. The duplicates are removed in a follow-up .github-private PR once this publishes.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/244",
-    "https://github.com/Rubio-Enterprises/.github-private/pull/247",
-    "https://github.com/Rubio-Enterprises/todoist-classify/actions/runs/33646540085",
-    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33650326253",
-    "https://github.com/Rubio-Enterprises/claude-lsps/actions/runs/33650331657",
-    "https://github.com/Rubio-Enterprises/aw-gateway/actions/runs/33650337991",
-    "https://github.com/Rubio-Enterprises/kodus-ai/actions/runs/33650569757",
-    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33578055811",
+    "https://github.com/Rubio-Enterprises/.github/pull/252",
+    "https://github.com/Rubio-Enterprises/.github-private/pull/249",
+    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667930031",
+    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667929871",
+    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667929893",
+    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667929892",
+    "https://github.com/Rubio-Enterprises/claude-lsps/actions/runs/33667945234",
+    "https://github.com/Rubio-Enterprises/claude-lsps/actions/runs/33667945248",
+    "https://github.com/Rubio-Enterprises/aw-gateway/actions/runs/33667938266",
+    "https://github.com/Rubio-Enterprises/aw-gateway/actions/runs/33667938331",
+    "https://github.com/Rubio-Enterprises/.github/pull/251",
     "https://github.com/Rubio-Enterprises/standards/blob/main/docs/runbooks/publish-plumbing-ref.md"
   ]
 }
