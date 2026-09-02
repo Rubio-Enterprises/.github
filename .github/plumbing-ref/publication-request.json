@@ -1,13 +1,16 @@
 {
-  "expected_current_sha": "4daf826162ad531fa6963c019dbf937589952972",
-  "target_sha": "7134a75ed73fc2eecf17f8d5bdc00f14c0d97db5",
-  "reason": "Publish #226, which gives secret-scan.yml a concurrency group so a force-pushed PR supersedes its own in-flight gitleaks run instead of leaving one alive (kodus-ai run 32215663610 sat in queued for 15h and refused both cancel and force-cancel with HTTP 500, clearing only at GitHub's 24h acquisition timeout); non-pull_request events are keyed by github.run_id so the weekly scheduled trufflehog call can never be grouped, queued behind another scan, or dropped, and cancel-in-progress is gated to pull_request so a merge_group run is never cancelled. Gate Family surface of this transition is exactly one file: audit.yml, lint-format.yml, pr-title.yml and typecheck-ts.yml are byte-identical at 4daf826 and at 7134a75, so secret-scan.yml is the only ruleset-consumed blob in the published range. Candidate validation, proportionate to a change that touches no step logic: the modified workflow ran as this repository's own pull_request-triggered gate at both PR commits (gitleaks pass at f1d0d17 and at 6270d65, the latter byte-identical to the squashed target), plus repo-wide actionlint and the 69-test contract suite. The other 30 commits in the range are inert to this tag - release-please releases, copier re-renders, a plugin-carrier sync, Renovate preset edits, and bump-brew/cloud-setup-smoke work on thin-called reusables that consumers pin by their own ref.",
+  "expected_current_sha": "7134a75ed73fc2eecf17f8d5bdc00f14c0d97db5",
+  "target_sha": "d36c6f4bcd36819543216d4356f09f79b53f251b",
+  "reason": "Publish v3.6.0 so the injected gates carry #244: lint-format learns the biome.jsonc name that standards renders since v1.55.77 (#519), and gains the switch-gated generated-config drift check plus the legacy-root biome.json notice, both warn-only (CONFIG_DRIFT_IS_ERROR / LEGACY_BIOME_IS_ERROR default false). The live tag's hard `render produced no biome.json` assertion has failed every converted-Biome repo's PRs since that promotion (observed 2026-09-02: claude-workflows#116/#117, todoist-classify#257, riveroaks-scraper#207, bookmark-scraper#295, activity-planner#212, vvterm-notifications#22), stalling the template/v1.55.80 re-render wave. Gate Family surface of this transition: lint-format.yml and audit.yml (#244 is the only gate-family commit in 7134a75..d36c6f4; secret-scan.yml, pr-title.yml and typecheck-ts.yml are byte-identical at both). Candidate Validation per the runbook: the temporary evaluate-mode duplicate ruleset gate-lint-format-candidate (.github-private#247, pinned at refs/tags/v3.6.0) ran the candidate on real PRs across five repo shapes, all green with the intended path taken - py+ts converted (todoist-classify#260, `biome check (floor + delta render, biome.jsonc)`), ts+js converted (claude-workflows#116), js unconverted (claude-lsps#159, consumer config path), python-only (aw-gateway#50, ruff floor+delta; drift notice only), extended fork (kodus-ai#233, changed-files path). The duplicate ruleset is removed in a follow-up .github-private PR once this publishes.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/226",
-    "https://github.com/Rubio-Enterprises/.github/actions/runs/32294926021",
-    "https://github.com/Rubio-Enterprises/.github/actions/runs/32295744688",
-    "https://github.com/Rubio-Enterprises/.github/actions/runs/32295744536",
-    "https://github.com/Rubio-Enterprises/kodus-ai/actions/runs/32215663610",
+    "https://github.com/Rubio-Enterprises/.github/pull/244",
+    "https://github.com/Rubio-Enterprises/.github-private/pull/247",
+    "https://github.com/Rubio-Enterprises/todoist-classify/actions/runs/33646540085",
+    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33650326253",
+    "https://github.com/Rubio-Enterprises/claude-lsps/actions/runs/33650331657",
+    "https://github.com/Rubio-Enterprises/aw-gateway/actions/runs/33650337991",
+    "https://github.com/Rubio-Enterprises/kodus-ai/actions/runs/33650569757",
+    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33578055811",
     "https://github.com/Rubio-Enterprises/standards/blob/main/docs/runbooks/publish-plumbing-ref.md"
   ]
 }
