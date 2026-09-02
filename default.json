@@ -41,17 +41,17 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. platformAutomerge has been ON for this rule since 2026-08-03. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original fleet had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. platformAutomerge is safe here because the checks each consumer actually renders are required before GitHub merges.",
+      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. The require-review fallback sets platformAutomerge:false so Renovate's own engine performs the merge as the bypassed Renovate App. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original fleet had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. Renovate's own engine is stricter here because it waits for every check the consumer actually renders, not only the checks required before GitHub merges.",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
       "matchCurrentVersion": "!/^v?0/",
       "automerge": true,
-      "platformAutomerge": true
+      "platformAutomerge": false
     },
     {
       "description": "Lockfile maintenance only refreshes transitive resolution inside existing ranges - the lowest-risk update class. minimumReleaseAge:0 is required for the automerge to ever fire: under the global 7-day soak, Renovate stamps its own `renovate/stability-days` pending status whenever any refreshed transitive release is younger than 7 days, its merge engine waits for ALL checks including that one, and the next weekly refresh pulls new young releases that re-arm the clock - so the PR stays green-but-unmergeable indefinitely (standards#404 sat 8 days; hand-merged 2026-08-03). The soak exists to vet just-published DIRECT updates; lockfile refreshes stay inside ranges already vetted by their own PRs.",
       "matchUpdateTypes": ["lockFileMaintenance"],
       "automerge": true,
-      "platformAutomerge": true,
+      "platformAutomerge": false,
       "minimumReleaseAge": "0 days"
     },
     {
@@ -142,7 +142,7 @@
       "groupName": "first-party reusable workflows",
       "enabled": true,
       "automerge": true,
-      "platformAutomerge": true,
+      "platformAutomerge": false,
       "minimumReleaseAge": "0 days"
     },
     {
@@ -171,12 +171,12 @@
       "minimumReleaseAge": "0 days"
     },
     {
-      "description": "Stable non-major tool runtime dependencies use the first-party fast lane: skip the third-party 7-day soak and hand the merge to GitHub as soon as every required check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable without widening automerge. Major and 0.x updates remain manual.",
+      "description": "Stable non-major tool runtime dependencies use the first-party fast lane: skip the third-party 7-day soak and let Renovate merge as soon as every check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable without widening automerge. Major and 0.x updates remain manual.",
       "matchDepNames": ["rubio-cli-kit", "typer"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^v?0/",
       "automerge": true,
-      "platformAutomerge": true,
+      "platformAutomerge": false,
       "minimumReleaseAge": "0 days"
     },
     {
@@ -187,7 +187,7 @@
       "pinDigests": true
     },
     {
-      "description": "Git-sourced tool pins in `home/.chezmoidata/uv-tools.toml` are authoritative first-party fleet inputs. Group stable non-major tag/SHA advances into one PR, skip the org release-age soak, and use scoped platform auto-merge; major and 0.x tool releases stay manual.",
+      "description": "Git-sourced tool pins in `home/.chezmoidata/uv-tools.toml` are authoritative first-party fleet inputs. Group stable non-major tag/SHA advances into one PR, skip the org release-age soak, and use Renovate-side automerge; major and 0.x tool releases stay manual.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["home/.chezmoidata/uv-tools.toml"],
       "matchPackageNames": ["/^Rubio-Enterprises\\//"],
@@ -196,7 +196,7 @@
       "groupName": "first-party tool pins",
       "groupSlug": "first-party-tool-pins",
       "automerge": true,
-      "platformAutomerge": true,
+      "platformAutomerge": false,
       "minimumReleaseAge": "0 days"
     },
     {

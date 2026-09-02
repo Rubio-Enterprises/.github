@@ -11,6 +11,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "default.json").read_text(encoding="utf-8"))
+COPIER_CONFIG = json.loads((ROOT / "copier.json").read_text(encoding="utf-8"))
 
 REGISTRY_FIXTURE = """\
 [tools.pypi-only]
@@ -184,6 +185,27 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(CONFIG["rebaseWhen"], "automerging")
         self.assertEqual(CONFIG["minimumReleaseAge"], "7 days")
 
+    def test_automerge_uses_renovate_side_merge(self) -> None:
+        presets = {
+            "default.json": (CONFIG, 5),
+            "copier.json": (COPIER_CONFIG, 1),
+        }
+        for preset_name, (config, expected_side_merge_rules) in presets.items():
+            side_merge_rules = [
+                rule
+                for rule in config["packageRules"]
+                if rule.get("automerge") is True
+                and rule.get("platformAutomerge") is False
+            ]
+            self.assertEqual(len(side_merge_rules), expected_side_merge_rules)
+
+            for rule in config["packageRules"]:
+                with self.subTest(
+                    preset=preset_name,
+                    rule=rule.get("description", rule.get("groupName")),
+                ):
+                    self.assertIsNot(rule.get("platformAutomerge"), True)
+
     def test_stable_and_pre_one_groups_resolve_to_distinct_branches(self) -> None:
         fixtures = [
             (
@@ -321,7 +343,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertEqual(resolved["groupName"], expected_group)
                 self.assertEqual(resolved["groupSlug"], expected_slug)
                 self.assertEqual(resolved["automerge"], should_merge)
-                self.assertEqual(resolved["platformAutomerge"], should_merge)
+                self.assertFalse(resolved["platformAutomerge"])
                 self.assertEqual(resolved["minimumReleaseAge"], "7 days")
                 self.assertEqual(
                     resolved["dependencyDashboardApproval"], not should_merge
@@ -413,7 +435,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             }
         )
         self.assertTrue(resolved["automerge"])
-        self.assertTrue(resolved["platformAutomerge"])
+        self.assertFalse(resolved["platformAutomerge"])
         self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
     def test_mise_cli_override_is_manager_independent(self) -> None:
@@ -443,7 +465,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             }
         )
         self.assertTrue(unrelated["automerge"])
-        self.assertTrue(unrelated["platformAutomerge"])
+        self.assertFalse(unrelated["platformAutomerge"])
         self.assertEqual(unrelated["minimumReleaseAge"], "7 days")
 
     def test_later_manual_exceptions_override_the_safe_lane(self) -> None:
@@ -709,7 +731,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(fast_lane["matchCurrentVersion"], "!/^v?0/")
         self.assertNotIn("groupName", fast_lane)
         self.assertTrue(fast_lane["automerge"])
-        self.assertTrue(fast_lane["platformAutomerge"])
+        self.assertFalse(fast_lane["platformAutomerge"])
         self.assertEqual(fast_lane["minimumReleaseAge"], "0 days")
 
     def test_first_party_tool_pin_fast_lane_excludes_zero_x_updates(self) -> None:
@@ -720,7 +742,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         )
         self.assertEqual(pin_rule["matchCurrentVersion"], "!/^v?0/")
         self.assertTrue(pin_rule["automerge"])
-        self.assertTrue(pin_rule["platformAutomerge"])
+        self.assertFalse(pin_rule["platformAutomerge"])
         self.assertEqual(pin_rule["minimumReleaseAge"], "0 days")
         self.assertEqual(pin_rule["matchManagers"], ["custom.regex"])
         self.assertEqual(
