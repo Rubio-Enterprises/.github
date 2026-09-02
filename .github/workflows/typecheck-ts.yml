@@ -35,7 +35,12 @@ concurrency:
   # called workflow `github.workflow` resolves to the CALLER's name, so a bare
   # group would collide with the caller's own concurrency group — the caller
   # holds it while waiting for this job, which waits for the group: deadlock.
-  group: typecheck-ts-${{ github.workflow }}-${{ github.ref }}
+  #
+  # Keyed on `github.workflow_sha` too, so a Candidate Validation injection of
+  # this file at another commit never shares (and cancels) the live one's group
+  # — rationale in lint-format.yml. In the called (cache-seed) mode the SHA is
+  # the caller's, which is just as stable a namespace.
+  group: typecheck-ts-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   route:

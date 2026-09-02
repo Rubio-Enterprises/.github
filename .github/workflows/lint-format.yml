@@ -22,7 +22,18 @@ concurrency:
   # PR. Namespaced to this workflow via `github.workflow`; gated to pull_request
   # so a merge_group run is never cancelled. Mirrors the consumer standards.yml
   # concurrency shape.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  #
+  # Also keyed on `github.workflow_sha`, the commit this file was loaded from.
+  # Candidate Validation (standards docs/runbooks/publish-plumbing-ref.md)
+  # injects this same file a SECOND time, from a temporary evaluate-mode ruleset
+  # pinned at the candidate commit, so the two injections run side by side on
+  # every PR. Without the SHA they shared one group, and cancel-in-progress
+  # killed whichever registered first — at random (v3.6.0 publication,
+  # 2026-09-02: the candidate survived 1 of 4 first attempts; reruns re-resolve
+  # to the live tag, so only fresh events could produce evidence). With it, a
+  # newer commit on the same PR still supersedes an in-flight run of the SAME
+  # version, while different versions coexist. The other gates key the same way.
+  group: ${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   lint-format:
