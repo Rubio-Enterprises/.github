@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.1](https://github.com/Rubio-Enterprises/.github/compare/v3.6.0...v3.6.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* **gates:** key concurrency groups on the workflow file's commit ([#252](https://github.com/Rubio-Enterprises/.github/issues/252)) ([ae45de1](https://github.com/Rubio-Enterprises/.github/commit/ae45de1b5ca8a67275e8d37528d1aa087d92fa84))
+
 ## [3.6.0](https://github.com/Rubio-Enterprises/.github/compare/v3.5.1...v3.6.0) (2026-09-01)
 
 
