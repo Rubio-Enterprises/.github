@@ -186,10 +186,19 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(CONFIG["minimumReleaseAge"], "7 days")
 
     def test_automerge_uses_renovate_side_merge(self) -> None:
-        for preset_name, config in (
-            ("default.json", CONFIG),
-            ("copier.json", COPIER_CONFIG),
-        ):
+        presets = {
+            "default.json": (CONFIG, 5),
+            "copier.json": (COPIER_CONFIG, 1),
+        }
+        for preset_name, (config, expected_side_merge_rules) in presets.items():
+            side_merge_rules = [
+                rule
+                for rule in config["packageRules"]
+                if rule.get("automerge") is True
+                and rule.get("platformAutomerge") is False
+            ]
+            self.assertEqual(len(side_merge_rules), expected_side_merge_rules)
+
             for rule in config["packageRules"]:
                 with self.subTest(
                     preset=preset_name,
