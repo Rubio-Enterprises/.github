@@ -63,7 +63,7 @@ jobs:
           permission-contents: read
 
       - name: Check out standards@channel
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/standards
           ref: ${{ steps.channel.outputs.channel }}
@@ -81,7 +81,7 @@ jobs:
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.1"
+          version: "0.12.7"
 
       # Fingerprint the uv-resolved python into the mise cache key (standards#331).
       # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
@@ -110,7 +110,7 @@ jobs:
           echo "uv-resolved python for mise cache key: $version"
 
       - name: Install standards commitlint (pinned in standards/.mise.toml)
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           working_directory: .standards
           # Key the mise cache to the uv-resolved python (standards#331): a python
