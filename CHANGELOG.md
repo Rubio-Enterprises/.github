@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.0](https://github.com/Rubio-Enterprises/.github/compare/v3.6.1...v3.7.0) (2026-09-04)
+
+
+### Features
+
+* **cloud-setup-smoke:** mint optional read-only app token for private modules ([#257](https://github.com/Rubio-Enterprises/.github/issues/257)) ([61502f5](https://github.com/Rubio-Enterprises/.github/commit/61502f58f9faa2dd06db176a12a91305f4e5a07a))
+
 ## [3.6.1](https://github.com/Rubio-Enterprises/.github/compare/v3.6.0...v3.6.1) (2026-09-02)
 
 
