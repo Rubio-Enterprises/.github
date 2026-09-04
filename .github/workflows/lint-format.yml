@@ -259,14 +259,25 @@ jobs:
           # `mise run lint-config -- --check` performs, so the two cannot
           # disagree.
           #
-          # Set true once the fleet has re-rendered on the banner floor
-          # (standards#519) and a sweep shows zero drift. Measured at
-          # authoring time: the fleet spans 12 template pins and the
-          # markdownlint floor changed across that range, so flipping this
-          # before the Renovate re-render wave lands would fail repos on
-          # drift they never authored. Until then a stale config is reported,
-          # not fatal.
-          CONFIG_DRIFT_IS_ERROR=false
+          # FLIPPED to true 2026-09-04, on the condition this comment set: the
+          # fleet has re-rendered and a sweep showed zero drift. Method: for all
+          # 57 repos carrying `gate-lint-format`, resolve the repo's ring
+          # (54 stable / 3 canary — both at 2e3c766), strip private Copier keys
+          # from its live `.copier-answers.yml`, seed the four `*.local`
+          # sidecars, `copier copy --vcs-ref=HEAD --defaults --trust`, and
+          # compare exactly the four paths below. All 57 rendered; 55 were clean
+          # and the 2 that drifted were fixed first
+          # (activitylog-todoist-extension#21 biome.jsonc,
+          # rubio-cli-kit#42 ruff.toml), both re-verified drift-clean on main.
+          #
+          # The hazard the previous note described is now the steady-state cost:
+          # when a floor touching one of these four files ships, every repo
+          # drifts until its Renovate copier PR merges, and a repo whose copier
+          # PR is blocked sits red. That window is hours on the 6-hourly wave,
+          # and holding the fleet converged is the point of the switch — but a
+          # floor change to these files is now a fleet-visible event, not a
+          # quiet one.
+          CONFIG_DRIFT_IS_ERROR=true
           fail=0
           configs=(ruff.toml biome.jsonc .yamllint .markdownlint-cli2.jsonc)
           for config in "${configs[@]}"; do
