@@ -21,11 +21,18 @@ name: cloud-setup smoke (reusable)
 #
 # WHAT IT DOES *NOT* REPLICATE (deliberate)
 # -----------------------------------------
-# Not root, not a snapshot, no GH_PAT, no `claude` CLI. The core skips its
-# cloud-only sections in smoke mode accordingly: apt, the marketplace credential
-# helper + pre-seed, plugin-cache materialization, workflow seeding, and the
-# drift fingerprint. Skipping the credential helper also keeps this job from
-# writing a global `insteadOf` rewrite into the runner's git config.
+# Not root, not a snapshot, no `claude` CLI. Without optional caller secrets,
+# there is no GH_PAT and the core skips its cloud-only sections in smoke mode:
+# apt, the marketplace credential helper + pre-seed, plugin-cache
+# materialization, workflow seeding, and the drift fingerprint. Skipping the
+# marketplace helper also keeps this job from writing its broad global
+# `insteadOf` rewrite into the runner's git config.
+#
+# The credentialed path exists because a consumer whose go.mod replaces a
+# module with a private repository cannot prove a real dependency download or
+# build anonymously. Such a caller may forward the private-modules-reader App
+# credentials; this workflow then supplies one short-lived token through the
+# same GH_PAT channel as the web sandbox.
 #
 # What IS replicated is the part where repos actually break: Linux, the pinned
 # toolchain, the archetype cache warm against the repo's REAL manifests, and the
@@ -36,9 +43,9 @@ name: cloud-setup smoke (reusable)
 # own rendered caller), not one of the property-targeted Required Governance
 # Workflows the org rulesets inject. It therefore needs no `gate-*` custom
 # property, no governance.tf ruleset, and no `gates/wf-v1` plumbing-ref
-# publication — it rides the ordinary `.github` release + floating `v1` like
-# lint-hooks / e2e / bump-brew. Promoting it to a required status context later
-# would first require moving its caller into standards.yml's unconditional job
+# publication — it rides the ordinary `.github` release + floating `v3`, whose
+# pinned SHA callers receive through Renovate. Promoting it to a required status
+# context later would first require moving its caller into standards.yml's
 # set: a paths-filtered workflow can never be a required context, because a run
 # that never reports blocks the merge forever.
 "on":
@@ -54,6 +61,17 @@ name: cloud-setup smoke (reusable)
         required: false
         type: string
         default: "1"
+    secrets:
+      PRIVATE_MODULES_READER_APP_ID:
+        description: >-
+          Optional App ID for a read-only token scoped by its installation to
+          the private module repositories exercised by the smoke.
+        required: false
+      PRIVATE_MODULES_READER_APP_PRIVATE_KEY:
+        description: >-
+          Optional private key paired with PRIVATE_MODULES_READER_APP_ID; both
+          secrets must be forwarded before this workflow mints a token.
+        required: false
   # Both direct triggers are required so GitHub's org-ruleset
   # `required_workflows` validator would accept this file if it is ever promoted
   # to a Gate Family (422 otherwise — the audit.yml / lint-hooks.yml precedent).
@@ -89,15 +107,25 @@ jobs:
     # The cloud snapshot build has a ~5 min budget; this runs the same work with
     # a cold cache, so the cap is generous but still bounded.
     timeout-minutes: 15
+    env:
+      HAS_PRIVATE_MODULES_APP: >-
+        ${{ secrets.PRIVATE_MODULES_READER_APP_ID != '' &&
+        secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY != '' }}
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           # This job executes the checked-out consumer's own shell scripts
-          # (`bash "$SHIM"`), so a persisted push token would be readable by
-          # repo-owned code. Nothing in the smoke path does authenticated Git —
-          # the cloud-only credential-helper section is skipped in smoke mode —
-          # so dropping the credential is free. (zizmor: artipacked.)
+          # (`bash "$SHIM"`), so the checkout token must not persist where
+          # repo-owned code can read it. Nothing in the smoke uses that token
+          # for authenticated Git, so dropping it is free. A consumer may
+          # separately forward the private-modules-reader App credentials: its
+          # per-run token is readable by the shell for the job's duration, an
+          # accepted trade because it is read-only, scoped by its installation
+          # to the private module repos, expires after about one hour, and is
+          # absent unless both secrets are forwarded. The standards template
+          # core uses it solely to register a scoped Git credential helper for
+          # the go.mod-named organization repositories. (zizmor: artipacked.)
           persist-credentials: false
 
       # Fast, cheap gate BEFORE the toolchain steps, and load-bearing for safety
@@ -128,7 +156,8 @@ jobs:
           fi
           if ! grep -q 'CLOUD_SETUP_SMOKE' "$core"; then
             echo "runnable=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::$core predates CLOUD_SETUP_SMOKE and would run the full cloud path; skipping until this repo re-renders (standards >= template/v1.55.56)"
+            echo "::notice::$core predates CLOUD_SETUP_SMOKE and would run the full cloud path;" \
+            "skipping until this repo re-renders (standards >= template/v1.55.56)"
             exit 0
           fi
           echo "runnable=true" >> "$GITHUB_OUTPUT"
@@ -177,11 +206,26 @@ jobs:
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.7.7"
 
+      - name: Mint private-modules-reader token
+        id: private-modules-token
+        if: >-
+          steps.probe.outputs.runnable == 'true' &&
+          env.HAS_PRIVATE_MODULES_APP == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.PRIVATE_MODULES_READER_APP_ID }}
+          private-key: ${{ secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY }}
+          # The App installation contains only the private module repositories;
+          # that installation boundary is the intentional token scope.
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app]
+          permission-contents: read
+
       - name: Run the cloud setup chain under CLOUD_SETUP_SMOKE
         if: steps.probe.outputs.runnable == 'true'
         shell: bash
         env:
           CLOUD_SETUP_SMOKE: ${{ inputs.level || '1' }}
+          GH_PAT: ${{ steps.private-modules-token.outputs.token }}
           SHIM: ${{ steps.probe.outputs.shim }}
         run: |
           set -euo pipefail
