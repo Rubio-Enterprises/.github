@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.8.0](https://github.com/Rubio-Enterprises/.github/compare/v3.7.0...v3.8.0) (2026-09-05)
+
+
+### Features
+
+* **lint-format:** error on biome warnings for native repos ([#262](https://github.com/Rubio-Enterprises/.github/issues/262)) ([7e9507b](https://github.com/Rubio-Enterprises/.github/commit/7e9507bd3fba8b66f1074e934ea18dd16aaf8340))
+* **lint-format:** make a committed legacy biome.json a hard error ([#260](https://github.com/Rubio-Enterprises/.github/issues/260)) ([d1e04ef](https://github.com/Rubio-Enterprises/.github/commit/d1e04ef18e541036c62e349cb80a9cc5905648aa))
+
 ## [3.7.0](https://github.com/Rubio-Enterprises/.github/compare/v3.6.1...v3.7.0) (2026-09-04)
 
 
