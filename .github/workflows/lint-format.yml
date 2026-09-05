@@ -314,9 +314,10 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          # Set true once every repo is converted; see checklist item 45. The
-          # same change must remove the unconverted-consumer fallback below.
-          LEGACY_BIOME_IS_ERROR=false
+          # Every governed Biome consumer renders biome.jsonc. A committed
+          # root biome.json is a defect: Biome resolves it first and silently
+          # shadows the rendered floor.
+          LEGACY_BIOME_IS_ERROR=true
           # The classification selects this gate's entire lint strategy, so an
           # unreadable one must stop the run, not shape it. The has_<lang>
           # facets ARE the classification; the archetype fallback is retired
@@ -450,36 +451,18 @@ jobs:
           fi
           [ "$has_embedded_web" = "true" ] && run_biome=true
           if [ "$run_biome" = "true" ]; then
-            # Which name did the render produce? `biome.jsonc` once the
-            # resolved standards channel carries the `.json` -> `.jsonc`
-            # rename (standards#519); `biome.json` on a channel that predates
-            # it. Accepting either decouples this gate from channel
-            # promotion: it lands before the template change reaches stable
-            # and keeps linting correctly after. With both names present
-            # biome silently prefers `biome.json`, which is why a rendered
-            # `.jsonc` is materialized below only after any root
-            # `biome.json` is cleared from the ephemeral checkout.
-            rendered_biome=""
-            if [ -f "$RENDER_DIR/biome.jsonc" ]; then
-              rendered_biome=biome.jsonc
-            elif [ -f "$RENDER_DIR/biome.json" ]; then
-              rendered_biome=biome.json
-            fi
-            legacy_biome_blocked=false
-            # A committed root biome.json is only "legacy" once the channel
-            # renders biome.jsonc; before that it is simply the current name.
-            if [ -f biome.json ] && [ "$rendered_biome" = "biome.jsonc" ]; then
-              if [ "$LEGACY_BIOME_IS_ERROR" = "true" ]; then
-                echo "::error file=biome.json::legacy root biome.json" \
-                  "must be removed; it silently wins over biome.jsonc"
-                fail=1
-                legacy_biome_blocked=true
-              else
-                echo "::notice file=biome.json::legacy root biome.json" \
-                  "detected; this repo is unconverted or has not yet" \
-                  "re-rendered on the biome.jsonc floor; it silently wins" \
-                  "over biome.jsonc"
-              fi
+            # Pattern F has one governed shape: the standards render produces
+            # biome.jsonc (floor ⊕ the repository's biome.json.local
+            # departures), and the gate materializes that render at the
+            # checkout root so relative globs keep their repository scope.
+            # A committed biome.json is a separate defect: Biome resolves it
+            # ahead of biome.jsonc and would silently shadow the rendered
+            # floor.
+            if [ "$LEGACY_BIOME_IS_ERROR" = "true" ] &&
+              git ls-files --error-unmatch biome.json >/dev/null 2>&1; then
+              echo "::error file=biome.json::legacy root biome.json" \
+                "must be removed; it silently wins over biome.jsonc"
+              fail=1
             fi
             # Exclude lint/tooling config files from the lint INPUTS (this is
             # about what gets linted, not which config governs — see below):
@@ -491,27 +474,17 @@ jobs:
             # them (.markdownlint-cli2.jsonc format errors, same PR).
             # .markdownlint-cli2.jsonc / commitlint.config.cjs / renovate.json
             # are template-rendered residue (conformance is the audit's
-            # jurisdiction); biome.json(c) is consumer-owned (Pattern D) but
+            # jurisdiction); biome.jsonc is the rendered consumer config but
             # equally noise as a lint input.
             mapfile -t jsfiles < <(select_files '*.js' '*.jsx' '*.ts' '*.tsx' '*.mjs' '*.cjs' '*.json' '*.jsonc' \
               | grep -vE '(^|/)(biome\.jsonc?|\.markdownlint-cli2\.jsonc|commitlint\.config\.cjs|renovate\.json)$' || true)
             if [ "${#jsfiles[@]}" -gt 0 ]; then
-              # Pattern F (floor ⊕ delta), same strategy as ruff above,
-              # keyed on the committed `biome.json.local` sidecar: a repo
-              # that declared its delta was converted (its checked-in
-              # biome.jsonc is merge-biome.sh's own output, the working-tree
-              # mirror of the same merge), so the gate lints with the
-              # rendered floor ⊕ delta config the seeding step composed.
-              # A repo with a biome config but NO sidecar is not yet
-              # converted — its biome.jsonc may diverge from the floor in
-              # undeclared ways (the divergence guard drops the fragment for
-              # it at render time), so the consumer config still decides
-              # (Pattern D fallback; the one deliberate holdout is tracked
-              # in its own repo issue). Floor render remains the default for
-              # repos with no biome config at all. Flipped from
-              # consumer-config-wins on 2026-07-20 after the conversion
-              # wave landed every other divergent repo's delta in
-              # `biome.json.local`.
+              # Pattern F (floor ⊕ delta), same strategy as ruff above: the
+              # render step seeded any committed biome.json.local sidecar
+              # into the scratch destination, where merge-biome.sh composed
+              # it over the org floor. Repositories with no departures have
+              # no sidecar, so the rendered floor still governs them.
+              #
               # NEVER --config-path here: biome anchors a config's relative
               # globs (files.includes negations, overrides[].includes) to the
               # directory CONTAINING the config, so a config resolved from
@@ -519,51 +492,24 @@ jobs:
               # checkout — delta-excluded dirs get linted and delta overrides
               # stop applying. Observed live the day of the floor-delta flip
               # (todoist-classify PR #162: override-exempted ui/** files
-              # re-erroring, 9 delta-excluded files re-included). Materialize
-              # the rendered config at the checkout root instead — the
-              # checkout is ephemeral, and for converted repos the committed
-              # biome.jsonc is merge-biome.sh's own output of the same merge.
-              if [ "$legacy_biome_blocked" = "true" ]; then
-                echo "skipping biome: legacy root config is forbidden"
-              elif [ -f biome.json.local ]; then
-                if [ -z "$rendered_biome" ]; then
-                  # The resolved standards channel predates the biome
-                  # fragment — linting config-less here would apply biome
-                  # defaults, not the org floor. Fail loudly instead.
-                  echo "::error::biome.json.local is committed but the render" \
-                    "produced no biome config; the resolved standards" \
-                    "channel predates the biome floor fragment"
-                  fail=1
-                else
-                  echo "== biome check (floor + delta render, $rendered_biome) =="
-                  if [ "$rendered_biome" = "biome.jsonc" ]; then
-                    rm -f biome.json
-                  fi
-                  cp "$RENDER_DIR/$rendered_biome" "$rendered_biome"
-                  mise exec -- biome check \
-                    --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
-                fi
-              # Remove this unconverted-consumer fallback in the same change
-              # that flips LEGACY_BIOME_IS_ERROR to true (checklist item 45).
-              elif [ -f biome.json ] || [ -f biome.jsonc ]; then
-                echo "== biome check (consumer config; unconverted repo) =="
-                mise exec -- biome check \
-                  --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
-              elif [ -n "$rendered_biome" ]; then
-                echo "== biome check (floor render, $rendered_biome) =="
-                cp "$RENDER_DIR/$rendered_biome" "$rendered_biome"
-                mise exec -- biome check \
-                  --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
-              else
-                # No consumer config and the resolved channel rendered no
-                # floor (pre-fragment channel): biome defaults would lint
-                # here, which is not the org floor. Fail loudly, mirroring
-                # the converted-repo branch above.
-                echo "::error::no biome config available — the render" \
-                  "produced no biome config and the repo commits none;" \
-                  "the resolved standards channel predates the" \
-                  "biome floor fragment"
+              # re-erroring, 9 delta-excluded files re-included).
+              if [ ! -f "$RENDER_DIR/biome.jsonc" ]; then
+                # Linting config-less would apply Biome defaults, not the org
+                # floor. Fail loudly instead.
+                echo "::error::the render produced no biome.jsonc;" \
+                  "the resolved standards channel lacks the biome floor"
                 fail=1
+              else
+                echo "== biome check (floor + delta render, biome.jsonc) =="
+                # Materialization safety from PR #244: clear biome.json from
+                # the ephemeral checkout before copying biome.jsonc because
+                # Biome gives the .json name precedence. This does not forgive
+                # a committed legacy file; the defect check above has already
+                # failed the gate.
+                rm -f biome.json
+                cp "$RENDER_DIR/biome.jsonc" biome.jsonc
+                mise exec -- biome check \
+                  --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
               fi
             else
               echo "biome applies but no JS/TS/JSON files to lint; skipping"
