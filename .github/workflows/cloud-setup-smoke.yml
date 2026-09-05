@@ -204,7 +204,7 @@ jobs:
         with:
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.7.7"
+          version: "2026.8.14"
 
       - name: Mint private-modules-reader token
         id: private-modules-token
