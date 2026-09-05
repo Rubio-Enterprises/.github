@@ -1,19 +1,16 @@
 {
-  "expected_current_sha": "d36c6f4bcd36819543216d4356f09f79b53f251b",
-  "target_sha": "cc4ed878e38103c88f738eca18198e360c50be1e",
-  "reason": "Publish v3.6.1 so the injected gates carry #252: the four gates with a concurrency group (lint-format, secret-scan, pr-title, typecheck-ts) now key it on github.workflow_sha as well as workflow name and PR ref. Gate Family surface of this transition is exactly that one commit (ae45de1): audit.yml is byte-identical at d36c6f4 and cc4ed87, and the other four differ only in their concurrency group and its comment. Why: a Candidate Validation injects the same file a second time from an evaluate-mode ruleset at the candidate commit; with the old key both injections shared one group and cancel-in-progress killed whichever registered first, at random (v3.6.0 publication, #251: the candidate survived 1 of 4 first attempts, and reruns re-resolve to the live tag so only fresh events could produce evidence). With the SHA in the key a newer commit on the same PR still supersedes an in-flight run of the same version, while different versions coexist. Candidate Validation per the runbook: .github-private#249 added evaluate-mode duplicates of all four families at refs/tags/v3.6.1; forced pull_request events on four repos (claude-workflows#116, aw-gateway#50, claude-lsps#159, todoist-classify#260) produced 14 family-pairs = 28 runs, every one completed successfully and none cancelled - at the v3.6.0 validation exactly one run of every pair was cancelled. Runs: claude-workflows lint-format 33667930031/33667929871, pr-title 33667929889/33667929869, secret-scan 33667929897/33667929817, typecheck-ts 33667929893/33667929892; todoist-classify lint-format 33667953075/33667952931, typecheck-ts 33667953035/33667953004; aw-gateway lint-format 33667938266/33667938331; claude-lsps secret-scan 33667945234/33667945248. The duplicates are removed in a follow-up .github-private PR once this publishes.",
+  "expected_current_sha": "cc4ed878e38103c88f738eca18198e360c50be1e",
+  "target_sha": "7e9507bd3fba8b66f1074e934ea18dd16aaf8340",
+  "reason": "Publication 1 of the anti-verbosity rollout: the injected gates carry #260 and #262. Gate Family surface of this transition is exactly lint-format.yml (audit, secret-scan, pr-title, typecheck-ts are byte-identical at cc4ed87 and 7e9507b). #260 flips LEGACY_BIOME_IS_ERROR=true and removes the unconverted-consumer fallback: a committed root biome.json beside a rendered biome.jsonc is now a hard error. Every Biome consumer was converted to Pattern F first (B1-B8) and a fresh origin/main audit of all 18 Biome repos finds zero root biome.json files, so no consumer is exposed. #262 adds --error-on-warnings to the Biome invocation for non-fork repos only (forks lint changed files and keep warning tolerance). Candidate Validation proportional to blast radius: the affected population is the 13 native Biome repos; each was re-checked on origin/main with the gate exact invocation (tracked JS/TS/JSON files minus config files, committed biome.jsonc, mise-pinned Biome 2.5.5) plus --error-on-warnings after the Phase C warning-clearance PRs merged, and all 13 exit 0 (369 standing warnings cleared across riveroaks-scraper#217, claude-lsps#170, activity-planner#219, opencode-omlx-discovery#160, bookmark-scraper#299). #256 (CONFIG_DRIFT_IS_ERROR) is deliberately not in this publication.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/252",
-    "https://github.com/Rubio-Enterprises/.github-private/pull/249",
-    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667930031",
-    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667929871",
-    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667929893",
-    "https://github.com/Rubio-Enterprises/claude-workflows/actions/runs/33667929892",
-    "https://github.com/Rubio-Enterprises/claude-lsps/actions/runs/33667945234",
-    "https://github.com/Rubio-Enterprises/claude-lsps/actions/runs/33667945248",
-    "https://github.com/Rubio-Enterprises/aw-gateway/actions/runs/33667938266",
-    "https://github.com/Rubio-Enterprises/aw-gateway/actions/runs/33667938331",
-    "https://github.com/Rubio-Enterprises/.github/pull/251",
+    "https://github.com/Rubio-Enterprises/.github/pull/260",
+    "https://github.com/Rubio-Enterprises/.github/pull/262",
+    "https://github.com/Rubio-Enterprises/riveroaks-scraper/pull/217",
+    "https://github.com/Rubio-Enterprises/claude-lsps/pull/170",
+    "https://github.com/Rubio-Enterprises/activity-planner/pull/219",
+    "https://github.com/Rubio-Enterprises/opencode-omlx-discovery/pull/160",
+    "https://github.com/Rubio-Enterprises/bookmark-scraper/pull/299",
+    "https://github.com/Rubio-Enterprises/standards/pull/545",
     "https://github.com/Rubio-Enterprises/standards/blob/main/docs/runbooks/publish-plumbing-ref.md"
   ]
 }
