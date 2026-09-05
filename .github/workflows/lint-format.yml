@@ -500,7 +500,6 @@ jobs:
                   "the resolved standards channel lacks the biome floor"
                 fail=1
               else
-                echo "== biome check (floor + delta render, biome.jsonc) =="
                 # Materialization safety from PR #244: clear biome.json from
                 # the ephemeral checkout before copying biome.jsonc because
                 # Biome gives the .json name precedence. This does not forgive
@@ -508,7 +507,19 @@ jobs:
                 # failed the gate.
                 rm -f biome.json
                 cp "$RENDER_DIR/biome.jsonc" biome.jsonc
-                mise exec -- biome check \
+                # Phase C converged native repos to zero warnings, so warnings
+                # are now hard failures there. Forks lint changed files only
+                # and remain warning-tolerant per rollout guidance #3. This
+                # ratchet reaches consumers only with the next gates/wf-v1
+                # publication.
+                biome_severity=()
+                if [ "$IS_FORK" = "true" ]; then
+                  echo "== biome check (floor + delta render, biome.jsonc; warning-tolerant fork) =="
+                else
+                  biome_severity=(--error-on-warnings)
+                  echo "== biome check (floor + delta render, biome.jsonc; error-on-warnings) =="
+                fi
+                mise exec -- biome check "${biome_severity[@]}" \
                   --no-errors-on-unmatched -- "${jsfiles[@]}" || fail=1
               fi
             else
