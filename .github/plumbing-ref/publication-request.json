@@ -1,16 +1,13 @@
 {
-  "expected_current_sha": "cc4ed878e38103c88f738eca18198e360c50be1e",
-  "target_sha": "7e9507bd3fba8b66f1074e934ea18dd16aaf8340",
-  "reason": "Publication 1 of the anti-verbosity rollout: the injected gates carry #260 and #262. Gate Family surface of this transition is exactly lint-format.yml (audit, secret-scan, pr-title, typecheck-ts are byte-identical at cc4ed87 and 7e9507b). #260 flips LEGACY_BIOME_IS_ERROR=true and removes the unconverted-consumer fallback: a committed root biome.json beside a rendered biome.jsonc is now a hard error. Every Biome consumer was converted to Pattern F first (B1-B8) and a fresh origin/main audit of all 18 Biome repos finds zero root biome.json files, so no consumer is exposed. #262 adds --error-on-warnings to the Biome invocation for non-fork repos only (forks lint changed files and keep warning tolerance). Candidate Validation proportional to blast radius: the affected population is the 13 native Biome repos; each was re-checked on origin/main with the gate exact invocation (tracked JS/TS/JSON files minus config files, committed biome.jsonc, mise-pinned Biome 2.5.5) plus --error-on-warnings after the Phase C warning-clearance PRs merged, and all 13 exit 0 (369 standing warnings cleared across riveroaks-scraper#217, claude-lsps#170, activity-planner#219, opencode-omlx-discovery#160, bookmark-scraper#299). #256 (CONFIG_DRIFT_IS_ERROR) is deliberately not in this publication.",
+  "expected_current_sha": "7e9507bd3fba8b66f1074e934ea18dd16aaf8340",
+  "target_sha": "67cbff24f1e0b38bb537dc5d5828b1f5e4e0678b",
+  "reason": "Publication 2 of the anti-verbosity rollout: the injected gates carry #256, CONFIG_DRIFT_IS_ERROR=true. Gate Family surface of this transition is exactly lint-format.yml (audit, secret-scan, pr-title, typecheck-ts are byte-identical at 7e9507b and 67cbff2; the only other files that differ are the publication request itself and the template pin). The single behavior change is that a committed ruff.toml / biome.jsonc / .yamllint / .markdownlint-cli2.jsonc that differs from the canonical standards@channel render is now a hard failure instead of a ::notice. Candidate Validation, proportional to that change: the gate's own drift computation (strip _ keys, seed the four *.local sidecars, copier copy --vcs-ref=HEAD from standards@stable, cmp the four paths) was reproduced against the live default branch of all 61 gate-lint-format repos at standards@stable 820c1d9 (template/v1.55.91) and found 61/61 clean - 30 ruff.toml, 16 biome.jsonc, 61 .yamllint, 61 .markdownlint-cli2.jsonc - so no consumer is exposed at publication. That sweep is also why the flag is worth having: its first run, at template/v1.55.90, found 22 of 30 Python repos stale on ruff.toml (every repo without a ruff.toml.local) because the template's divergence guard preserved a converted-but-floor-moved config as if it were hand-customized; the gate reported all 22 as notices that nothing read. standards#549 fixed the guard (the @generated banner is the ownership signal), the template/v1.55.91 convergence wave regenerated 21 of them through the real copier update path, and ws#24 converted the one banner-less pre-conversion copy. Steady-state cost from here: a floor change touching one of the four files red-lines every consumer until its copier PR merges, which is the convergence the switch exists to hold.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/260",
-    "https://github.com/Rubio-Enterprises/.github/pull/262",
-    "https://github.com/Rubio-Enterprises/riveroaks-scraper/pull/217",
-    "https://github.com/Rubio-Enterprises/claude-lsps/pull/170",
-    "https://github.com/Rubio-Enterprises/activity-planner/pull/219",
-    "https://github.com/Rubio-Enterprises/opencode-omlx-discovery/pull/160",
-    "https://github.com/Rubio-Enterprises/bookmark-scraper/pull/299",
-    "https://github.com/Rubio-Enterprises/standards/pull/545",
+    "https://github.com/Rubio-Enterprises/.github/pull/256",
+    "https://github.com/Rubio-Enterprises/standards/pull/549",
+    "https://github.com/Rubio-Enterprises/standards/pull/547",
+    "https://github.com/Rubio-Enterprises/ws/pull/24",
+    "https://github.com/Rubio-Enterprises/aw-gateway/pull/78",
     "https://github.com/Rubio-Enterprises/standards/blob/main/docs/runbooks/publish-plumbing-ref.md"
   ]
 }
