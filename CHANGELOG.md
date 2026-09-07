@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.8.0](https://github.com/Rubio-Enterprises/.github/compare/v3.7.0...v3.8.0) (2026-09-07)
+
+
+### Features
+
+* **gate:** make committed lint-config drift fatal ([#256](https://github.com/Rubio-Enterprises/.github/issues/256)) ([67cbff2](https://github.com/Rubio-Enterprises/.github/commit/67cbff24f1e0b38bb537dc5d5828b1f5e4e0678b))
+* **lint-format:** error on biome warnings for native repos ([#262](https://github.com/Rubio-Enterprises/.github/issues/262)) ([7e9507b](https://github.com/Rubio-Enterprises/.github/commit/7e9507bd3fba8b66f1074e934ea18dd16aaf8340))
+* **lint-format:** make a committed legacy biome.json a hard error ([#260](https://github.com/Rubio-Enterprises/.github/issues/260)) ([d1e04ef](https://github.com/Rubio-Enterprises/.github/commit/d1e04ef18e541036c62e349cb80a9cc5905648aa))
+* support ruby standards workflows ([#270](https://github.com/Rubio-Enterprises/.github/issues/270)) ([c7c46a9](https://github.com/Rubio-Enterprises/.github/commit/c7c46a9c82a6eaae07241b19db56030e35af9799))
+
 ## [3.7.0](https://github.com/Rubio-Enterprises/.github/compare/v3.6.1...v3.7.0) (2026-09-04)
 
 
