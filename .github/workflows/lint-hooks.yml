@@ -9,21 +9,26 @@ name: lint hooks (reusable)
 #
 # Runner routing: a cheap `detect` job reads the consumer's `.copier-answers.yml`
 # and picks the tier. CAPABILITY outranks resource: `has_swift` /
-# `has_homebrew_formulae` go to macOS because swiftformat/swiftlint need
-# sourcekitd and `brew style` needs Homebrew, none of which the Linux glue
-# runner has — there they die with `swiftformat_linux: not found` / `Loading
-# libsourcekitdInProc.so failed`. That macOS need is served by the LITE tier
-# (`RUNNER_MACOS_LITE`, cheap GitHub-hosted), not the scarce self-hosted Tart
-# pool: this job is a short lint pass (~40s of swiftlint/swiftformat once the
-# mise cache is warm), and the org routing rule puts short (≲2 min) macOS
+# `has_homebrew_formulae` stay on macOS even in a mixed-language repo because
+# sourcekitd and Homebrew are platform requirements. Other `has_ruby` repos use
+# the dedicated hosted Linux route because glue cannot provide the
+# `.ruby-version` selected runtime or its native-extension build toolchain.
+#
+# `has_swift` / `has_homebrew_formulae` go to macOS because swiftformat/
+# swiftlint need sourcekitd and `brew style` needs Homebrew, none of which the
+# Linux glue runner has — there they die with `swiftformat_linux: not found` /
+# `Loading libsourcekitdInProc.so failed`. That macOS need is served by the LITE
+# tier (`RUNNER_MACOS_LITE`, cheap GitHub-hosted), not the scarce self-hosted
+# Tart pool: this job is a short lint pass (~40s of swiftlint/swiftformat once
+# the mise cache is warm), and the org routing rule puts short (≲2 min) macOS
 # lints/shell tests on the lite tier while reserving `RUNNER_MACOS` for long,
 # high-frequency Xcode builds.
 #
 # Everything else takes the Linux route, whose tier is the consumer's DECLARED
 # `lint_hooks_workload_class` (standards ADR-0022): `glue-heavy` for the
-# memory-bounded pool, `glue` — the default — for everything else. A Swift
-# repo's declared class is therefore ignored: a Linux resource tier cannot
-# satisfy a requirement Linux cannot satisfy at all.
+# memory-bounded pool, `glue` — the default — for everything else. A
+# capability-routed repo's declared class is therefore ignored: a resource tier
+# cannot satisfy a runtime or platform requirement it does not provide.
 #
 # Consumer thin-callers invoke this via `uses:`. The `pull_request:` trigger is
 # required so GitHub's org-ruleset `required_workflows` validator accepts the
@@ -39,13 +44,13 @@ permissions:
   contents: read
 jobs:
   detect:
-    # Resolve the runner from the consumer's answers: has_swift needs macOS
-    # (sourcekitd) on the cheap hosted lite tier — a ≲2-min lint pass, so
-    # RUNNER_MACOS_LITE rather than the scarce self-hosted RUNNER_MACOS pool
-    # (see the routing note in the file header); everything else takes the
-    # Linux tier its declared lint_hooks_workload_class names. Reading
-    # .copier-answers.yml tracks the authoritative declaration rather than
-    # file-sniffing for Package.swift.
+    # Resolve the runner from the consumer's answers: has_ruby needs the
+    # dedicated hosted Ruby route; has_swift needs macOS (sourcekitd) on the
+    # cheap hosted lite tier — a ≲2-min lint pass, so RUNNER_MACOS_LITE rather
+    # than the scarce self-hosted RUNNER_MACOS pool (see the routing note in
+    # the file header). Everything else takes the Linux tier its declared
+    # lint_hooks_workload_class names. Reading .copier-answers.yml tracks the
+    # authoritative declaration rather than file-sniffing.
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
@@ -53,6 +58,7 @@ jobs:
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
       is_fork: ${{ steps.pick.outputs.is_fork }}
+      has_ruby: ${{ steps.pick.outputs.has_ruby }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -62,6 +68,7 @@ jobs:
       - name: Pick runner from the language facets
         id: pick
         env:
+          RUBY_RUNNER: ${{ vars.RUNNER_RUBY || '["ubuntu-24.04-arm"]' }}
           MACOS_RUNNER: ${{ vars.RUNNER_MACOS_LITE || '["macos-15"]' }}
           GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
           # Fallback CHAIN, not a plain default: `|| vars.RUNNER_GLUE` means this
@@ -73,15 +80,29 @@ jobs:
             || '["ubuntu-slim"]' }}
         shell: bash
         run: |
+          # Only an explicit true enables the facet, so transitional answers
+          # files with no has_ruby key retain their existing route. Emit this
+          # independently from runner selection: a Ruby+Swift repo needs Ruby
+          # setup on the macOS capability route, not a Linux route that cannot
+          # run the Swift hooks.
+          has_ruby=false
+          if grep -qE '^has_ruby:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            has_ruby=true
+          fi
+          printf 'has_ruby=%s\n' "$has_ruby" >> "$GITHUB_OUTPUT"
+
           # has_swift routes to the macOS runner (swiftlint needs sourcekitd),
           # as does has_homebrew_formulae (`brew style` needs Homebrew, which
           # the hosted macOS images ship). The archetype grep is the fallback
           # for answers files that predate the facet questions; re-rendered
-          # repos no longer carry archetype.
+          # repos no longer carry archetype. This platform requirement outranks
+          # Ruby's Linux route in a mixed-language repository.
           if grep -qE '^has_swift:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^has_homebrew_formulae:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
             printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
+          elif [ "$has_ruby" = true ]; then
+            printf 'runner=%s\n' "$RUBY_RUNNER" >> "$GITHUB_OUTPUT"
           # A repo that DECLARES the glue-heavy Workload Class goes to the
           # memory-bounded pool (`lint_hooks_workload_class`, standards
           # ADR-0022). This job's dependency install is the fleet's single
@@ -159,6 +180,15 @@ jobs:
           # history to merge-base against the base ref) to compute changed
           # files. Non-fork all-files mode is unaffected by the extra commit.
           fetch-depth: 2
+      # ruby/setup-ruby reads the consumer-owned `.ruby-version` by default.
+      # bundler-cache installs the exact Gemfile.lock dependency set before
+      # lefthook can invoke any Ruby hook. Do not add ruby-version here: Ruby is
+      # intentionally absent from rendered mise because glue cannot ruby-build.
+      - name: Install Ruby and locked bundle
+        if: needs.detect.outputs.has_ruby == 'true'
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          bundler-cache: true
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,

@@ -139,6 +139,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Transitional consumers may not have the answer yet. Only the
+          # explicit facet value enables Ruby setup; absence and false preserve
+          # the existing smoke path.
+          if grep -qE '^has_ruby:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            echo "has_ruby=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_ruby=false" >> "$GITHUB_OUTPUT"
+          fi
           shim=""
           for candidate in scripts/cloud-setup-shim.sh Scripts/cloud-setup-shim.sh; do
             [ -f "$candidate" ] && { shim="$candidate"; break; }
@@ -163,6 +171,16 @@ jobs:
           echo "runnable=true" >> "$GITHUB_OUTPUT"
           echo "shim=$shim" >> "$GITHUB_OUTPUT"
           echo "smoke-capable chain: $shim -> $core"
+
+      # ruby/setup-ruby discovers the consumer-owned `.ruby-version` and
+      # bundler-cache installs exactly Gemfile.lock before the core can run.
+      - name: Install Ruby and locked bundle
+        if: >-
+          steps.probe.outputs.runnable == 'true' &&
+          steps.probe.outputs.has_ruby == 'true'
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          bundler-cache: true
 
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
