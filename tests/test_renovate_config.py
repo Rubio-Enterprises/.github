@@ -438,6 +438,32 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertFalse(resolved["platformAutomerge"])
         self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
+    def test_go_module_directive_requires_review(self) -> None:
+        directive = _resolve_dependency(
+            {
+                "manager": "gomod",
+                "depName": "go",
+                "packageName": "go",
+                "fileName": "go.mod",
+                "currentVersion": "1.26.6",
+                "updateType": "minor",
+            }
+        )
+        self.assertFalse(directive["automerge"])
+        self.assertFalse(directive["dependencyDashboardApproval"])
+
+        module_dependency = _resolve_dependency(
+            {
+                "manager": "gomod",
+                "depName": "github.com/example/dependency",
+                "packageName": "github.com/example/dependency",
+                "fileName": "go.mod",
+                "currentVersion": "1.26.6",
+                "updateType": "minor",
+            }
+        )
+        self.assertTrue(module_dependency["automerge"])
+
     def test_mise_cli_override_is_manager_independent(self) -> None:
         mise_update = {
             "depName": "jdx/mise",
