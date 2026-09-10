@@ -264,9 +264,10 @@ reread contract in the runbook.
   **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
   the global seven-day soak; **Dependency Dashboard approval before branch creation** for majors
   and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
-  them; human-merge-only after approval for TestFlight and the `jdx/mise` and `astral-sh/uv` CLI
-  pins. Stable and pre-1.0 npm, Cargo, and pin updates use distinct groups so a manual member cannot
-  disarm an otherwise-safe stable branch. Five `customManager`s remain. The first two track the
+  them; human-merge-only for `go.mod` directive raises and, after approval, for TestFlight and the
+  `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
+  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. Five
+  `customManager`s remain. The first two track the
   `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers; they are
   deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while mise's are
   v-prefixed and need `extractVersionTemplate`. The third tracks git-sourced entries in
