@@ -8,12 +8,16 @@ name: plumbing ref publisher
     paths:
       - .github/plumbing-ref/publication-request.json
 permissions: {}
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   validate:
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - name: Check out proposed request
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -61,6 +65,7 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - name: Check out merged request
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7

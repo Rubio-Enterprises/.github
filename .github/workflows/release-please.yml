@@ -24,9 +24,13 @@ permissions:
   # NOTE: no pull-requests grant — the release PR is opened/updated with the
   # RELEASE_PLEASE App token (minted below), not GITHUB_TOKEN.
 
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   release-please:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: 120
     steps:
       # App token so the release PR triggers workflows. PRs created with the
       # default GITHUB_TOKEN fire NO events (Actions loop-prevention) — the

@@ -22,12 +22,16 @@ concurrency:
   # — rationale in lint-format.yml.
   group: ${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   pr-title:
     # No PR title exists on a merge_group event — the bucket job reports the
     # green notice for that case; this real job only runs on pull_request.
     if: github.event_name == 'pull_request'
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: 120
     steps:
       - name: Resolve standards channel from the repo `ring` property
         # Same channel resolution as the lint-format gate: `ring == canary`
@@ -151,6 +155,7 @@ jobs:
     needs: [pr-title]
     if: always()
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: 120
     steps:
       - name: Aggregate gate result
         env:

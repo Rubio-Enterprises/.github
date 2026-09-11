@@ -66,6 +66,9 @@ name: testflight (reusable)
 permissions:
   contents: read
 
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   testflight:
     name: Internal TestFlight release
