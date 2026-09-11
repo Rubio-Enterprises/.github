@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.1](https://github.com/Rubio-Enterprises/.github/compare/v3.8.0...v3.8.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **renovate:** require review for go module directive bumps ([#271](https://github.com/Rubio-Enterprises/.github/issues/271)) ([63903b8](https://github.com/Rubio-Enterprises/.github/commit/63903b85c5c6c37a732677030a3f9dc952c6cb61))
+
 ## [3.8.0](https://github.com/Rubio-Enterprises/.github/compare/v3.7.0...v3.8.0) (2026-09-07)
 
 
