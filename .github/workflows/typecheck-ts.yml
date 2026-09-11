@@ -42,6 +42,9 @@ concurrency:
   # the caller's, which is just as stable a namespace.
   group: typecheck-ts-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   route:
     # Resolve the runner from the consumer's DECLARED Workload Class
@@ -64,6 +67,7 @@ jobs:
     # Named `route`, not `detect`, because the typecheck job below already has a
     # `detect` STEP that resolves the mise task.
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
     steps:
@@ -108,6 +112,7 @@ jobs:
   typecheck:
     needs: route
     runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 120
     steps:
       - name: Check out the consumer repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -341,6 +346,7 @@ jobs:
     needs: [route, typecheck]
     if: always()
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: 120
     steps:
       - name: Aggregate gate result
         env:

@@ -42,6 +42,9 @@ name: lint hooks (reusable)
   pull_request:
 permissions:
   contents: read
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   detect:
     # Resolve the runner from the consumer's answers: has_ruby needs the
@@ -55,6 +58,7 @@ jobs:
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
       is_fork: ${{ steps.pick.outputs.is_fork }}

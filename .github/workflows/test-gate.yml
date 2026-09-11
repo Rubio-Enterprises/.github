@@ -21,10 +21,14 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   canonical-tests:
     name: canonical tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     outputs:
       tests_ran: ${{ steps.test.outputs.tests_ran }}
     steps:
@@ -64,6 +68,7 @@ jobs:
     if: ${{ always() }}
     needs: [canonical-tests]
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     env:
       NEEDS_JSON: ${{ toJSON(needs) }}
     steps:

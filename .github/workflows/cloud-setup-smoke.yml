@@ -81,6 +81,9 @@ name: cloud-setup smoke (reusable)
   merge_group:
 permissions:
   contents: read
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   cloud-setup-smoke:
     # Skip only direct events against the `.github` source repo. Keyed on

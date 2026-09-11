@@ -33,6 +33,9 @@ name: bump-homebrew-git (reusable)
         required: false
 permissions:
   contents: read
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
 jobs:
   bump:
     # NOT RUNNER_GLUE. The glue pool is a rootless, locked-down container with no
@@ -56,6 +59,7 @@ jobs:
     # which the ruby preflight below needs. Same reasoning as the kcov coverage
     # job in clipssh — the glue pool cannot host a job with toolchain needs.
     runs-on: ${{ fromJSON(vars.RUNNER_LINUX_ARM || '["ubuntu-24.04-arm"]') }}
+    timeout-minutes: 120
     env:
       TAP_APP_CONFIGURED: ${{ secrets.TAP_PUSH_APP_ID != '' && secrets.TAP_PUSH_APP_PRIVATE_KEY != '' }}
     steps:
