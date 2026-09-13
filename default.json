@@ -31,6 +31,12 @@
       "enabled": false
     },
     {
+      "description": "Disable Terraform CORE version bumps (`required_version` in versions.tf) fleet-wide. Renovate raises the constraint in git, but the executing version lives OUTSIDE git — it is the HCP Terraform workspace's own `terraform-version` setting — and nothing raises that. A merged bump therefore makes every run in that workspace fail at `terraform init` with `Error: Unsupported Terraform Core version`, which stays invisible until someone needs an apply. Measured: agent-workspaces#113 raised the constraint to >= 1.15.9, the workspace stayed on 1.15.8, and every run errored for two weeks — found only when an outage fix could not be applied. Raising Terraform core is a paired, deliberate move (raise the workspace setting, then merge the constraint), so it is not background maintenance. NOTE: scoped to the core-version depType only; provider and module updates under the terraform manager are unaffected.",
+      "matchManagers": ["terraform"],
+      "matchDepTypes": ["required_version"],
+      "enabled": false
+    },
+    {
       "description": "Major updates are migrations, not background maintenance. Keep them visible in the Dependency Dashboard but do not create a branch, PR, or downstream CI run until an operator explicitly approves the update.",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
