@@ -261,6 +261,12 @@ reread contract in the runbook.
   re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
   exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
+  **Terraform core-version bumps disabled** (`terraform` manager, `required_version` depType only —
+  providers and modules still update): Renovate raises the constraint in git while the *executing*
+  version is the HCP workspace's own `terraform-version` setting, which lives outside git, so a
+  merged bump breaks `terraform init` for every run in that workspace until someone raises the
+  setting by hand. That went unnoticed for two weeks in `agent-workspaces` and was found only when
+  an outage fix could not be applied, so core raises are a paired operator move, not maintenance;
   **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
   the global seven-day soak; **Dependency Dashboard approval before branch creation** for majors
   and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
