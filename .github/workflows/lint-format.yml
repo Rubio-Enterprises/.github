@@ -559,31 +559,3 @@ jobs:
             exit 1
           fi
           echo "all applicable linters passed"
-
-  gate:
-    # Bucket job (always-reporting summary). A ruleset-required workflow that
-    # never reports a conclusion blocks its PR forever, so this job runs on
-    # every event and fails ONLY when a real dependency failed or was cancelled.
-    # A skipped dependency (the fail-open un-onboarded path leaves the job
-    # succeeded, never skipped) does not fail the gate.
-    needs: [lint-format]
-    if: always()
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
-    timeout-minutes: 120
-    steps:
-      - name: Aggregate gate result
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "dependency results: $RESULTS"
-          for r in $RESULTS; do
-            case "$r" in
-              failure|cancelled)
-                echo "::error::lint-format gate failed (a dependency reported '$r')"
-                exit 1
-                ;;
-            esac
-          done
-          echo "lint-format gate passed"
