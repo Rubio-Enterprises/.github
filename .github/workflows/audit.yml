@@ -14,6 +14,18 @@ permissions:
 # Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
 # a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
 # org maximum; any tighter timeout in this file is deliberate.
+concurrency:
+  # Prefixed `audit-`, NOT bare `github.workflow`: audit.yml is workflow_call-able,
+  # and in a called workflow `github.workflow` resolves to the CALLER's name, so a
+  # bare group would deadlock against the caller's own group.
+  # Keyed on workflow_sha so a Candidate Validation injection at another commit
+  # never shares (and cancels) the live one's group.
+  # Non-PR events get their own group via run_id: GitHub keeps at most one PENDING
+  # run per group and cancels the previously-queued one regardless of cancel-in-progress.
+  # cancel-in-progress gated to pull_request so a merge_group run is NEVER cancelled
+  # (a cancelled merge-queue gate ejects the PR from the queue).
+  group: audit-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   audit:
     # Skip only direct events against the `.github` source repo. Reusable calls

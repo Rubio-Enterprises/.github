@@ -335,32 +335,3 @@ jobs:
           # a repo's explicit --concurrency overrides it.
           TURBO_CONCURRENCY: "2"
         run: mise run typecheck
-
-  gate:
-    # Bucket job — always reports so the required check never hangs "Expected".
-    #
-    # `route` is in `needs` deliberately, not just `typecheck`. A failed `route`
-    # SKIPS typecheck, and `skipped` matches neither `failure` nor `cancelled`
-    # below — so without this the gate would report PASS on a routing failure
-    # while nothing was typechecked. Depending on both keeps that fail-closed.
-    needs: [route, typecheck]
-    if: always()
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
-    timeout-minutes: 120
-    steps:
-      - name: Aggregate gate result
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "dependency results: $RESULTS"
-          for r in $RESULTS; do
-            case "$r" in
-              failure|cancelled)
-                echo "::error::typecheck-ts gate failed (a dependency reported '$r')"
-                exit 1
-                ;;
-            esac
-          done
-          echo "typecheck-ts gate passed"
