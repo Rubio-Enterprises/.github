@@ -1,5 +1,23 @@
 # Changelog
 
+## [4.0.0](https://github.com/Rubio-Enterprises/.github/compare/v3.8.0...v4.0.0) (2026-09-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gates:** make glue-heavy fallback monotonic in capability ([#277](https://github.com/Rubio-Enterprises/.github/issues/277))
+
+### Bug Fixes
+
+* **gates:** make glue-heavy fallback monotonic in capability ([#277](https://github.com/Rubio-Enterprises/.github/issues/277)) ([c8bd9da](https://github.com/Rubio-Enterprises/.github/commit/c8bd9da7b0d3de84e49f3ff475e8dd946c0abd86))
+* **renovate:** require review for go module directive bumps ([#271](https://github.com/Rubio-Enterprises/.github/issues/271)) ([63903b8](https://github.com/Rubio-Enterprises/.github/commit/63903b85c5c6c37a732677030a3f9dc952c6cb61))
+* **renovate:** stop bumping Terraform core, which breaks applies silently ([#274](https://github.com/Rubio-Enterprises/.github/issues/274)) ([ad9a1c0](https://github.com/Rubio-Enterprises/.github/commit/ad9a1c0e7d7a4959c404f8bbd07dfc0195fa6be7))
+
+
+### Performance Improvements
+
+* **ci:** reduce governance runner load ([#275](https://github.com/Rubio-Enterprises/.github/issues/275)) ([771eb7d](https://github.com/Rubio-Enterprises/.github/commit/771eb7d47dc680e01f749a36d424b546d0f38514))
+
 ## [3.8.0](https://github.com/Rubio-Enterprises/.github/compare/v3.7.0...v3.8.0) (2026-09-07)
 
 
