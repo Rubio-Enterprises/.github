@@ -80,15 +80,32 @@ jobs:
         id: pick
         env:
           GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
-          # Fallback CHAIN, not a plain default: `|| vars.RUNNER_GLUE` means a
-          # glue-heavy declaration is safe to land before the routing variable
-          # exists — it degrades to glue rather than silently diverting the
-          # fleet's gates to hosted minutes. `["ubuntu-slim"]` remains the last
-          # resort for a bootstrap / `fleet ci mode github-hosted` state where
-          # neither variable is set.
-          HEAVY_RUNNER: >-
-            ${{ vars.RUNNER_GLUE_HEAVY || vars.RUNNER_GLUE
-            || '["ubuntu-slim"]' }}
+          # Fallback chain, ordered so degradation is MONOTONIC IN CAPABILITY.
+          # `|| vars.RUNNER_GLUE` was REMOVED 2026-09-18. A `glue-heavy`
+          # declaration asserts "glue is too small for me", so the glue route is
+          # never a valid degradation target — it is the one destination
+          # guaranteed to fail. Evidence: activity-planner's typecheck was
+          # OOM-killed on the 1 GiB glue container for 7 consecutive runs
+          # (2026-09-10 to 09-17), blocking its release-please PR, and completed
+          # in 36 s at 6 GiB.
+          #
+          # The stakes rise with the warm shared glue pool (ADR 0018): its
+          # runners are sized around a 768 MiB reservation under one ~10.5 GiB
+          # parent cgroup, and OOM victim selection there is NOT per-job, so this
+          # fallback could take out every concurrent glue job rather than just
+          # this one.
+          #
+          # Liveness is preserved, so the 2026-07-21 queue-forever stall stays
+          # closed: `ubuntu-slim` is GitHub-hosted (verified — runner group
+          # "GitHub Actions"), which comfortably exceeds the 6 GiB floor. The
+          # cost of degrading moves from "guaranteed OOM" to "billed minutes",
+          # the correct trade for a workload with a hard memory floor.
+          HEAVY_RUNNER: ${{ vars.RUNNER_GLUE_HEAVY || '["ubuntu-slim"]' }}
+          # Raw declared values, for the aliasing guard below. Removing the chain
+          # stops an ABSENT heavy variable from landing on glue; it cannot stop
+          # someone SETTING the heavy variable equal to the glue route.
+          HEAVY_DECLARED: ${{ vars.RUNNER_GLUE_HEAVY }}
+          GLUE_DECLARED: ${{ vars.RUNNER_GLUE }}
         shell: bash
         run: |
           # Anchored and quote-tolerant. The answers file is copier-generated so
@@ -104,6 +121,15 @@ jobs:
           if grep -qiE \
             "^typecheck_workload_class:[[:space:]]*[\"']?glue-heavy[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
+            # Aliasing guard: fail loudly rather than route a hard-floor
+            # workload onto the light pool. Only fires when the heavy variable
+            # is SET and equal to the glue route; an unset heavy variable is the
+            # legitimate hosted fallback, and the all-unset
+            # `fleet ci mode github-hosted` state leaves both empty.
+            if [ -n "$HEAVY_DECLARED" ] && [ "$HEAVY_DECLARED" = "$GLUE_DECLARED" ]; then
+              echo "::error::glue-heavy is declared but RUNNER_GLUE_HEAVY equals RUNNER_GLUE ($GLUE_DECLARED). Refusing to route a workload with a proven 6 GiB floor onto the light glue pool. Point RUNNER_GLUE_HEAVY at a distinct pool, or clear it to fall back to GitHub-hosted."
+              exit 1
+            fi
             printf 'runner=%s\n' "$HEAVY_RUNNER" >> "$GITHUB_OUTPUT"
           else
             printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
