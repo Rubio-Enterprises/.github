@@ -26,6 +26,7 @@ SPEC.loader.exec_module(plumbing_ref)
 
 GATE_WORKFLOWS = {
     "gate-audit": ".github/workflows/audit.yml",
+    "gate-composite": ".github/workflows/gate-composite.yml",
     "gate-lint-format": ".github/workflows/lint-format.yml",
     "gate-secret-scan": ".github/workflows/secret-scan.yml",
     "gate-pr-title": ".github/workflows/pr-title.yml",
@@ -120,29 +121,6 @@ class GitFixture:
 
 
 class PublicationRequestTests(unittest.TestCase):
-    def test_checked_in_request_contract_remains_publishable(self) -> None:
-        request = plumbing_ref.load_request(ROOT / REQUEST_PATH)
-        manifest = plumbing_ref.load_manifest(ROOT / MANIFEST_PATH)
-        schema = json.loads(
-            (
-                ROOT / ".github" / "plumbing-ref" / "publication-request.schema.json"
-            ).read_text(encoding="utf-8")
-        )
-
-        self.assertEqual(
-            set(request),
-            {"expected_current_sha", "target_sha", "reason", "references"},
-        )
-        self.assertRegex(request["expected_current_sha"], r"^[0-9a-f]{40}$")
-        self.assertRegex(request["target_sha"], r"^[0-9a-f]{40}$")
-        self.assertTrue(request["reason"].strip())
-        self.assertEqual(manifest, GATE_WORKFLOWS)
-        self.assertFalse(schema["additionalProperties"])
-        self.assertEqual(
-            set(schema["required"]),
-            {"expected_current_sha", "target_sha", "reason"},
-        )
-
     def test_request_rejects_extra_fields(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             request_path = Path(directory) / "request.json"

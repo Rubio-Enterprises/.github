@@ -1,5 +1,6 @@
 {
   "gate-audit": ".github/workflows/audit.yml",
+  "gate-composite": ".github/workflows/gate-composite.yml",
   "gate-lint-format": ".github/workflows/lint-format.yml",
   "gate-secret-scan": ".github/workflows/secret-scan.yml",
   "gate-pr-title": ".github/workflows/pr-title.yml",
