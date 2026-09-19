@@ -212,6 +212,12 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "The GHCR Docker datasource does not provide release timestamps, so Renovate's timestamp-required minimumReleaseAge behavior would hold this image indefinitely under the global 7-day soak. Disable release aging only for the agent-workspace package; digest pinning, schedules, and every other package's age policy continue to come from their existing rules.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/rubio-enterprises/agent-workspace"],
+      "minimumReleaseAge": null
+    },
+    {
       "description": "Tailscale apt registry for the `deb` datasource. The `customManagers:dockerfileVersions` preset (see extends) reads the `# renovate: datasource=deb depName=tailscale` marker above `ARG TAILSCALE_VERSION` in agent-workspaces' image/Dockerfile, but Renovate's deb datasource has NO default registry: with no registryUrl the lookup returns null and the pin silently never advances. Verified against renovate 43.288.0 (the major renovatebot/github-action@v46.1.14 defaults to, which is what .github-private's runner uses): getPkgReleases({datasource:'deb',packageName:'tailscale'}) returns null, and with the URL below returns 148 releases, newest 1.102.2. `suite=trixie` is COUPLED to the consumer's base image (node:22-trixie-slim) — a consumer on another Debian suite would be offered versions its own apt repo does not serve, so it needs a path-scoped override rather than this rule. binaryArch=amd64 is arbitrary but safe: Tailscale ships an identical version set per arch and the image is built amd64 + arm64 from this one pin. The durable fix is a `registryUrl=` field on the Dockerfile's own `# renovate:` comment line, which keeps the suite beside the FROM line that determines it; that is a change to the consumer repo and is tracked there. Scoped to the custom.regex manager and Dockerfile-shaped files so nothing else can inherit a trixie-specific registry on package identity alone: only the annotated Dockerfile pin this rule was written for picks it up, and any other `deb` + `tailscale` dep keeps Renovate's default (no registry, hence no updates) rather than silently resolving against the wrong Debian suite.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["**/Dockerfile", "**/Dockerfile.*", "**/*.Dockerfile"],
