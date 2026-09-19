@@ -1,0 +1,461 @@
+name: gate composite
+
+"on":
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Candidate workflow revisions must coexist. Only a newer PR revision may
+  # supersede an older run; every merge-queue run gets a unique group.
+  group: gate-composite-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate-composite:
+    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    timeout-minutes: 120
+    steps:
+      - name: Resolve gate selection and standards channel
+        id: selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          properties="$RUNNER_TEMP/repository-properties.json"
+          gh api "/repos/$GITHUB_REPOSITORY/properties/values" > "$properties"
+
+          property_value() {
+            jq -r --arg name "$1" \
+              '[.[] | select(.property_name == $name) | .value][0] // false | tostring' \
+              "$properties"
+          }
+
+          ring="$(property_value ring)"
+          audit="$(property_value gate-audit)"
+          lint_format="$(property_value gate-lint-format)"
+          pr_title="$(property_value gate-pr-title)"
+          secret_scan="$(property_value gate-secret-scan)"
+
+          # This unpublished source workflow must not make an ordinary .github
+          # branch/PR run depend on gate scripts that have not reached stable.
+          # A required-workflow injection is published at a tag or exact SHA, so
+          # it remains property-selected even when the consumer is .github.
+          case "$WORKFLOW_REF" in
+            Rubio-Enterprises/.github/.github/workflows/gate-composite.yml@refs/heads/*|Rubio-Enterprises/.github/.github/workflows/gate-composite.yml@refs/pull/*)
+              if [ "$GITHUB_REPOSITORY" = "Rubio-Enterprises/.github" ]; then
+                audit=false
+                lint_format=false
+                pr_title=false
+                secret_scan=false
+              fi
+              ;;
+          esac
+
+          for value in "$audit" "$lint_format" "$pr_title" "$secret_scan"; do
+            if [ "$value" != "true" ] && [ "$value" != "false" ]; then
+              echo "::error::gate selector values must be boolean true or false" >&2
+              exit 1
+            fi
+          done
+
+          if [ "$ring" = "canary" ]; then
+            channel=canary
+          else
+            channel=stable
+          fi
+
+          any_selected=false
+          if [ "$audit" = true ] || [ "$lint_format" = true ] || \
+            [ "$pr_title" = true ] || [ "$secret_scan" = true ]; then
+            any_selected=true
+          fi
+
+          {
+            echo "audit=$audit"
+            echo "lint_format=$lint_format"
+            echo "pr_title=$pr_title"
+            echo "secret_scan=$secret_scan"
+            echo "any_selected=$any_selected"
+            echo "channel=$channel"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::standards channel '$channel' (ring='${ring:-<unset>}'); selected: audit=$audit lint-format=$lint_format pr-title=$pr_title secret-scan=$secret_scan"
+
+      - name: Check out the consumer repository
+        id: consumer_checkout
+        if: steps.selection.outputs.any_selected == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          # Covers the current gitleaks diff ranges while retaining both parents
+          # of GitHub's synthetic PR merge commit for fork-scoped linting.
+          fetch-depth: 50
+          # Extended-fork fallback may fetch the private consumer's base branch.
+          persist-credentials: true
+
+      - name: Determine event and repository applicability
+        id: applicability
+        if: steps.selection.outputs.any_selected == 'true'
+        env:
+          AUDIT_SELECTED: ${{ steps.selection.outputs.audit }}
+          LINT_SELECTED: ${{ steps.selection.outputs.lint_format }}
+          TITLE_SELECTED: ${{ steps.selection.outputs.pr_title }}
+          SECRET_SELECTED: ${{ steps.selection.outputs.secret_scan }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit="$AUDIT_SELECTED"
+          lint_format="$LINT_SELECTED"
+          pr_title="$TITLE_SELECTED"
+          secret_scan="$SECRET_SELECTED"
+
+          if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+            pr_title=false
+          fi
+
+          if [ "$lint_format" = true ]; then
+            if [ ! -f .copier-answers.yml ]; then
+              echo "::notice::no .copier-answers.yml; lint-format is not applicable"
+              lint_format=false
+            elif grep -qE '^repo_type:[[:space:]]*(pristine_fork|governance_repo)' .copier-answers.yml 2>/dev/null; then
+              echo "::notice::repo_type uses the minimal render; lint-format is not applicable"
+              lint_format=false
+            fi
+          fi
+
+          setup_needed=false
+          if [ "$audit" = true ] || [ "$lint_format" = true ] || \
+            [ "$pr_title" = true ] || [ "$secret_scan" = true ]; then
+            setup_needed=true
+          fi
+
+          consumer_mise=false
+          if { [ "$audit" = true ] || [ "$lint_format" = true ]; } && [ -f .mise.toml ]; then
+            consumer_mise=true
+          fi
+
+          {
+            echo "audit=$audit"
+            echo "lint_format=$lint_format"
+            echo "pr_title=$pr_title"
+            echo "secret_scan=$secret_scan"
+            echo "setup_needed=$setup_needed"
+            echo "consumer_mise=$consumer_mise"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require standards-reader credentials
+        id: reader_credentials
+        if: steps.applicability.outputs.setup_needed == 'true'
+        env:
+          APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "::error::an applicable governance gate requires STANDARDS_READER_APP_ID and STANDARDS_READER_APP_PRIVATE_KEY" >&2
+            exit 1
+          fi
+
+      - name: Mint standards-reader token
+        id: standards_token
+        if: steps.applicability.outputs.setup_needed == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: standards
+          permission-contents: read
+
+      - name: Check out standards at the selected channel
+        id: standards_checkout
+        if: steps.applicability.outputs.setup_needed == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: Rubio-Enterprises/standards
+          ref: ${{ steps.selection.outputs.channel }}
+          path: .standards
+          token: ${{ steps.standards_token.outputs.token }}
+          persist-credentials: false
+
+      - name: Record the exact standards revision
+        id: standards_ref
+        if: steps.applicability.outputs.setup_needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git -C .standards rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "standards \`${{ steps.selection.outputs.channel }}\` resolved to \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install uv
+        id: setup_uv
+        if: steps.applicability.outputs.setup_needed == 'true'
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.1"
+
+      - name: Fingerprint the uv-managed Python
+        id: uv_python
+        if: steps.applicability.outputs.setup_needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv python install
+          version="$(uv python find --managed-python --show-version)"
+          if [ -z "$version" ]; then
+            echo "::error::could not resolve the uv-managed Python version for the mise cache key" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "uv-managed Python for mise cache key: $version"
+
+      - name: Install consumer lint and audit runtimes
+        id: consumer_mise
+        if: steps.applicability.outputs.consumer_mise == 'true'
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        with:
+          cache_key_prefix: mise-v1-uvpy${{ steps.uv_python.outputs.version }}
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.7.7"
+
+      - name: Install the shared standards toolchain
+        id: standards_mise
+        if: steps.applicability.outputs.setup_needed == 'true'
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        with:
+          working_directory: .standards
+          cache_key_prefix: mise-v1-uvpy${{ steps.uv_python.outputs.version }}
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.7.7"
+
+      - name: Confirm common setup
+        id: common_setup
+        if: always()
+        env:
+          SELECTION_OUTCOME: ${{ steps.selection.outcome }}
+          ANY_SELECTED: ${{ steps.selection.outputs.any_selected }}
+          CHECKOUT_OUTCOME: ${{ steps.consumer_checkout.outcome }}
+          APPLICABILITY_OUTCOME: ${{ steps.applicability.outcome }}
+          SETUP_NEEDED: ${{ steps.applicability.outputs.setup_needed }}
+          CREDENTIALS_OUTCOME: ${{ steps.reader_credentials.outcome }}
+          TOKEN_OUTCOME: ${{ steps.standards_token.outcome }}
+          STANDARDS_CHECKOUT_OUTCOME: ${{ steps.standards_checkout.outcome }}
+          STANDARDS_REF_OUTCOME: ${{ steps.standards_ref.outcome }}
+          UV_OUTCOME: ${{ steps.setup_uv.outcome }}
+          UV_PYTHON_OUTCOME: ${{ steps.uv_python.outcome }}
+          CONSUMER_MISE_NEEDED: ${{ steps.applicability.outputs.consumer_mise }}
+          CONSUMER_MISE_OUTCOME: ${{ steps.consumer_mise.outcome }}
+          STANDARDS_MISE_OUTCOME: ${{ steps.standards_mise.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          require_success() {
+            if [ "$2" != success ]; then
+              echo "::error::$1 did not complete successfully (outcome=${2:-missing})" >&2
+              fail=1
+            fi
+          }
+
+          require_success "property selection" "$SELECTION_OUTCOME"
+          if [ "$ANY_SELECTED" = true ]; then
+            require_success "consumer checkout" "$CHECKOUT_OUTCOME"
+            require_success "applicability detection" "$APPLICABILITY_OUTCOME"
+          elif [ "$ANY_SELECTED" != false ]; then
+            echo "::error::gate selection did not produce any_selected" >&2
+            fail=1
+          fi
+
+          if [ "$SETUP_NEEDED" = true ]; then
+            require_success "reader credential preflight" "$CREDENTIALS_OUTCOME"
+            require_success "standards-reader token mint" "$TOKEN_OUTCOME"
+            require_success "standards checkout" "$STANDARDS_CHECKOUT_OUTCOME"
+            require_success "standards revision recording" "$STANDARDS_REF_OUTCOME"
+            require_success "uv setup" "$UV_OUTCOME"
+            require_success "uv Python fingerprint" "$UV_PYTHON_OUTCOME"
+            if [ "$CONSUMER_MISE_NEEDED" = true ]; then
+              require_success "consumer mise setup" "$CONSUMER_MISE_OUTCOME"
+            fi
+            require_success "standards mise setup" "$STANDARDS_MISE_OUTCOME"
+          elif [ "$SETUP_NEEDED" != false ] && [ "$ANY_SELECTED" = true ]; then
+            echo "::error::applicability detection did not produce setup_needed" >&2
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Gate — audit
+        id: gate_audit
+        if: always()
+        continue-on-error: true
+        env:
+          SELECTED: ${{ steps.selection.outputs.audit }}
+          APPLICABLE: ${{ steps.applicability.outputs.audit }}
+          COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
+          STANDARDS_ROOT: ${{ github.workspace }}/.standards
+          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
+          STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$SELECTED" = false ] || { [ "$SELECTED" = true ] && [ "$APPLICABLE" = false ]; }; then
+            echo "verdict=not-applicable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$SELECTED" != true ] || [ "$APPLICABLE" != true ]; then
+            echo "::error::audit applicability is missing" >&2
+            exit 1
+          fi
+          if [ "$COMMON_SETUP_OUTCOME" != success ]; then
+            echo "::error::audit cannot run because common setup failed" >&2
+            exit 1
+          fi
+          bash "$STANDARDS_ROOT/ci/gate-audit.sh"
+
+      - name: Gate — lint-format
+        id: gate_lint_format
+        if: always()
+        continue-on-error: true
+        env:
+          SELECTED: ${{ steps.selection.outputs.lint_format }}
+          APPLICABLE: ${{ steps.applicability.outputs.lint_format }}
+          COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
+          STANDARDS_ROOT: ${{ github.workspace }}/.standards
+          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
+          STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$SELECTED" = false ] || { [ "$SELECTED" = true ] && [ "$APPLICABLE" = false ]; }; then
+            echo "verdict=not-applicable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$SELECTED" != true ] || [ "$APPLICABLE" != true ]; then
+            echo "::error::lint-format applicability is missing" >&2
+            exit 1
+          fi
+          if [ "$COMMON_SETUP_OUTCOME" != success ]; then
+            echo "::error::lint-format cannot run because common setup failed" >&2
+            exit 1
+          fi
+          bash "$STANDARDS_ROOT/ci/gate-lint-format.sh"
+
+      - name: Gate — PR title
+        id: gate_pr_title
+        if: always()
+        continue-on-error: true
+        env:
+          SELECTED: ${{ steps.selection.outputs.pr_title }}
+          APPLICABLE: ${{ steps.applicability.outputs.pr_title }}
+          COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
+          STANDARDS_ROOT: ${{ github.workspace }}/.standards
+          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
+          STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$SELECTED" = false ] || { [ "$SELECTED" = true ] && [ "$APPLICABLE" = false ]; }; then
+            echo "verdict=not-applicable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$SELECTED" != true ] || [ "$APPLICABLE" != true ]; then
+            echo "::error::PR-title applicability is missing" >&2
+            exit 1
+          fi
+          if [ "$COMMON_SETUP_OUTCOME" != success ]; then
+            echo "::error::PR-title cannot run because common setup failed" >&2
+            exit 1
+          fi
+          bash "$STANDARDS_ROOT/ci/gate-pr-title.sh"
+
+      - name: Gate — secret scan
+        id: gate_secret_scan
+        if: always()
+        continue-on-error: true
+        env:
+          SELECTED: ${{ steps.selection.outputs.secret_scan }}
+          APPLICABLE: ${{ steps.applicability.outputs.secret_scan }}
+          COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
+          STANDARDS_ROOT: ${{ github.workspace }}/.standards
+          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
+          STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$SELECTED" = false ] || { [ "$SELECTED" = true ] && [ "$APPLICABLE" = false ]; }; then
+            echo "verdict=not-applicable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$SELECTED" != true ] || [ "$APPLICABLE" != true ]; then
+            echo "::error::secret-scan applicability is missing" >&2
+            exit 1
+          fi
+          if [ "$COMMON_SETUP_OUTCOME" != success ]; then
+            echo "::error::secret-scan cannot run because common setup failed" >&2
+            exit 1
+          fi
+          bash "$STANDARDS_ROOT/ci/gate-gitleaks.sh"
+
+      - name: Upload redacted gitleaks report
+        if: always() && steps.gate_secret_scan.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: ignore
+
+      - name: Governance gate verdict
+        if: always()
+        env:
+          COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
+          AUDIT_OUTCOME: ${{ steps.gate_audit.outcome }}
+          AUDIT_VERDICT: ${{ steps.gate_audit.outputs.verdict }}
+          LINT_OUTCOME: ${{ steps.gate_lint_format.outcome }}
+          LINT_VERDICT: ${{ steps.gate_lint_format.outputs.verdict }}
+          TITLE_OUTCOME: ${{ steps.gate_pr_title.outcome }}
+          TITLE_VERDICT: ${{ steps.gate_pr_title.outputs.verdict }}
+          SECRET_OUTCOME: ${{ steps.gate_secret_scan.outcome }}
+          SECRET_VERDICT: ${{ steps.gate_secret_scan.outputs.verdict }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          {
+            echo "## Composite governance gate"
+            echo
+            echo "| Gate | Verdict | Step outcome |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          report_gate() {
+            name="$1"
+            verdict="$2"
+            outcome="$3"
+            shown="${verdict:-missing}"
+            echo "| $name | $shown | ${outcome:-missing} |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$outcome" != success ] || { [ "$verdict" != pass ] && [ "$verdict" != not-applicable ]; }; then
+              echo "::error::$name gate failed or did not report a verdict (outcome=${outcome:-missing}, verdict=$shown)" >&2
+              fail=1
+            fi
+          }
+
+          if [ "$COMMON_SETUP_OUTCOME" != success ]; then
+            echo "::error::common governance-gate setup failed" >&2
+            fail=1
+          fi
+          report_gate audit "$AUDIT_VERDICT" "$AUDIT_OUTCOME"
+          report_gate lint-format "$LINT_VERDICT" "$LINT_OUTCOME"
+          report_gate pr-title "$TITLE_VERDICT" "$TITLE_OUTCOME"
+          report_gate secret-scan "$SECRET_VERDICT" "$SECRET_OUTCOME"
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
