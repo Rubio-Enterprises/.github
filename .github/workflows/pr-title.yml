@@ -27,8 +27,11 @@ concurrency:
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
   pr-title:
-    # No PR title exists on a merge_group event — the bucket job reports the
-    # green notice for that case; this real job only runs on pull_request.
+    # Latent merge-queue trap: on `merge_group` this job is skipped, so the
+    # whole workflow run concludes `skipped`. No org repo currently has a merge
+    # queue (2026-09-17 census: zero `merge_queue` rules across 93 repos).
+    # Before requiring this gate on a future merge queue, restore a pass-through
+    # path for merge groups.
     if: github.event_name == 'pull_request'
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     timeout-minutes: 120
@@ -147,33 +150,3 @@ jobs:
             conf_dir=$(mise where npm:@commitlint/config-conventional 2>/dev/null)/lib/node_modules
             NODE_PATH="${NODE_PATH:+$NODE_PATH:}$conf_dir" exec commitlint --edit "$1"
           ' _ "$RUNNER_TEMP/pr-title.txt"
-
-  gate:
-    # Bucket job — always reports so the required check never hangs "Expected".
-    # On merge_group the `pr-title` job is skipped (no title to lint); a skipped
-    # dependency is not a failure, so the gate passes with a notice.
-    needs: [pr-title]
-    if: always()
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
-    timeout-minutes: 120
-    steps:
-      - name: Aggregate gate result
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-          EVENT: ${{ github.event_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "dependency results: $RESULTS"
-          if [ "$EVENT" = "merge_group" ]; then
-            echo "::notice::merge_group event has no PR title to lint — pr-title gate passes"
-          fi
-          for r in $RESULTS; do
-            case "$r" in
-              failure|cancelled)
-                echo "::error::pr-title gate failed (a dependency reported '$r')"
-                exit 1
-                ;;
-            esac
-          done
-          echo "pr-title gate passed"
