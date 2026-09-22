@@ -1,9 +1,8 @@
 {
-  "expected_current_sha": "67cbff24f1e0b38bb537dc5d5828b1f5e4e0678b",
-  "target_sha": "771eb7d47dc680e01f749a36d424b546d0f38514",
-  "reason": "CI-runner throughput Tier B. Three changes, all gate-workflow files: audit.yml gains its first concurrency block (measured 0 cancelled of 164 PR runs over 14 days across 13 repos, versus 12/165 for lint-format on the same PRs in the same window, P(0 of 164) about 4e-6); lint-format.yml and typecheck-ts.yml lose their Gate Aggregator jobs (263 aggregator containers in an 842-run sample, each booting a full ephemeral container to run one case statement); secret-scan.yml makes gitleaks fetch-depth conditional, keeping full history on schedule and workflow_dispatch and using 50 on pull_request, matching the log-opts base..head range the next steps already compute. Aggregator deletion is safe because these gates are enforced by required_workflows on path plus ref, so no check name is watched, and audit.yml and secret-scan.yml already carry no aggregator at all under the same mechanism. pr-title.yml is deliberately excluded: its real job is conditional on pull_request so it is skipped on merge_group, and its aggregator converts that skip into a pass. Known residual: without an aggregator a cancelled real job yields a run whose conclusion is cancelled, and whether required_workflows treats that as non-passing is unverified; secret-scan.yml already has this exact shape today, so this extends an existing accepted configuration rather than creating a new risk class. Evidence relied on: green CI on the candidate commit (12 passing checks on PR 275), plus direct verification that lint-format's and typecheck-ts's real jobs carry no event condition and therefore run on both pull_request and merge_group.",
+  "expected_current_sha": "771eb7d47dc680e01f749a36d424b546d0f38514",
+  "target_sha": "b950b81399ee956c27721359107632efbebe313c",
+  "reason": "Publish the pr-title Gate Family workflow after removing its redundant Gate Aggregator job. Required-workflows enforcement evaluates the workflow run conclusion and fails closed for cancellation: rule suite 4177143217 on Rubio-Enterprises/static-webpage-template recorded gate-audit :: workflows :: result=fail :: Required workflows 'standards audit (reusable)' failed while the injected audit run was cancelled. The workflow also records that merge_group remains a latent skipped-run trap until a pass-through path is restored before any future merge-queue requirement.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/275",
-    "https://github.com/Rubio-Enterprises/standards/blob/main/docs/runbooks/publish-plumbing-ref.md"
+    "https://github.com/Rubio-Enterprises/.github/pull/280"
   ]
 }
