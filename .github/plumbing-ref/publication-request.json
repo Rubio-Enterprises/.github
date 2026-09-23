@@ -1,8 +1,14 @@
 {
-  "expected_current_sha": "771eb7d47dc680e01f749a36d424b546d0f38514",
-  "target_sha": "b950b81399ee956c27721359107632efbebe313c",
-  "reason": "Publish the pr-title Gate Family workflow after removing its redundant Gate Aggregator job. Required-workflows enforcement evaluates the workflow run conclusion and fails closed for cancellation: rule suite 4177143217 on Rubio-Enterprises/static-webpage-template recorded gate-audit :: workflows :: result=fail :: Required workflows 'standards audit (reusable)' failed while the injected audit run was cancelled. The workflow also records that merge_group remains a latent skipped-run trap until a pass-through path is restored before any future merge-queue requirement.",
+  "expected_current_sha": "b950b81399ee956c27721359107632efbebe313c",
+  "target_sha": "0c77b56109d4e0bb7ab7a2f4204a0f7600b9c34d",
+  "reason": "Publish the audit Gate Family workflow after six-repository Candidate Validation produced identical PASS/FAIL/WARN/SKIP rows at each same-commit baseline/candidate pair and confirmed that the candidate installed no consumer toolchains. Warm-cache Mise setup fell from 52-66 seconds across two actions to 17-33 seconds in one action; compressed cache transfer fell from two 177.0-240.9 MiB restores to one 141.9 MiB restore.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/280"
+    "https://github.com/Rubio-Enterprises/.github/pull/282",
+    "https://github.com/Rubio-Enterprises/excel-parser/actions/runs/35809316034",
+    "https://github.com/Rubio-Enterprises/VoiceInk/actions/runs/35809316414",
+    "https://github.com/Rubio-Enterprises/kodus-ai/actions/runs/35809315745",
+    "https://github.com/Rubio-Enterprises/fleet/actions/runs/35809315682",
+    "https://github.com/Rubio-Enterprises/bookmark-scraper/actions/runs/35809315704",
+    "https://github.com/Rubio-Enterprises/static-webpage-template/actions/runs/35809315278"
   ]
 }
