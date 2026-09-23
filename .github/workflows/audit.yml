@@ -133,6 +133,10 @@ jobs:
         with:
           working_directory: .standards
           install_args: "node python aqua:open-policy-agent/conftest pipx:check-jsonschema"
+          # Export resolved tool directories, but not mise's dynamic shims:
+          # later steps run at the consumer root, where a shim could rediscover
+          # consumer config and auto-install its runtime.
+          add_shims_to_path: false
           # Key the audit-only cache to the uv-resolved python (standards#331).
           cache_key_prefix: mise-audit-v2-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
