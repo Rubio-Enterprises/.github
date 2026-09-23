@@ -110,7 +110,7 @@ jobs:
       # bump INVALIDATE the cache instead of poisoning it. `uv python find` never
       # downloads and can fall back to a system python, so install first
       # (idempotent — the same managed interpreter uvx would provision anyway),
-      # then read the managed version. Both mise-action calls below share it.
+      # then read the managed version.
       - name: Fingerprint the uv-resolved python for the mise cache key
         id: uv-python
         shell: bash
@@ -124,22 +124,17 @@ jobs:
           fi
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "uv-resolved python for mise cache key: $version"
-      - name: Install consumer-repo runtimes
+      - name: Install audit execution tools
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
-        with:
-          # Key the mise cache to the uv-resolved python (standards#331): a python
-          # bump changes the prefix and invalidates rather than poisons the cache.
-          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-          # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.7.7"
-      - name: Install audit-side tools (gitleaks, conftest, check-jsonschema)
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        env:
+          # The ceiling directory itself is excluded, so consumer-root configs
+          # are ignored while configs below it in .standards remain visible.
+          MISE_CEILING_PATHS: ${{ github.workspace }}
         with:
           working_directory: .standards
-          # Same uv-python fingerprint as the consumer-runtimes cache above
-          # (standards#331). The .standards working dir yields a distinct file
-          # hash, so this is a separate cache entry that still self-invalidates.
-          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+          install_args: "node python aqua:open-policy-agent/conftest pipx:check-jsonschema"
+          # Key the audit-only cache to the uv-resolved python (standards#331).
+          cache_key_prefix: mise-audit-v2-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.7.7"
       - name: Verify lockfile integrity (npm)
@@ -210,8 +205,8 @@ jobs:
         # FAIL row is emitted. This is the channel that propagates the org plugin
         # superset (MD-05/07/08) and the now-FAIL-tier MD-09 deny-block to the
         # fleet — the standards check.sh baseline above does not run it.
-        # Requires mikefarah yq, pinned audit-side in standards/.mise.toml and
-        # installed by the `working_directory: .standards` mise step above; the
-        # checker SKIPs (exit 0) if yq/jq are absent, so the pin is load-bearing.
+        # The checker runs under the audit-side Python and uses jq from the glue
+        # image; both are load-bearing because missing dependencies can degrade
+        # managed-content rules to SKIP.
         shell: bash
         run: CHECK_MANAGED_CONTENT_STRICT=1 bash .standards/skills/audit-standards/scripts/check-managed-content.sh
