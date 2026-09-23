@@ -17,6 +17,11 @@ jobs:
   gate-composite:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     timeout-minutes: 120
+    env:
+      # Bootstrap installs only what the applicable gates execute. A gate's
+      # `mise exec` must never install the rest of a consumer or standards
+      # toolchain (for example Rust), so a missing tool fails that gate instead.
+      MISE_EXEC_AUTO_INSTALL: "false"
     steps:
       - name: Resolve gate selection and standards channel
         id: selection
@@ -132,9 +137,25 @@ jobs:
             setup_needed=true
           fi
 
-          consumer_mise=false
-          if { [ "$audit" = true ] || [ "$lint_format" = true ]; } && [ -f .mise.toml ]; then
-            consumer_mise=true
+          # The standards-side tools each applicable gate executes. lint-format
+          # runs the consumer's own pins instead; see "Install consumer lint tools".
+          standards_tools=""
+          add_standards_tools() {
+            for tool in "$@"; do
+              case " $standards_tools " in
+                *" $tool "*) ;;
+                *) standards_tools="${standards_tools:+$standards_tools }$tool" ;;
+              esac
+            done
+          }
+          if [ "$audit" = true ]; then
+            add_standards_tools node python aqua:open-policy-agent/conftest pipx:check-jsonschema
+          fi
+          if [ "$pr_title" = true ]; then
+            add_standards_tools node npm:@commitlint/cli npm:@commitlint/config-conventional
+          fi
+          if [ "$secret_scan" = true ]; then
+            add_standards_tools aqua:gitleaks/gitleaks
           fi
 
           {
@@ -143,7 +164,7 @@ jobs:
             echo "pr_title=$pr_title"
             echo "secret_scan=$secret_scan"
             echo "setup_needed=$setup_needed"
-            echo "consumer_mise=$consumer_mise"
+            echo "standards_tools=$standards_tools"
           } >> "$GITHUB_OUTPUT"
 
       - name: Require standards-reader credentials
@@ -215,24 +236,87 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "uv-managed Python for mise cache key: $version"
 
-      - name: Install consumer lint and audit runtimes
-        id: consumer_mise
-        if: steps.applicability.outputs.consumer_mise == 'true'
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
-        with:
-          cache_key_prefix: mise-v1-uvpy${{ steps.uv_python.outputs.version }}
-          # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.7.7"
+      # One cache holds exactly the tools the applicable gates execute, from
+      # both install contexts. Gate runs are pull_request-scoped, so a PR's
+      # first run is usually cold: installing less matters more than restoring
+      # less. The key covers the tool selection, the uv-managed Python that pipx
+      # venvs link against (standards#331), and every mise config that pins them.
+      - name: Key the gate toolchain cache
+        id: toolchain_key
+        if: steps.applicability.outputs.setup_needed == 'true'
+        env:
+          STANDARDS_TOOLS: ${{ steps.applicability.outputs.standards_tools }}
+          LINT_FORMAT: ${{ steps.applicability.outputs.lint_format }}
+          UV_PYTHON: ${{ steps.uv_python.outputs.version }}
+          CONFIG_HASH: ${{ hashFiles('.standards/.mise.toml', '.standards/.tool-versions', '.mise.toml', 'mise.toml', '.mise.local.toml', 'mise.local.toml', '.tool-versions', '.config/mise.toml', '.config/mise/config.toml', '.mise/config.toml', 'mise/config.toml') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          selection="$(printf 'standards=%s\nconsumer-lint=%s\n' "$STANDARDS_TOOLS" "$LINT_FORMAT" | sha256sum | cut -c1-16)"
+          {
+            echo "key=gate-composite-mise-v1-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-self-hosted}-uvpy${UV_PYTHON}-${selection}-${CONFIG_HASH}"
+            echo "path=${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Install the shared standards toolchain
+      - name: Restore the gate toolchain
+        id: toolchain_cache
+        if: steps.applicability.outputs.setup_needed == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.toolchain_key.outputs.path }}
+          key: ${{ steps.toolchain_key.outputs.key }}
+
+      # Standards-side tools resolve from .standards alone: the ceiling
+      # directory itself is excluded, so the consumer-root config is ignored.
+      # Only resolved tool directories are exported; dynamic shims stay off
+      # PATH so a consumer-root step cannot rediscover a consumer runtime.
+      - name: Install standards-side gate tools
         id: standards_mise
         if: steps.applicability.outputs.setup_needed == 'true'
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        env:
+          MISE_CEILING_PATHS: ${{ github.workspace }}
         with:
           working_directory: .standards
-          cache_key_prefix: mise-v1-uvpy${{ steps.uv_python.outputs.version }}
+          install: ${{ steps.applicability.outputs.standards_tools != '' }}
+          install_args: ${{ steps.applicability.outputs.standards_tools }}
+          cache: false
+          add_shims_to_path: false
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.7.7"
+
+      # lint-format runs the consumer's own pins through `mise exec` at the
+      # repository root, so install exactly those pins from the consumer config.
+      - name: Install consumer lint tools
+        id: consumer_lint_tools
+        if: steps.applicability.outputs.lint_format == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          listing="$(mise ls --current --json)"
+          selected="$(jq -r '
+            keys[] as $key
+            | select(($key | sub("^[^:]+:"; "") | split("/") | last)
+                | IN("node", "yq", "copier", "markdownlint-cli2", "yamllint", "ruff", "biome"))
+            | $key' <<<"$listing")"
+          if [ -z "$selected" ]; then
+            echo "::notice::the consumer pins none of the lint-format tools; the gate reports them missing"
+            exit 0
+          fi
+          mapfile -t tools <<<"$selected"
+          echo "consumer lint tools: ${tools[*]}"
+          mise install "${tools[@]}"
+
+      - name: Save the gate toolchain
+        if: >-
+          steps.toolchain_cache.outputs.cache-hit != 'true'
+          && steps.standards_mise.outcome == 'success'
+          && steps.consumer_lint_tools.outcome != 'failure'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.toolchain_key.outputs.path }}
+          key: ${{ steps.toolchain_key.outputs.key }}
 
       - name: Confirm common setup
         id: common_setup
@@ -249,9 +333,11 @@ jobs:
           STANDARDS_REF_OUTCOME: ${{ steps.standards_ref.outcome }}
           UV_OUTCOME: ${{ steps.setup_uv.outcome }}
           UV_PYTHON_OUTCOME: ${{ steps.uv_python.outcome }}
-          CONSUMER_MISE_NEEDED: ${{ steps.applicability.outputs.consumer_mise }}
-          CONSUMER_MISE_OUTCOME: ${{ steps.consumer_mise.outcome }}
+          TOOLCHAIN_KEY_OUTCOME: ${{ steps.toolchain_key.outcome }}
+          TOOLCHAIN_CACHE_OUTCOME: ${{ steps.toolchain_cache.outcome }}
           STANDARDS_MISE_OUTCOME: ${{ steps.standards_mise.outcome }}
+          CONSUMER_LINT_NEEDED: ${{ steps.applicability.outputs.lint_format }}
+          CONSUMER_LINT_OUTCOME: ${{ steps.consumer_lint_tools.outcome }}
         shell: bash
         run: |
           set -euo pipefail
@@ -279,10 +365,12 @@ jobs:
             require_success "standards revision recording" "$STANDARDS_REF_OUTCOME"
             require_success "uv setup" "$UV_OUTCOME"
             require_success "uv Python fingerprint" "$UV_PYTHON_OUTCOME"
-            if [ "$CONSUMER_MISE_NEEDED" = true ]; then
-              require_success "consumer mise setup" "$CONSUMER_MISE_OUTCOME"
+            require_success "gate toolchain cache key" "$TOOLCHAIN_KEY_OUTCOME"
+            require_success "gate toolchain restore" "$TOOLCHAIN_CACHE_OUTCOME"
+            require_success "standards-side tool setup" "$STANDARDS_MISE_OUTCOME"
+            if [ "$CONSUMER_LINT_NEEDED" = true ]; then
+              require_success "consumer lint tool setup" "$CONSUMER_LINT_OUTCOME"
             fi
-            require_success "standards mise setup" "$STANDARDS_MISE_OUTCOME"
           elif [ "$SETUP_NEEDED" != false ] && [ "$ANY_SELECTED" = true ]; then
             echo "::error::applicability detection did not produce setup_needed" >&2
             fail=1
@@ -359,6 +447,9 @@ jobs:
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
           STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
           STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
+          # Resolve commitlint from .standards alone, as the standalone pr-title
+          # workflow does without a consumer checkout.
+          MISE_CEILING_PATHS: ${{ github.workspace }}
         shell: bash
         run: |
           set -euo pipefail
