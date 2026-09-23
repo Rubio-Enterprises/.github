@@ -250,7 +250,7 @@ jobs:
           cache: false
           add_shims_to_path: false
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.7.7"
+          version: "2026.9.9"
 
       # lint-format runs the consumer's own pins through `mise exec` at the
       # repository root, so install exactly those pins from the consumer config.
