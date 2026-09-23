@@ -1,19 +1,11 @@
 {
-  "expected_current_sha": "0c77b56109d4e0bb7ab7a2f4204a0f7600b9c34d",
-  "target_sha": "81322d076f3789b3f535fd3aa7355a5c7fba2aee",
-  "reason": "Publish the composite Gate Check workflow with its trimmed, cache-free toolchain install before a fleet gate-composite ruleset references it. No active ruleset references gate-composite.yml at gates/wf-v1, and no legacy Gate Family workflow changed since 0c77b56. The canary soak on gates/composite-candidate matched 56 of 56 per-gate composite verdicts to the legacy conclusions on the same head SHA across 14 heads, including 7 red heads. At 81322d0 the composite used 341 runner-seconds for six heads versus 1,148 for the four legacy jobs (70% fewer), with a 345 MiB anon peak and no OOM kills. Cancelling the injected secret-scan run on gha-outrunner#219's final head made the non-bypass merge API report 'Required workflows 'secret scan (reusable)' failed'; re-running it to success removed the violation.",
+  "expected_current_sha": "81322d076f3789b3f535fd3aa7355a5c7fba2aee",
+  "target_sha": "e1075fafc2bc96235329e473ba4eb245ef36ca84",
+  "reason": "Publish ADR 0002 step 8: retire the audit, lint-format and pr-title gate workflows and the gitleaks job in secret-scan.yml after gate-composite replaced them. Enforcement moved first: .github-private#304 activated gate-composite, #305 downgraded the four legacy families, and #306 destroyed their rulesets, so no ruleset references the removed paths. The Gate Family manifest now lists gate-composite and gate-typescript, in lockstep with .github-private's gate_ruleset_workflows. gate-composite.yml and typecheck-ts.yml change only in comments.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/284",
-    "https://github.com/Rubio-Enterprises/.github/pull/285",
-    "https://github.com/Rubio-Enterprises/gha-outrunner/pull/218",
-    "https://github.com/Rubio-Enterprises/gha-outrunner/pull/219",
-    "https://github.com/Rubio-Enterprises/riveroaks-scraper/pull/240",
-    "https://github.com/Rubio-Enterprises/aw-server-rust/pull/162",
-    "https://github.com/Rubio-Enterprises/gha-outrunner/actions/runs/35817463876",
-    "https://github.com/Rubio-Enterprises/gha-outrunner/actions/runs/35817569304",
-    "https://github.com/Rubio-Enterprises/riveroaks-scraper/actions/runs/35817675846",
-    "https://github.com/Rubio-Enterprises/riveroaks-scraper/actions/runs/35817779241",
-    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/35817878889",
-    "https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/35818009019"
+    "https://github.com/Rubio-Enterprises/.github/pull/287",
+    "https://github.com/Rubio-Enterprises/.github-private/pull/304",
+    "https://github.com/Rubio-Enterprises/.github-private/pull/305",
+    "https://github.com/Rubio-Enterprises/.github-private/pull/306"
   ]
 }
