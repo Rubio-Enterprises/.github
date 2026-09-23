@@ -221,50 +221,13 @@ jobs:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.12.1"
 
-      - name: Fingerprint the uv-managed Python
+      # pipx-backed tools install through uvx. Give their venvs the same
+      # uv-managed interpreter the standalone gate workflows use.
+      - name: Install the uv-managed Python
         id: uv_python
         if: steps.applicability.outputs.setup_needed == 'true'
         shell: bash
-        run: |
-          set -euo pipefail
-          uv python install
-          version="$(uv python find --managed-python --show-version)"
-          if [ -z "$version" ]; then
-            echo "::error::could not resolve the uv-managed Python version for the mise cache key" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "uv-managed Python for mise cache key: $version"
-
-      # One cache holds exactly the tools the applicable gates execute, from
-      # both install contexts. Gate runs are pull_request-scoped, so a PR's
-      # first run is usually cold: installing less matters more than restoring
-      # less. The key covers the tool selection, the uv-managed Python that pipx
-      # venvs link against (standards#331), and every mise config that pins them.
-      - name: Key the gate toolchain cache
-        id: toolchain_key
-        if: steps.applicability.outputs.setup_needed == 'true'
-        env:
-          STANDARDS_TOOLS: ${{ steps.applicability.outputs.standards_tools }}
-          LINT_FORMAT: ${{ steps.applicability.outputs.lint_format }}
-          UV_PYTHON: ${{ steps.uv_python.outputs.version }}
-          CONFIG_HASH: ${{ hashFiles('.standards/.mise.toml', '.standards/.tool-versions', '.mise.toml', 'mise.toml', '.mise.local.toml', 'mise.local.toml', '.tool-versions', '.config/mise.toml', '.config/mise/config.toml', '.mise/config.toml', 'mise/config.toml') }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          selection="$(printf 'standards=%s\nconsumer-lint=%s\n' "$STANDARDS_TOOLS" "$LINT_FORMAT" | sha256sum | cut -c1-16)"
-          {
-            echo "key=gate-composite-mise-v1-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-self-hosted}-uvpy${UV_PYTHON}-${selection}-${CONFIG_HASH}"
-            echo "path=${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Restore the gate toolchain
-        id: toolchain_cache
-        if: steps.applicability.outputs.setup_needed == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.toolchain_key.outputs.path }}
-          key: ${{ steps.toolchain_key.outputs.key }}
+        run: uv python install
 
       # Standards-side tools resolve from .standards alone: the ceiling
       # directory itself is excluded, so the consumer-root config is ignored.
@@ -280,6 +243,10 @@ jobs:
           working_directory: .standards
           install: ${{ steps.applicability.outputs.standards_tools != '' }}
           install_args: ${{ steps.applicability.outputs.standards_tools }}
+          # No toolchain cache. Gate runs are pull_request-scoped, so a saved
+          # cache serves only later pushes to the same pull request, and on
+          # warm-glue saving cost more than restoring saved: 53 s of a 103 s
+          # cold run (227-294 s under load), while warm runs still took 56-65 s.
           cache: false
           add_shims_to_path: false
           # renovate: datasource=github-releases depName=jdx/mise
@@ -307,17 +274,6 @@ jobs:
           echo "consumer lint tools: ${tools[*]}"
           mise install "${tools[@]}"
 
-      - name: Save the gate toolchain
-        if: >-
-          steps.toolchain_cache.outputs.cache-hit != 'true'
-          && steps.standards_mise.outcome == 'success'
-          && steps.consumer_lint_tools.outcome != 'failure'
-        continue-on-error: true
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.toolchain_key.outputs.path }}
-          key: ${{ steps.toolchain_key.outputs.key }}
-
       - name: Confirm common setup
         id: common_setup
         if: always()
@@ -333,8 +289,6 @@ jobs:
           STANDARDS_REF_OUTCOME: ${{ steps.standards_ref.outcome }}
           UV_OUTCOME: ${{ steps.setup_uv.outcome }}
           UV_PYTHON_OUTCOME: ${{ steps.uv_python.outcome }}
-          TOOLCHAIN_KEY_OUTCOME: ${{ steps.toolchain_key.outcome }}
-          TOOLCHAIN_CACHE_OUTCOME: ${{ steps.toolchain_cache.outcome }}
           STANDARDS_MISE_OUTCOME: ${{ steps.standards_mise.outcome }}
           CONSUMER_LINT_NEEDED: ${{ steps.applicability.outputs.lint_format }}
           CONSUMER_LINT_OUTCOME: ${{ steps.consumer_lint_tools.outcome }}
@@ -364,9 +318,7 @@ jobs:
             require_success "standards checkout" "$STANDARDS_CHECKOUT_OUTCOME"
             require_success "standards revision recording" "$STANDARDS_REF_OUTCOME"
             require_success "uv setup" "$UV_OUTCOME"
-            require_success "uv Python fingerprint" "$UV_PYTHON_OUTCOME"
-            require_success "gate toolchain cache key" "$TOOLCHAIN_KEY_OUTCOME"
-            require_success "gate toolchain restore" "$TOOLCHAIN_CACHE_OUTCOME"
+            require_success "uv-managed Python install" "$UV_PYTHON_OUTCOME"
             require_success "standards-side tool setup" "$STANDARDS_MISE_OUTCOME"
             if [ "$CONSUMER_LINT_NEEDED" = true ]; then
               require_success "consumer lint tool setup" "$CONSUMER_LINT_OUTCOME"
