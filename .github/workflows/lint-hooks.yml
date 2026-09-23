@@ -32,7 +32,7 @@ name: lint hooks (reusable)
 #
 # Consumer thin-callers invoke this via `uses:`. The `pull_request:` trigger is
 # required so GitHub's org-ruleset `required_workflows` validator accepts the
-# workflow (422 otherwise — same precedent as audit.yml). On PRs against
+# workflow (422 otherwise — same precedent as gate-composite.yml). On PRs against
 # `.github` itself the pull_request path is a no-op (this is a reusable, not a
 # project workflow) — enforced by the job-level `if:` guards below, since the
 # `.github` repo doesn't ship a `.mise.toml` or `lefthook.yml` and would fail
@@ -262,7 +262,7 @@ jobs:
       # golangci-lint's typecheck loads the full package graph, so `go` must
       # be able to fetch those modules; GITHUB_TOKEN is repo-scoped and can't.
       # Mint a short-lived read-only token via the org standards-audit App
-      # (installation covers all repos) — the same pattern audit.yml uses for
+      # (installation covers all repos) — the same pattern gate-composite.yml uses for
       # the private standards checkout. Both steps are no-ops when the
       # variable is unset.
       - name: Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)

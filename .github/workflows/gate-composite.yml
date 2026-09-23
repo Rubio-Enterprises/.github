@@ -221,8 +221,8 @@ jobs:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.12.1"
 
-      # pipx-backed tools install through uvx. Give their venvs the same
-      # uv-managed interpreter the standalone gate workflows use.
+      # pipx-backed tools install through uvx. Give their venvs a uv-managed
+      # interpreter rather than whatever Python the runner image ships.
       - name: Install the uv-managed Python
         id: uv_python
         if: steps.applicability.outputs.setup_needed == 'true'
@@ -399,8 +399,8 @@ jobs:
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
           STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
           STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
-          # Resolve commitlint from .standards alone, as the standalone pr-title
-          # workflow does without a consumer checkout.
+          # Resolve commitlint from .standards alone, never from the consumer
+          # checkout's mise config.
           MISE_CEILING_PATHS: ${{ github.workspace }}
         shell: bash
         run: |
