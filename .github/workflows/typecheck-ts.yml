@@ -37,9 +37,12 @@ concurrency:
   # holds it while waiting for this job, which waits for the group: deadlock.
   #
   # Keyed on `github.workflow_sha` too, so a Candidate Validation injection of
-  # this file at another commit never shares (and cancels) the live one's group
-  # — rationale in lint-format.yml. In the called (cache-seed) mode the SHA is
-  # the caller's, which is just as stable a namespace.
+  # this file at another commit never shares (and cancels) the live one's
+  # group. Without the SHA, the live and candidate injections that run side by
+  # side on every PR shared one group, and cancel-in-progress killed whichever
+  # registered first — at random (v3.6.0 publication, 2026-09-02). In the
+  # called (cache-seed) mode the SHA is the caller's, which is just as stable a
+  # namespace.
   group: typecheck-ts-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 # Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
