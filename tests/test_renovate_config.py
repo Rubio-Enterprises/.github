@@ -100,13 +100,17 @@ def _rule_with_group(group_name: str) -> dict[str, Any]:
 
 
 def _selector_matches(selectors: list[str], value: str) -> bool:
-    for selector in selectors:
+    positive = [selector for selector in selectors if not selector.startswith("!")]
+    negative = [selector[1:] for selector in selectors if selector.startswith("!")]
+
+    def matches(selector: str) -> bool:
         if selector.startswith("/") and selector.endswith("/"):
-            if re.search(selector[1:-1], value):
-                return True
-        elif selector == value:
-            return True
-    return False
+            return re.search(selector[1:-1], value) is not None
+        return selector == value
+
+    return not any(map(matches, negative)) and (
+        not positive or any(map(matches, positive))
+    )
 
 
 def _rule_matches(
@@ -117,10 +121,12 @@ def _rule_matches(
     selector_fields = {
         "matchManagers": "manager",
         "matchUpdateTypes": "updateType",
+        "matchDepTypes": "depType",
         "matchDepNames": "depName",
         "matchPackageNames": "packageName",
         "matchFileNames": "fileName",
         "matchDatasources": "datasource",
+        "matchRepositories": "repository",
     }
     for rule_field, dependency_field in selector_fields.items():
         if rule_field not in rule:
@@ -131,11 +137,15 @@ def _rule_matches(
 
     current_version = rule.get("matchCurrentVersion")
     if current_version is not None:
-        negate = current_version.startswith("!")
-        pattern = current_version[2:-1] if negate else current_version[1:-1]
-        matched = re.search(pattern, dependency["currentVersion"]) is not None
-        if matched == negate:
-            return False
+        if current_version == "<7":
+            if int(dependency["currentVersion"].lstrip("v").split(".")[0]) >= 7:
+                return False
+        else:
+            negate = current_version.startswith("!")
+            pattern = current_version[2:-1] if negate else current_version[1:-1]
+            matched = re.search(pattern, dependency["currentVersion"]) is not None
+            if matched == negate:
+                return False
 
     for expression in rule.get("matchJsonata", []):
         if expression != "$exists(groupName) = false":
@@ -154,6 +164,7 @@ def _resolve_dependency(
         "dependencyDashboardApproval": False,
         "platformAutomerge": False,
         "minimumReleaseAge": CONFIG["minimumReleaseAge"],
+        "rangeStrategy": CONFIG["rangeStrategy"],
     }
     if initial is not None:
         resolved.update(initial)
@@ -165,6 +176,8 @@ def _resolve_dependency(
         "groupSlug",
         "minimumReleaseAge",
         "platformAutomerge",
+        "rangeStrategy",
+        "allowedVersions",
     }
     for rule in CONFIG["packageRules"]:
         if _rule_matches(rule, dependency, resolved):
@@ -187,7 +200,7 @@ class RenovateConfigContractTests(unittest.TestCase):
 
     def test_automerge_uses_renovate_side_merge(self) -> None:
         presets = {
-            "default.json": (CONFIG, 5),
+            "default.json": (CONFIG, 6),
             "copier.json": (COPIER_CONFIG, 1),
         }
         for preset_name, (config, expected_side_merge_rules) in presets.items():
@@ -205,6 +218,171 @@ class RenovateConfigContractTests(unittest.TestCase):
                     rule=rule.get("description", rule.get("groupName")),
                 ):
                     self.assertIsNot(rule.get("platformAutomerge"), True)
+
+    def test_python_interpreter_pins_and_floor_are_coordinated(self) -> None:
+        dependency = {
+            "repository": "Rubio-Enterprises/fleet",
+            "depName": "python",
+            "packageName": "python",
+            "currentVersion": "3.14.6",
+            "updateType": "patch",
+        }
+        for manager, file_name in (
+            ("asdf", ".tool-versions"),
+            ("pyenv", ".python-version"),
+        ):
+            with self.subTest(manager=manager):
+                candidate = {**dependency, "manager": manager, "fileName": file_name}
+                self.assertFalse(_resolve_dependency(candidate)["enabled"])
+                self.assertNotIn(
+                    "enabled",
+                    _resolve_dependency(
+                        {**candidate, "repository": "Rubio-Enterprises/standards"}
+                    ),
+                )
+
+        consumer_manifest = {
+            **dependency,
+            "manager": "pep621",
+            "fileName": "pyproject.toml",
+            "depType": "requires-python",
+        }
+        self.assertFalse(_resolve_dependency(consumer_manifest)["enabled"])
+        self.assertNotIn(
+            "enabled",
+            _resolve_dependency(
+                {**consumer_manifest, "packageName": "ruff", "depName": "ruff"}
+            ),
+        )
+        self.assertNotIn(
+            "enabled",
+            _resolve_dependency({**consumer_manifest, "depType": "project.dependencies"}),
+        )
+        self.assertNotIn(
+            "enabled",
+            _resolve_dependency(
+                {**dependency, "manager": "asdf", "fileName": "other/.tool-versions"}
+            ),
+        )
+        self.assertNotIn(
+            "enabled",
+            _resolve_dependency(
+                {**dependency, "manager": "asdf", "fileName": ".tool-versions", "depName": "go"}
+            ),
+        )
+
+    def test_python_dev_tools_are_exact_pins_only_in_dev_groups(self) -> None:
+        dependency = {
+            "repository": "Rubio-Enterprises/avr",
+            "manager": "pep621",
+            "depName": "ruff",
+            "packageName": "ruff",
+            "fileName": "pyproject.toml",
+            "depType": "dependency-groups",
+            "currentVersion": "0.16.7",
+            "updateType": "patch",
+        }
+        for dep_type in ("dependency-groups", "tool.uv.dev-dependencies"):
+            for name in ("ruff", "pytest", "pytest-cov", "mypy", "pyright", "coverage", "hypothesis"):
+                with self.subTest(dep_type=dep_type, name=name):
+                    resolved = _resolve_dependency(
+                        {**dependency, "depType": dep_type, "depName": name, "packageName": name}
+                    )
+                    self.assertEqual(resolved["rangeStrategy"], "pin")
+                    self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+
+        for changes in (
+            {"depType": "project.dependencies"},
+            {"depType": "project.optional-dependencies"},
+            {"packageName": "typer", "depName": "typer"},
+            {"manager": "pip_requirements", "fileName": "requirements.txt"},
+        ):
+            with self.subTest(changes=changes):
+                self.assertEqual(_resolve_dependency({**dependency, **changes})["rangeStrategy"], "bump")
+
+    def test_experimental_dev_tools_override_major_and_zero_approval(self) -> None:
+        dependency = {
+            "repository": "Rubio-Enterprises/avr",
+            "manager": "pep621",
+            "depName": "ruff",
+            "packageName": "ruff",
+            "fileName": "pyproject.toml",
+            "depType": "dependency-groups",
+            "currentVersion": "0.16.7",
+            "updateType": "major",
+        }
+        for current, update in (("0.16.7", "patch"), ("0.16.7", "major"), ("9.1.1", "major")):
+            with self.subTest(current=current, update=update):
+                resolved = _resolve_dependency(
+                    {**dependency, "currentVersion": current, "updateType": update}
+                )
+                self.assertTrue(resolved["automerge"])
+                self.assertFalse(resolved["dependencyDashboardApproval"])
+                self.assertFalse(resolved["platformAutomerge"])
+                self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+
+        for repository in (
+            "Rubio-Enterprises/standards",
+            "Rubio-Enterprises/.github",
+            "Rubio-Enterprises/.github-private",
+            "Rubio-Enterprises/agent-workspaces",
+        ):
+            with self.subTest(repository=repository):
+                resolved = _resolve_dependency({**dependency, "repository": repository})
+                self.assertFalse(resolved["automerge"])
+                self.assertTrue(resolved["dependencyDashboardApproval"])
+
+        runtime = _resolve_dependency(
+            {**dependency, "depType": "project.dependencies", "packageName": "typer", "depName": "typer"}
+        )
+        self.assertFalse(runtime["automerge"])
+        self.assertTrue(runtime["dependencyDashboardApproval"])
+
+    def test_typescript_seven_hold_only_affects_older_repos(self) -> None:
+        dependency = {
+            "repository": "Rubio-Enterprises/static-webpage-template",
+            "manager": "npm",
+            "depName": "typescript",
+            "packageName": "typescript",
+            "fileName": "package.json",
+            "currentVersion": "6.0.0",
+            "updateType": "major",
+        }
+        self.assertEqual(_resolve_dependency(dependency)["allowedVersions"], "<7")
+        self.assertEqual(
+            _resolve_dependency({**dependency, "currentVersion": "5.9.3"})["allowedVersions"],
+            "<7",
+        )
+        self.assertNotIn(
+            "allowedVersions",
+            _resolve_dependency({**dependency, "currentVersion": "7.0.2", "updateType": "patch"}),
+        )
+        self.assertNotIn(
+            "allowedVersions",
+            _resolve_dependency({**dependency, "packageName": "typescript-eslint", "depName": "typescript-eslint"}),
+        )
+
+    def test_new_rules_follow_approval_and_precede_manual_exceptions(self) -> None:
+        rules = CONFIG["packageRules"]
+        index = {id(rule): i for i, rule in enumerate(rules)}
+        major = next(rule for rule in rules if rule.get("matchUpdateTypes") == ["major"])
+        zero = next(rule for rule in rules if rule.get("matchCurrentVersion") == "/^v?0/")
+        dev = next(rule for rule in rules if rule.get("matchManagers") == ["pep621"] and rule.get("automerge") is True)
+        pin = next(rule for rule in rules if rule.get("rangeStrategy") == "pin")
+        interpreter = next(rule for rule in rules if rule.get("matchManagers") == ["asdf", "pyenv"])
+        typescript = next(rule for rule in rules if rule.get("allowedVersions") == "<7")
+        floor = next(
+            rule for rule in rules
+            if rule.get("matchManagers") == ["pep621"]
+            and rule.get("matchDepTypes") == ["requires-python"]
+        )
+        self.assertLess(index[id(interpreter)], index[id(major)])
+        self.assertLess(index[id(floor)], index[id(major)])
+        for rule in (pin, dev, typescript):
+            self.assertGreater(index[id(rule)], index[id(major)])
+            self.assertGreater(index[id(rule)], index[id(zero)])
+        for name in ("mise-cli", "uv-cli", "testflight release workflow"):
+            self.assertGreater(index[id(_rule_with_group(name))], index[id(dev)])
 
     def test_stable_and_pre_one_groups_resolve_to_distinct_branches(self) -> None:
         fixtures = [

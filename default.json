@@ -31,6 +31,21 @@
       "enabled": false
     },
     {
+      "description": "The standards template renders .tool-versions (full python_version Copier answer) for Python consumers and .python-version (X.Y) for scripts-packaged consumers. These interpreter pins must move with the template's uv floor, not via independent asdf/pyenv proposals: uv 0.12.1 cannot download Python 3.14.7 (its index stops at 3.14.6). Promote the Python answer and uv pin together through standards; standards owns its own pins.",
+      "matchManagers": ["asdf", "pyenv"],
+      "matchDepNames": ["python"],
+      "matchFileNames": [".tool-versions", ".python-version"],
+      "matchRepositories": ["!Rubio-Enterprises/standards"],
+      "enabled": false
+    },
+    {
+      "description": "Do not automatically raise the consumer-owned pyproject.toml requires-python compatibility FLOOR on every CPython patch. Renovate bumped >=3.14.6 to >=3.14.7 while the template-rendered .tool-versions and uv 0.12.1 still provide at most 3.14.6, making uv lock and CI fail. Raise the floor deliberately in the consumer alongside its python_version Copier answer and the template's uv pin; ordinary pep621 package updates stay enabled.",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["requires-python"],
+      "matchPackageNames": ["python"],
+      "enabled": false
+    },
+    {
       "description": "Disable Terraform CORE version bumps (`required_version` in versions.tf) fleet-wide. Renovate raises the constraint in git, but the executing version lives OUTSIDE git — it is the HCP Terraform workspace's own `terraform-version` setting — and nothing raises that. A merged bump therefore makes every run in that workspace fail at `terraform init` with `Error: Unsupported Terraform Core version`, which stays invisible until someone needs an apply. Measured: agent-workspaces#113 raised the constraint to >= 1.15.9, the workspace stayed on 1.15.8, and every run errored for two weeks — found only when an outage fix could not be applied. Raising Terraform core is a paired, deliberate move (raise the workspace setting, then merge the constraint), so it is not background maintenance. NOTE: scoped to the core-version depType only; provider and module updates under the terraform manager are unaffected.",
       "matchManagers": ["terraform"],
       "matchDepTypes": ["required_version"],
@@ -45,6 +60,29 @@
       "description": "Pre-1.0 dependencies can break on any release, so require explicit Dependency Dashboard approval before Renovate creates their branch and triggers downstream CI.",
       "matchCurrentVersion": "/^v?0/",
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Pin only named Python dev tools in pep621 dev groups: rangeStrategy:bump writes ruff>=0.16.7, then uv lock resolves 0.16.8 while it is inside the seven-day soak, and Renovate's artifact guard rejects the lockfile. An exact pin keeps the selected, aged version and its uv resolution aligned; runtime and optional dependencies retain their own range strategy.",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
+      "matchPackageNames": ["ruff", "pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "Experimental-tier Python dev tools may merge green major and pre-1.0 updates without dashboard approval, after the normal seven-day release soak. Production standards/.github/.github-private and internal agent-workspaces keep their manual posture; later manual exceptions remain authoritative.",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
+      "matchPackageNames": ["ruff", "pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
+      "matchRepositories": ["!Rubio-Enterprises/standards", "!Rubio-Enterprises/.github", "!Rubio-Enterprises/.github-private", "!Rubio-Enterprises/agent-workspaces"],
+      "dependencyDashboardApproval": false,
+      "automerge": true,
+      "platformAutomerge": false
+    },
+    {
+      "description": "Hold TypeScript 7 only where the current version is below 7: TypeScript 7 removes baseUrl and moduleResolution=node10, and typescript-eslint and @astrojs/check peer ranges do not yet support it. Lift the hold when both support TypeScript 7; repositories already on 7 continue receiving 7.x.",
+      "matchPackageNames": ["typescript"],
+      "matchCurrentVersion": "<7",
+      "allowedVersions": "<7"
     },
     {
       "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. The require-review fallback sets platformAutomerge:false so Renovate's own engine performs the merge as the bypassed Renovate App. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original fleet had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. Renovate's own engine is stricter here because it waits for every check the consumer actually renders, not only the checks required before GitHub merges.",
