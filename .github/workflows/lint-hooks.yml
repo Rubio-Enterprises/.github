@@ -65,7 +65,7 @@ jobs:
       has_ruby: ${{ steps.pick.outputs.has_ruby }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           sparse-checkout: .copier-answers.yml
           sparse-checkout-cone-mode: false
@@ -199,7 +199,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the consumer repo
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Fork-mode linting needs the PR merge commit's parents (or enough
           # history to merge-base against the base ref) to compute changed
@@ -211,7 +211,7 @@ jobs:
       # intentionally absent from rendered mise because glue cannot ruby-build.
       - name: Install Ruby and locked bundle
         if: needs.detect.outputs.has_ruby == 'true'
-        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           bundler-cache: true
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
@@ -222,7 +222,7 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.15"
+          version: "0.12.17"
       # Fingerprint the uv-resolved python into the mise cache key (standards#331).
       # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
       # at the uv-MANAGED python under ~/.local/share/uv/python — OUTSIDE the
@@ -249,7 +249,7 @@ jobs:
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "uv-resolved python for mise cache key: $version"
       - name: Install consumer-repo runtimes (lefthook + pinned hook tools)
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           # Key the mise cache to the uv-resolved python (standards#331): a python
           # bump changes the prefix and invalidates rather than poisons the cache.
@@ -326,7 +326,7 @@ jobs:
         # `packageManager` from package.json for version pinning, avoiding
         # the corepack keyring drift documented in e2e.yml's adjacent block.
         if: hashFiles('pnpm-lock.yaml') != ''
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - name: Install JS deps (so lefthook.local.yml pnpm hooks resolve workspace packages)
         # pnpm/action-setup@v4 installs the pnpm binary but does NOT populate
         # node_modules. Consumer lefthook.local.yml hooks like `pnpm exec sherif`
