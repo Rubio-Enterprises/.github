@@ -273,7 +273,7 @@ reread contract in the runbook.
   and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
   them; human-merge-only for `go.mod` directive raises and, after approval, for TestFlight and the
   `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
-  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. Five
+  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. Four
   `customManager`s remain. The first two track the
   `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers; they are
   deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while mise's are
@@ -284,20 +284,7 @@ reread contract in the runbook.
   entries before update classification; the explicit replacement always writes
   `version = "<sha>"  # <tag>`. The fourth reads a Claude Code version out of a Dockerfile
   `RUN npm install -g @anthropic-ai/claude-code@…` line sitting under the conventional
-  `# renovate:` annotation. The fifth tracks the private first-party workspace image in the
-  `agent-workspaces` consumer's `workspaces/` manifests as tag-and-digest. The digest governs what
-  the kubelet pulls, so `tag@digest` is a pin, not a floating tag; the tag exists as Renovate's
-  tracking key. It tracks the branch tag `main` because that consumer has no releases, so only
-  digest updates are possible. The docker datasource cannot read this private package without a
-  credential, and **two** things must hold before the pin can ever resolve, neither of them in this
-  file: the self-hosted runner's `renovate/config.js` presents a `ghcr.io` hostRule whose password is
-  the workflow's `GITHUB_TOKEN` (**not** an App installation token — GitHub documents only a classic
-  PAT and the Actions token as GHCR credentials, and our App's token returns HTTP 403 on a manifest
-  HEAD despite holding `packages: read`), **and** the package itself grants read to the runner's
-  repository under its **Manage Actions access**, which has no REST API and must be set by hand per
-  package. Until both hold, the manager extracts the dependency correctly and then logs
-  `Could not determine new digest` on every run — which is exactly why `mac-dev-playbook`'s three
-  first-party managers appeared to exist while never once updating a pin.
+  `# renovate:` annotation.
 
   **Dockerfile `ARG`/`ENV` `…_VERSION` pins** ride the shipped `customManagers:dockerfileVersions`
   preset (in `extends`) rather than a hand-rolled regex, because the built-in `dockerfile` manager
