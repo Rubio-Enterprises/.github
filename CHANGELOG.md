@@ -1,5 +1,43 @@
 # Changelog
 
+## [4.0.0](https://github.com/Rubio-Enterprises/.github/compare/v3.8.0...v4.0.0) (2026-09-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gates:** retire the audit, lint-format, pr-title and gitleaks gate workflows ([#287](https://github.com/Rubio-Enterprises/.github/issues/287))
+* **gates:** make glue-heavy fallback monotonic in capability ([#277](https://github.com/Rubio-Enterprises/.github/issues/277))
+
+### Features
+
+* **ci:** add selective single-job composite governance gate ([d5409ea](https://github.com/Rubio-Enterprises/.github/commit/d5409eaaa80fc6fc56b0e446fc9c4329ba75f834))
+* **ci:** integrate composite wiring and image release policy ([c5185d3](https://github.com/Rubio-Enterprises/.github/commit/c5185d3fdbb8fff0d8b6db3c99f6e484bb3fe213))
+* **plumbing:** include composite workflow in publication floor ([0ace1a5](https://github.com/Rubio-Enterprises/.github/commit/0ace1a527221f8069b1c9ec596f0c609541c19ec))
+
+
+### Bug Fixes
+
+* **gates:** make glue-heavy fallback monotonic in capability ([#277](https://github.com/Rubio-Enterprises/.github/issues/277)) ([c8bd9da](https://github.com/Rubio-Enterprises/.github/commit/c8bd9da7b0d3de84e49f3ff475e8dd946c0abd86))
+* **renovate:** allow workspace image tags without timestamps ([79ff3de](https://github.com/Rubio-Enterprises/.github/commit/79ff3de81c7b0f0e5f68f81039a0439b5dfdf8dc))
+* **renovate:** let exact dev-tool pins skip the release soak ([#292](https://github.com/Rubio-Enterprises/.github/issues/292)) ([9dfd6f6](https://github.com/Rubio-Enterprises/.github/commit/9dfd6f6f8e8c46fcc020aca7848908eb397dd501))
+* **renovate:** pin python dev tools, hold typescript 7, template-own interpreter ([#289](https://github.com/Rubio-Enterprises/.github/issues/289)) ([e0fad56](https://github.com/Rubio-Enterprises/.github/commit/e0fad5681d84bcf837bbf1ae488d0552483e0665))
+* **renovate:** require review for go module directive bumps ([#271](https://github.com/Rubio-Enterprises/.github/issues/271)) ([63903b8](https://github.com/Rubio-Enterprises/.github/commit/63903b85c5c6c37a732677030a3f9dc952c6cb61))
+* **renovate:** stop bumping Terraform core, which breaks applies silently ([#274](https://github.com/Rubio-Enterprises/.github/issues/274)) ([ad9a1c0](https://github.com/Rubio-Enterprises/.github/commit/ad9a1c0e7d7a4959c404f8bbd07dfc0195fa6be7))
+* **renovate:** treat rendered release-please.yml pins as template-owned ([#294](https://github.com/Rubio-Enterprises/.github/issues/294)) ([7560d80](https://github.com/Rubio-Enterprises/.github/commit/7560d807d7c3943503a6691ee42280902f3f1890))
+
+
+### Performance Improvements
+
+* **audit:** install only audit execution tools ([#282](https://github.com/Rubio-Enterprises/.github/issues/282)) ([0c77b56](https://github.com/Rubio-Enterprises/.github/commit/0c77b56109d4e0bb7ab7a2f4204a0f7600b9c34d))
+* **ci:** reduce governance runner load ([#275](https://github.com/Rubio-Enterprises/.github/issues/275)) ([771eb7d](https://github.com/Rubio-Enterprises/.github/commit/771eb7d47dc680e01f749a36d424b546d0f38514))
+* **composite:** drop the gate toolchain cache ([#285](https://github.com/Rubio-Enterprises/.github/issues/285)) ([81322d0](https://github.com/Rubio-Enterprises/.github/commit/81322d076f3789b3f535fd3aa7355a5c7fba2aee))
+* **composite:** install only the tools each gate executes ([#284](https://github.com/Rubio-Enterprises/.github/issues/284)) ([d069b5e](https://github.com/Rubio-Enterprises/.github/commit/d069b5e04b85ee257866de0504a5c4933a8137f5))
+
+
+### Miscellaneous Chores
+
+* **gates:** retire the audit, lint-format, pr-title and gitleaks gate workflows ([#287](https://github.com/Rubio-Enterprises/.github/issues/287)) ([e1075fa](https://github.com/Rubio-Enterprises/.github/commit/e1075fafc2bc96235329e473ba4eb245ef36ca84))
+
 ## [3.8.0](https://github.com/Rubio-Enterprises/.github/compare/v3.7.0...v3.8.0) (2026-09-07)
 
 
