@@ -321,6 +321,30 @@ class RenovateConfigContractTests(unittest.TestCase):
                     _resolve_dependency({**dependency, **changes})["minimumReleaseAge"], "7 days"
                 )
 
+    def test_template_rendered_workflow_pins_advance_only_through_the_template(self) -> None:
+        dependency = {
+            "repository": "Rubio-Enterprises/fleet",
+            "manager": "github-actions",
+            "depName": "jdx/mise-action",
+            "packageName": "jdx/mise-action",
+            "currentVersion": "4.0.0",
+            "updateType": "digest",
+        }
+        first_party = {"depName": "Rubio-Enterprises/.github", "packageName": "Rubio-Enterprises/.github"}
+        for file_name in (
+            ".github/workflows/standards.yml",
+            ".github/workflows/cloud-setup-smoke.yml",
+            ".github/workflows/release-please.yml",
+        ):
+            with self.subTest(file_name=file_name):
+                self.assertFalse(_resolve_dependency({**dependency, "fileName": file_name})["enabled"])
+                self.assertTrue(
+                    _resolve_dependency({**dependency, **first_party, "fileName": file_name})["enabled"]
+                )
+
+        hand_authored = _resolve_dependency({**dependency, "fileName": ".github/workflows/deploy.yml"})
+        self.assertTrue(hand_authored.get("enabled", True))
+
     def test_experimental_dev_tools_override_major_and_zero_approval(self) -> None:
         dependency = {
             "repository": "Rubio-Enterprises/avr",
