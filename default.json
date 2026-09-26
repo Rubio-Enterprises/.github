@@ -185,7 +185,8 @@
       "matchManagers": ["github-actions"],
       "matchFileNames": [
         ".github/workflows/standards.yml",
-        ".github/workflows/cloud-setup-smoke.yml"
+        ".github/workflows/cloud-setup-smoke.yml",
+        ".github/workflows/release-please.yml"
       ],
       "enabled": false
     },
@@ -194,7 +195,8 @@
       "matchManagers": ["github-actions"],
       "matchFileNames": [
         ".github/workflows/standards.yml",
-        ".github/workflows/cloud-setup-smoke.yml"
+        ".github/workflows/cloud-setup-smoke.yml",
+        ".github/workflows/release-please.yml"
       ],
       "matchDepNames": ["Rubio-Enterprises/.github"],
       "groupName": "first-party reusable workflows",
