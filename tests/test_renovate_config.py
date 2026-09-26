@@ -294,6 +294,33 @@ class RenovateConfigContractTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.assertEqual(_resolve_dependency({**dependency, **changes})["rangeStrategy"], "bump")
 
+    def test_python_dev_tool_pin_alone_skips_the_soak(self) -> None:
+        dependency = {
+            "repository": "Rubio-Enterprises/avr",
+            "manager": "pep621",
+            "depName": "ruff",
+            "packageName": "ruff",
+            "fileName": "pyproject.toml",
+            "depType": "dependency-groups",
+            "currentVersion": "0.16.4",
+            "updateType": "pin",
+        }
+        for dep_type in ("dependency-groups", "tool.uv.dev-dependencies"):
+            with self.subTest(dep_type=dep_type):
+                self.assertIsNone(_resolve_dependency({**dependency, "depType": dep_type})["minimumReleaseAge"])
+
+        for changes in (
+            {"updateType": "patch"},
+            {"updateType": "major"},
+            {"depType": "project.dependencies"},
+            {"packageName": "black", "depName": "black"},
+            {"manager": "npm", "fileName": "package.json"},
+        ):
+            with self.subTest(changes=changes):
+                self.assertEqual(
+                    _resolve_dependency({**dependency, **changes})["minimumReleaseAge"], "7 days"
+                )
+
     def test_experimental_dev_tools_override_major_and_zero_approval(self) -> None:
         dependency = {
             "repository": "Rubio-Enterprises/avr",

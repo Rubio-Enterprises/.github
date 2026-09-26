@@ -188,7 +188,7 @@ jobs:
           # bump changes the prefix and invalidates rather than poisons the cache.
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.9.9"
+          version: "2026.9.11"
 
       - name: Detect the typecheck task
         # `mise tasks info` exits non-zero when the task is absent (non-ts repo,
