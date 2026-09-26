@@ -93,7 +93,7 @@ jobs:
       - name: Check out the consumer repository
         id: consumer_checkout
         if: steps.selection.outputs.any_selected == 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Covers the current gitleaks diff ranges while retaining both parents
           # of GitHub's synthetic PR merge commit for fork-scoped linting.
@@ -195,7 +195,7 @@ jobs:
       - name: Check out standards at the selected channel
         id: standards_checkout
         if: steps.applicability.outputs.setup_needed == 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/standards
           ref: ${{ steps.selection.outputs.channel }}
@@ -219,7 +219,7 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.15"
+          version: "0.12.17"
 
       # pipx-backed tools install through uvx. Give their venvs a uv-managed
       # interpreter rather than whatever Python the runner image ships.
@@ -236,7 +236,7 @@ jobs:
       - name: Install standards-side gate tools
         id: standards_mise
         if: steps.applicability.outputs.setup_needed == 'true'
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         env:
           MISE_CEILING_PATHS: ${{ github.workspace }}
         with:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -14,9 +15,17 @@ LINT_WORKFLOW = ROOT / ".github" / "workflows" / "lint-hooks.yml"
 SMOKE_WORKFLOW = ROOT / ".github" / "workflows" / "cloud-setup-smoke.yml"
 LINT_TEXT = LINT_WORKFLOW.read_text(encoding="utf-8")
 SMOKE_TEXT = SMOKE_WORKFLOW.read_text(encoding="utf-8")
-RUBY_SETUP = (
-    "ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0"
+RUBY_SETUP_PATTERN = re.compile(
+    r"ruby/setup-ruby@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+"
 )
+
+
+def ruby_setup_pin(workflow_text: str) -> str:
+    """Read the single versioned, digest-pinned Ruby action from a workflow."""
+    pins = re.findall(r"^ *uses: (ruby/setup-ruby@.*)$", workflow_text, re.MULTILINE)
+    if len(pins) != 1 or not RUBY_SETUP_PATTERN.fullmatch(pins[0]):
+        raise AssertionError(f"expected exactly one versioned 40-hex Ruby pin, found {pins}")
+    return pins[0]
 
 
 def extract_run_block(workflow_text: str, step_name: str) -> str:
@@ -73,6 +82,22 @@ def run_script(script: str, repo: Path, **extra_env: str) -> dict[str, str]:
 
 class LintRubyRoutingTests(unittest.TestCase):
     """Ruby is an explicit, capability-first route; old consumers do not move."""
+
+    def test_ruby_action_is_consistent_across_expected_workflows(self) -> None:
+        workflow_dir = ROOT / ".github" / "workflows"
+        expected = {"lint-hooks.yml", "cloud-setup-smoke.yml", "testflight.yml"}
+        actual = {
+            path.name
+            for path in workflow_dir.glob("*.yml")
+            if "ruby/setup-ruby@" in path.read_text(encoding="utf-8")
+        }
+        self.assertEqual(actual, expected)
+        pins = {
+            ruby_setup_pin((workflow_dir / name).read_text(encoding="utf-8"))
+            for name in expected
+        }
+        self.assertEqual(len(pins), 1)
+
 
     script = extract_run_block(LINT_TEXT, "Pick runner from the language facets")
     runners = {
@@ -131,7 +156,7 @@ class LintRubyRoutingTests(unittest.TestCase):
     def test_lint_setup_is_pinned_locked_and_before_mise(self) -> None:
         step = extract_step(LINT_TEXT, "Install Ruby and locked bundle")
         self.assertIn("if: needs.detect.outputs.has_ruby == 'true'", step)
-        self.assertIn(f"uses: {RUBY_SETUP}", step)
+        self.assertIn(f"uses: {ruby_setup_pin(LINT_TEXT)}", step)
         self.assertIn("bundler-cache: true", step)
         self.assertNotIn("ruby-version", step)
         self.assertLess(
@@ -172,7 +197,7 @@ class CloudSmokeRubyTests(unittest.TestCase):
         step = extract_step(SMOKE_TEXT, "Install Ruby and locked bundle")
         self.assertIn("steps.probe.outputs.runnable == 'true'", step)
         self.assertIn("steps.probe.outputs.has_ruby == 'true'", step)
-        self.assertIn(f"uses: {RUBY_SETUP}", step)
+        self.assertIn(f"uses: {ruby_setup_pin(SMOKE_TEXT)}", step)
         self.assertIn("bundler-cache: true", step)
         self.assertNotIn("ruby-version", step)
         self.assertLess(
