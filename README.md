@@ -14,6 +14,12 @@ gates landing through its own `.github/workflows/test-gate.yml` required status
 (the Test Gate Contract — standards ADR-0020). The central `test-py.yml` /
 `rust-test.yml` gate workflows retired with their rulesets (standards#389).
 
+E2E callers must grant `contents: read` and `checks: write` to their calling
+job, and their test runner must produce `reports/e2e/junit.xml`. The reusable
+publishes a JUnit GitHub Check on writable-token runs. Fork pull requests and
+Dependabot runs retain annotations, the job summary, and artifacts without
+attempting a Checks API write. The E2E command's exit status remains the gate.
+
 ### Gate workflow publication
 
 Organization rulesets load Gate workflow files from the lightweight
