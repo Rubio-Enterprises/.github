@@ -26,7 +26,7 @@ SPEC.loader.exec_module(plumbing_ref)
 
 GATE_WORKFLOWS = {
     "gate-audit": ".github/workflows/audit.yml",
-    "gate-composite": ".github/workflows/gate-composite.yml",
+    "standards-gates": ".github/workflows/standards-gates.yml",
     "gate-lint-format": ".github/workflows/lint-format.yml",
     "gate-secret-scan": ".github/workflows/secret-scan.yml",
     "gate-pr-title": ".github/workflows/pr-title.yml",

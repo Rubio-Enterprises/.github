@@ -1,4 +1,4 @@
-name: gate composite
+name: standards-gates
 
 "on":
   pull_request:
@@ -10,11 +10,11 @@ permissions:
 concurrency:
   # Candidate workflow revisions must coexist. Only a newer PR revision may
   # supersede an older run; every merge-queue run gets a unique group.
-  group: gate-composite-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: standards-gates-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  gate-composite:
+  standards-gates:
     runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
     timeout-minutes: 120
     env:
@@ -51,7 +51,7 @@ jobs:
           # A required-workflow injection is published at a tag or exact SHA, so
           # it remains property-selected even when the consumer is .github.
           case "$WORKFLOW_REF" in
-            Rubio-Enterprises/.github/.github/workflows/gate-composite.yml@refs/heads/*|Rubio-Enterprises/.github/.github/workflows/gate-composite.yml@refs/pull/*)
+            Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@refs/heads/*|Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@refs/pull/*)
               if [ "$GITHUB_REPOSITORY" = "Rubio-Enterprises/.github" ]; then
                 audit=false
                 lint_format=false
@@ -360,7 +360,7 @@ jobs:
           fi
           bash "$STANDARDS_ROOT/ci/gate-audit.sh"
 
-      - name: Gate — lint-format
+      - name: lint-format
         id: gate_lint_format
         if: always()
         continue-on-error: true
@@ -472,7 +472,7 @@ jobs:
           set -euo pipefail
           fail=0
           {
-            echo "## Composite governance gate"
+            echo "## Standards governance gates"
             echo
             echo "| Gate | Verdict | Step outcome |"
             echo "| --- | --- | --- |"

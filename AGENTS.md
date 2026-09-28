@@ -31,7 +31,7 @@ local check for the workflow files before pushing. Otherwise validation happens 
 Two delivery mechanisms live here now.
 
 **Gate workflows — the two property-targeted Required Governance Workflows.**
-`gate-typescript` runs where a repo carries `gate-typescript`; `gate-composite`
+`gate-typescript` runs where a repo carries `gate-typescript`; `standards-gates`
 runs on every `standards-onboarded` repo and reads its `gate-audit`,
 `gate-lint-format`, `gate-pr-title`, and `gate-secret-scan` properties to pick
 its checks (all set in `.github-private` Terraform). The org gate rulesets
@@ -46,7 +46,7 @@ channel.
 
 | Gate workflow | Gate Family | What it does | Standards content |
 |---|---|---|---|
-| `gate-composite.yml` | `gate-composite` | One job; the repository's `gate-audit` / `gate-lint-format` / `gate-pr-title` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-format (runtime-rendered canonical lint configs; markdownlint, yamllint, ruff, biome), PR-title commitlint, and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | channel (`canary`/`stable`), runtime-resolved |
+| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-format` / `gate-pr-title` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-format (runtime-rendered canonical lint configs; markdownlint, yamllint, ruff, biome), PR-title commitlint, and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | channel (`canary`/`stable`), runtime-resolved |
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
@@ -69,8 +69,8 @@ consumer's rendered `standards.yml` (or a release workflow):
 | Workflow | What it does | Pin |
 |---|---|---|
 | `lint-hooks.yml` | `lefthook run pre-commit --all-files` + a commit-msg smoke test — the CI floor for tools with no config-path flag (shellcheck, pyright, clippy…) that the composite's lint-format check doesn't cover; **stays rendered in `standards.yml`** | — |
-| `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-time gitleaks scan runs in `gate-composite.yml` | — |
-| `e2e.yml` | Playwright harness; detects `scripts.e2e`, then runs `mise run e2e` / `npm run e2e`. Does **not** start a dev server (see the dev-server contract in its header) | — |
+| `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-time gitleaks scan runs in `standards-gates.yml` | — |
+| `e2e.yml` | Playwright harness; requires apex `scripts.e2e` and nonempty JUnit, runs `mise run e2e` / `npm run e2e`, with optional package-pinned `scripts.e2e:setup` before mise setup fallback. Does **not** start a dev server (see the dev-server contract in its header) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
 | `cloud-setup-smoke.yml` | Runs the consumer's Claude Code on the web setup chain (`cloud-setup-shim.sh` → `common/cloud-setup.sh` → `repo-local/cloud-setup.sh`) on Linux under `CLOUD_SETUP_SMOKE`, so a cloud-environment defect fails the PR that introduces it | — |
 
@@ -98,7 +98,7 @@ Two things about it are load-bearing and easy to break:
 `bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
 
 **The content gate resolves `standards` content by channel, not by a frozen
-`audit/v1` pin.** `gate-composite.yml` clones `standards@<channel>` at runtime (a
+`audit/v1` pin.** `standards-gates.yml` clones `standards@<channel>` at runtime (a
 repo's `ring` property picks `canary` vs `stable`). Still read the actual `ref:`
 a gate resolves before reasoning about which `standards` content it runs.
 
@@ -120,7 +120,7 @@ This is the single most important thing to get right in this repo. Three pins
 coexist, and they move differently.
 
 1. **Gate content resolves by channel, not by an `audit/v1` pin.** The
-   content-bearing gate workflow (`gate-composite.yml`) clones
+   content-bearing gate workflow (`standards-gates.yml`) clones
    `standards@<channel>` at runtime — `canary` for ring repos, `stable` for the
    fleet (the repo's `ring` property picks) — and runs its `ci/gate-*.sh`
    checks. So an audit-rule or gate-logic **content** change reaches the fleet
