@@ -1,11 +1,9 @@
 name: lint hooks (reusable)
-# CI gate that runs the consumer's lefthook commands. Normal repos run across
-# all files, validating the hook-tool surface (lefthook + the pinned tools
-# backing each command) end-to-end, then fail if any hook rewrote a tracked
-# file — that is how the write-mode formatters (prettier, shfmt, gofmt,
-# rustfmt, ruff format, biome) enforce in CI at all. Forks run only against
-# the PR's changed files: inherited upstream debt should not block a standards
-# migration, but changed fork files still need the same hook coverage.
+# CI gate that runs the consumer's lefthook commands. Normal repos check all
+# files; forks check the PR's changed files so inherited upstream debt stays
+# outside the PR. Both paths fail when a hook fails or rewrites a tracked file.
+# Write-mode formatters (prettier, shfmt, gofmt, rustfmt, ruff format, biome)
+# exit 0 after rewriting, so the tracked-file check is part of the gate.
 #
 # Runner routing: a cheap `detect` job reads the consumer's `.copier-answers.yml`
 # and picks the tier. CAPABILITY outranks resource: `has_swift` /
@@ -363,7 +361,6 @@ jobs:
           MISE_ENV: ci
         run: mise exec -- lefthook run pre-commit --all-files
       - name: Fail if a hook rewrote a tracked file
-        if: needs.detect.outputs.is_fork != 'true'
         # The formatter hooks are WRITE-mode by design (`prettier --write`,
         # `shfmt -w`, `gofmt -w`, `rustfmt`, `ruff format`, `biome check
         # --write`): locally they fix the file and `stage_fixed` the rewrite
@@ -379,13 +376,19 @@ jobs:
         # `git diff HEAD` covers staged AND unstaged edits to tracked files
         # (`stage_fixed` hooks `git add` their rewrites, so a plain `git diff`
         # would miss them) and ignores untracked output such as tool caches.
-        # Remediation is the same command the step above ran.
+        # Remediation runs the same hook stage over the affected files locally.
+        env:
+          IS_FORK: ${{ needs.detect.outputs.is_fork }}
         run: |
           if git diff --quiet HEAD --; then
             echo "no hook rewrote a tracked file"
             exit 0
           fi
-          fix="run 'mise exec -- lefthook run pre-commit --all-files'"
+          if [ "$IS_FORK" = "true" ]; then
+            fix="run 'mise exec -- lefthook run pre-commit' on the changed files"
+          else
+            fix="run 'mise exec -- lefthook run pre-commit --all-files'"
+          fi
           fix="${fix} locally and commit the result"
           echo "::error title=lint-hooks::hooks rewrote tracked files — ${fix}"
           git --no-pager diff --stat HEAD --
@@ -396,35 +399,6 @@ jobs:
         if: needs.detect.outputs.is_fork == 'true'
         env:
           MISE_ENV: ci
-          # WARN-ONLY BY DEFAULT, deliberately, and only for this fork path.
-          #
-          # The `-z` fix above does not tighten a working gate — it REVIVES a dead
-          # one. Every fork-typed consumer has been passing this step while
-          # checking zero files, across ~16 repos (mo, clipssh, SaneBar, VoiceInk,
-          # karakeep, gha-outrunner, vrt-frontend, kodus-ai, aw-server-rust,
-          # vvterm, ...). Enforcing on contact would turn all of them red
-          # simultaneously for pre-existing debt that predates the fix, on a
-          # required check, with no landing path for the fixes themselves.
-          #
-          # The debt is also mostly not bugs: vvterm's ~556 findings are
-          # `line_length` / `function_body_length` / `file_length` threshold
-          # settings that want a deliberate `.swiftlint.yml` decision, and
-          # aw-server-rust's clippy cannot even build under its pinned Rust — a
-          # repo that literally cannot go green would be wedged by an enforcing
-          # gate. Warn-only converts an invisible dead gate into a visible one
-          # today at zero blocking risk, and gives each repo its real number to
-          # work from.
-          #
-          # Flip a repo to enforcing by setting its own Actions variable
-          # LINT_HOOKS_FORK_ENFORCE=true once it is clean; set it at ORG level to
-          # flip the remaining fleet at once (a repo variable overrides the org
-          # one, so a not-yet-clean repo can still opt back out). `vars` in a
-          # reusable resolves in the CALLER's context, so this reads the
-          # consumer's value, not this repo's.
-          #
-          # The non-fork `--all-files` path above stays ENFORCING and untouched:
-          # it was never broken, so nothing that is green today can turn red.
-          ENFORCE_FORK_HOOKS: ${{ vars.LINT_HOOKS_FORK_ENFORCE || 'false' }}
         run: |
           set -euo pipefail
           files=/tmp/lefthook-changed-files.txt
@@ -474,29 +448,11 @@ jobs:
           echo "Fork-mode lefthook file list:"
           tr '\0' '\n' < "$files" | sed 's/^/  /'
 
-          # `if !` rather than `set +e`: keeps errexit armed for everything else in
-          # the step, so an unrelated failure below still fails the job.
-          if mise exec -- lefthook run pre-commit --files-from-stdin < "$files"; then
-            echo "fork-mode lefthook hooks passed"
-            exit 0
-          fi
-
-          if [ "$ENFORCE_FORK_HOOKS" = "true" ]; then
-            echo "::error::fork-mode lefthook hooks failed (LINT_HOOKS_FORK_ENFORCE=true)" >&2
+          if ! mise exec -- lefthook run pre-commit --files-from-stdin < "$files"; then
+            echo "::error::fork-mode lefthook hooks failed" >&2
             exit 1
           fi
-
-          # Warn, do not fail. Emitted as a titled workflow annotation so it lands
-          # on the run/Checks summary rather than only in the raw step log — a
-          # warning nobody sees is the same dead gate in a new costume. Built up in
-          # a variable because a `\`-continued string inside double quotes would
-          # fold this block's indentation into the message as runs of spaces.
-          msg="Hooks reported findings on this PR's changed files. "
-          msg+="This step is WARN-ONLY for fork-type repos until the repo is "
-          msg+="clean; it does not block the merge. Fix the findings above, then "
-          msg+="set the repo variable LINT_HOOKS_FORK_ENFORCE=true to make it "
-          msg+="blocking."
-          echo "::warning title=fork-mode lefthook hooks failed (not enforced)::${msg}"
+          echo "fork-mode lefthook hooks passed"
         shell: bash
       - name: Validate commit-msg hook accepts a conventional commit
         # Writes a well-formed conventional-commit message and runs the

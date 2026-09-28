@@ -1,19 +1,8 @@
 """Behavioral contract tests for the lint-hooks reusable workflow.
 
-Two invariants are pinned here, both of which failed silently in production
-rather than loudly:
-
-1. Every producer of the fork-mode file list must use ``-z``. lefthook's
-   ``--files-from-stdin`` parses NUL, not newlines; fed a newline-separated list
-   it resolves ZERO paths, so every ``glob:``-scoped hook skips and the job exits
-   0 having checked nothing. A newline-separated producer is not a style slip —
-   it silently disables the gate.
-
-2. The fork path is warn-only by default and the all-files path is not. The
-   ``-z`` fix revives a gate that has been passing vacuously across the whole
-   fork cohort, so enforcing on contact would turn ~16 repos red at once for
-   pre-existing debt. The non-fork path was never broken and must stay
-   enforcing, so nothing green today can turn red.
+Fork file lists must be NUL-separated or glob-scoped hooks silently check
+nothing. Both fork and non-fork hooks must fail on command errors and tracked
+formatter rewrites; a required status cannot report warnings as success.
 """
 
 from __future__ import annotations
@@ -30,6 +19,7 @@ WORKFLOW_TEXT = WORKFLOW.read_text(encoding="utf-8")
 
 FORK_STEP = "Run lefthook pre-commit on changed fork files"
 ALL_FILES_STEP = "Run lefthook pre-commit across all files"
+REWRITE_STEP = "Fail if a hook rewrote a tracked file"
 
 
 def extract_run_block(step_name: str) -> str:
@@ -60,36 +50,41 @@ def strip_comments(script: str) -> str:
 
 
 def run_fork_step(
-    *, hooks_exit: int, enforce: str, repo: Path
+    *, hooks_exit: int, repo: Path, rewrite: bool = False
 ) -> subprocess.CompletedProcess[str]:
-    """Execute the fork step's real script with a stubbed `mise` on PATH.
-
-    The stub stands in for `mise exec -- lefthook ...` and exits *hooks_exit*,
-    which is the only thing the warn/enforce decision keys on.
-    """
+    """Execute the real fork step with a stubbed hook command on PATH."""
     bin_dir = repo / ".stubbin"
     bin_dir.mkdir(exist_ok=True)
     stub = bin_dir / "mise"
-    stub.write_text(f'#!/bin/sh\ncat >/dev/null\nexit {hooks_exit}\n', encoding="utf-8")
+    mutation = 'printf "formatted\\n" > a.md\n' if rewrite else ""
+    stub.write_text(
+        f"#!/bin/sh\ncat >/dev/null\n{mutation}exit {hooks_exit}\n", encoding="utf-8"
+    )
     stub.chmod(0o755)
 
-    script = extract_run_block(FORK_STEP)
-    with tempfile.NamedTemporaryFile() as github_output:
-        env = {
-            "PATH": f"{bin_dir}:{os.environ['PATH']}",
-            "HOME": os.environ["HOME"],
-            "GITHUB_OUTPUT": github_output.name,
-            "MISE_ENV": "ci",
-            "ENFORCE_FORK_HOOKS": enforce,
-        }
-        return subprocess.run(
-            ["bash", "-c", script],
-            cwd=repo,
-            text=True,
-            capture_output=True,
-            check=False,
-            env=env,
-        )
+    env = {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "HOME": os.environ["HOME"],
+        "MISE_ENV": "ci",
+    }
+    return subprocess.run(
+        ["bash", "-c", extract_run_block(FORK_STEP)],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+
+
+def run_rewrite_guard(repo: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "-c", extract_run_block(REWRITE_STEP)],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 def make_repo(tmp: str) -> Path:
@@ -147,23 +142,21 @@ class ForkFileListTests(unittest.TestCase):
 
 
 class EnforcementPolicyTests(unittest.TestCase):
-    """Invariant 2 — fork warn-only by default, all-files always enforcing."""
+    """Required hook status must not hide a fork failure."""
 
-    def test_fork_step_defaults_to_warn_only(self) -> None:
-        # Assert on the isolated declaration line, not the whole file: an
-        # assertIn against WORKFLOW_TEXT dumps ~400 lines into the failure
-        # message and buries the one thing that is wrong.
-        declarations = [
-            line.strip()
-            for line in WORKFLOW_TEXT.splitlines()
-            if line.strip().startswith("ENFORCE_FORK_HOOKS:")
-        ]
-        self.assertEqual(
-            declarations,
-            ["ENFORCE_FORK_HOOKS: ${{ vars.LINT_HOOKS_FORK_ENFORCE || 'false' }}"],
-            "the default must be 'false' — the -z fix revives a vacuously "
-            "passing gate across the whole fork cohort at once",
+    def test_fork_step_has_no_warning_escape_hatch(self) -> None:
+        self.assertNotIn("ENFORCE_FORK_HOOKS:", WORKFLOW_TEXT)
+        self.assertNotIn("::warning", extract_run_block(FORK_STEP))
+
+    def test_rewrite_guard_runs_for_forks(self) -> None:
+        lines = WORKFLOW_TEXT.splitlines()
+        start = next(
+            i for i, line in enumerate(lines) if line.strip() == f"- name: {REWRITE_STEP}"
         )
+        run_index = next(
+            i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |"
+        )
+        self.assertNotIn("if:", "\n".join(lines[start:run_index]))
 
     def test_all_files_step_has_no_enforcement_escape_hatch(self) -> None:
         # The non-fork path was never broken. It must not gain a warn-only mode,
@@ -182,42 +175,36 @@ class EnforcementPolicyTests(unittest.TestCase):
 
 
 class ForkStepBehaviorTests(unittest.TestCase):
-    """Execute the real extracted script; assert the decision it actually makes."""
+    """Exercise the fork step and formatter guard on disposable git trees."""
 
     def test_passing_hooks_exit_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            result = run_fork_step(hooks_exit=0, enforce="false", repo=make_repo(tmp))
+            result = run_fork_step(hooks_exit=0, repo=make_repo(tmp))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("fork-mode lefthook hooks passed", result.stdout)
 
-    def test_failing_hooks_warn_but_do_not_fail_by_default(self) -> None:
+    def test_failing_hooks_fail_the_job(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            result = run_fork_step(hooks_exit=1, enforce="false", repo=make_repo(tmp))
-        self.assertEqual(
-            result.returncode,
-            0,
-            f"warn-only mode must not fail the job\nstderr: {result.stderr}",
-        )
-        self.assertIn("::warning title=", result.stdout)
-        self.assertIn("LINT_HOOKS_FORK_ENFORCE=true", result.stdout)
-
-    def test_failing_hooks_fail_the_job_when_enforced(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            result = run_fork_step(hooks_exit=1, enforce="true", repo=make_repo(tmp))
+            result = run_fork_step(hooks_exit=1, repo=make_repo(tmp))
         self.assertEqual(result.returncode, 1)
-        self.assertIn("::error::", result.stderr)
+        self.assertIn("::error::fork-mode lefthook hooks failed", result.stderr)
 
-    def test_warning_message_is_a_single_annotation_line(self) -> None:
-        # A `\`-continued string inside double quotes folds the YAML block's
-        # indentation into the message; a multi-line annotation body is also not
-        # rendered by GitHub. Both would make the warning unreadable.
+    def test_clean_repo_passes_rewrite_guard(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            result = run_fork_step(hooks_exit=1, enforce="false", repo=make_repo(tmp))
-        annotations = [
-            line for line in result.stdout.splitlines() if line.startswith("::warning")
-        ]
-        self.assertEqual(len(annotations), 1, result.stdout)
-        self.assertNotIn("  ", annotations[0].split("::", 2)[-1])
+            repo = make_repo(tmp)
+            self.assertEqual(run_fork_step(hooks_exit=0, repo=repo).returncode, 0)
+            guard = run_rewrite_guard(repo)
+        self.assertEqual(guard.returncode, 0, guard.stderr)
+
+    def test_formatter_rewrite_fails_the_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            self.assertEqual(
+                run_fork_step(hooks_exit=0, repo=repo, rewrite=True).returncode, 0
+            )
+            guard = run_rewrite_guard(repo)
+        self.assertEqual(guard.returncode, 1)
+        self.assertIn("::error title=lint-hooks::", guard.stdout)
 
 
 if __name__ == "__main__":

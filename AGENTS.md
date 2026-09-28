@@ -229,22 +229,14 @@ reread contract in the runbook.
   is deliberately absent from `runners.tf` until the pool converges, so a `glue-heavy`
   declaration degrades through the fallback chain to glue rather than to hosted minutes —
   declaring a class does not create its route.
-- **Consumer-set Actions variables these reusables read.** `vars` in a reusable resolves in
-  the **caller's** context, so each of these is set on (or above) the consumer repo, not here.
-  A repo-level value overrides an org-level one.
-
-  | Variable | Read by | Effect when set |
-  |---|---|---|
-  | `GO_PRIVATE_MODULE_REPOS` | `lint-hooks` | comma-separated repo names whose private Go modules get an App-token `insteadOf` route; both steps no-op when unset |
-  | `LINT_HOOKS_FORK_ENFORCE` | `lint-hooks` | `true` makes the **fork-mode** hook run blocking. Default (unset) is **warn-only** |
-
-  `LINT_HOOKS_FORK_ENFORCE` exists because #166's `-z` fix does not tighten a working gate —
-  it *revives a dead one*. Fork-mode hooks had been passing while resolving zero files, so
-  every fork-typed consumer (~16 repos) would turn red simultaneously on a required check for
-  pre-existing debt. Warn-only makes the gate visible now; flip repos to enforcing as they
-  are cleaned, then set it org-wide once the cohort is clean. The non-fork `--all-files` path
-  has no such switch on purpose — it was never broken, and a warn-only escape hatch there
-  would let genuinely-green repos start hiding regressions.
+- **Private Go modules in `lint-hooks`.** A consumer that needs private Go module
+  forks sets `GO_PRIVATE_MODULE_REPOS` to their comma-separated repository names.
+  The reusable reads that caller-side variable and mints a read-only App token;
+  the steps are inert when it is unset.
+- **Fork hook checks are fail-closed.** `lint-hooks` checks only PR-changed files
+  in forks and all files in non-forks. Both paths fail on a hook error or a
+  tracked formatter rewrite. The consumer's SHA pin must advance to deliver
+  a change to this reusable; editing its source here does not update callers.
 
 ## Renovate config — three files, three roles
 
