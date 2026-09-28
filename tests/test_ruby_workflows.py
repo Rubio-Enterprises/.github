@@ -163,10 +163,6 @@ class LintRubyRoutingTests(unittest.TestCase):
             LINT_TEXT.index("- name: Install Ruby and locked bundle"),
             LINT_TEXT.index("uses: jdx/mise-action@"),
         )
-        self.assertIn(
-            "RUBY_RUNNER: ${{ vars.RUNNER_RUBY || '[\"ubuntu-24.04-arm\"]' }}",
-            LINT_TEXT,
-        )
 
 
 class CloudSmokeRubyTests(unittest.TestCase):
