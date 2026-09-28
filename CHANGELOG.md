@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.1](https://github.com/Rubio-Enterprises/.github/compare/v4.1.0...v4.1.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **ci:** accept repo-owned E2E task without apex package ([#309](https://github.com/Rubio-Enterprises/.github/issues/309)) ([5ae810b](https://github.com/Rubio-Enterprises/.github/commit/5ae810b8f215ab6ff6f7a719319b68a242765433))
+
 ## [4.1.0](https://github.com/Rubio-Enterprises/.github/compare/v4.0.1...v4.1.0) (2026-09-28)
 
 
