@@ -1,11 +1,11 @@
 {
-  "expected_current_sha": "81322d076f3789b3f535fd3aa7355a5c7fba2aee",
-  "target_sha": "e1075fafc2bc96235329e473ba4eb245ef36ca84",
-  "reason": "Publish ADR 0002 step 8: retire the audit, lint-format and pr-title gate workflows and the gitleaks job in secret-scan.yml after gate-composite replaced them. Enforcement moved first: .github-private#304 activated gate-composite, #305 downgraded the four legacy families, and #306 destroyed their rulesets, so no ruleset references the removed paths. The Gate Family manifest now lists gate-composite and gate-typescript, in lockstep with .github-private's gate_ruleset_workflows. gate-composite.yml and typecheck-ts.yml change only in comments.",
+  "expected_current_sha": "e1075fafc2bc96235329e473ba4eb245ef36ca84",
+  "target_sha": "c9160e4d0f3ce68c2d2a19e85be23c91657732a5",
+  "reason": "Publish the renamed standards-gates.yml required workflow and fail-closed end-to-end gate after org producer #302 and the Karakeep producer #477 are merged, before Terraform governance ruleset #324 applies. Publication advances the pinned gates/wf-v1 tag; until #324 updates the live ruleset, that ruleset still references the now-absent gate-composite.yml, creating a brief fail-closed red interval. Do not merge this Publication Request until the producer prerequisites are met; apply #324 after publication.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/287",
-    "https://github.com/Rubio-Enterprises/.github-private/pull/304",
-    "https://github.com/Rubio-Enterprises/.github-private/pull/305",
-    "https://github.com/Rubio-Enterprises/.github-private/pull/306"
+    "https://github.com/Rubio-Enterprises/.github-private/pull/302",
+    "https://github.com/Rubio-Enterprises/.github/pull/593",
+    "https://github.com/Rubio-Enterprises/karakeep/pull/477",
+    "https://github.com/Rubio-Enterprises/.github-private/pull/324"
   ]
 }
