@@ -17,12 +17,8 @@ name: lint hooks (reusable)
 # `has_swift` / `has_homebrew_formulae` go to macOS because swiftformat/
 # swiftlint need sourcekitd and `brew style` needs Homebrew, none of which the
 # Linux glue runner has — there they die with `swiftformat_linux: not found` /
-# `Loading libsourcekitdInProc.so failed`. That macOS need is served by the LITE
-# tier (`RUNNER_MACOS_LITE`, cheap GitHub-hosted), not the scarce self-hosted
-# Tart pool: this job is a short lint pass (~40s of swiftlint/swiftformat once
-# the mise cache is warm), and the org routing rule puts short (≲2 min) macOS
-# lints/shell tests on the lite tier while reserving `RUNNER_MACOS` for long,
-# high-frequency Xcode builds.
+# `Loading libsourcekitdInProc.so failed`. Run these short lint passes on
+# hosted Intel macOS rather than the scarce self-hosted Xcode build pool.
 #
 # Everything else takes the Linux route, whose tier is the consumer's DECLARED
 # `lint_hooks_workload_class` (standards ADR-0022): `glue-heavy` for the
@@ -47,13 +43,10 @@ permissions:
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
   detect:
-    # Resolve the runner from the consumer's answers: has_ruby needs the
-    # dedicated hosted Ruby route; has_swift needs macOS (sourcekitd) on the
-    # cheap hosted lite tier — a ≲2-min lint pass, so RUNNER_MACOS_LITE rather
-    # than the scarce self-hosted RUNNER_MACOS pool (see the routing note in
-    # the file header). Everything else takes the Linux tier its declared
-    # lint_hooks_workload_class names. Reading .copier-answers.yml tracks the
-    # authoritative declaration rather than file-sniffing.
+    # Resolve the runner from the consumer's answers: has_ruby needs hosted
+    # x64 Linux; has_swift needs hosted Intel macOS (sourcekitd). Everything
+    # else takes the Linux tier its declared lint_hooks_workload_class names.
+    # Reading .copier-answers.yml tracks the authoritative declaration.
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
@@ -72,8 +65,8 @@ jobs:
       - name: Pick runner from the language facets
         id: pick
         env:
-          RUBY_RUNNER: ${{ vars.RUNNER_RUBY || '["ubuntu-24.04-arm"]' }}
-          MACOS_RUNNER: ${{ vars.RUNNER_MACOS_LITE || '["macos-15"]' }}
+          RUBY_RUNNER: '["ubuntu-24.04"]'
+          MACOS_RUNNER: '["macos-15-intel"]'
           GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
           # Fallback chain, ordered so degradation is MONOTONIC IN CAPABILITY.
           # `|| vars.RUNNER_GLUE` was REMOVED 2026-09-18. A `glue-heavy`

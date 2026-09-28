@@ -39,15 +39,10 @@ jobs:
     permissions:
       contents: read
       checks: write
-    # e2e has its OWN routing tier, and it is never RUNNER_GLUE. Glue is the
-    # light-job pool — containers sized for ~0.75 GB jobs — and routing e2e
-    # there OOM-killed the fleet's lightest consumer during `pnpm install`
-    # (tried and reverted in #154). RUNNER_E2E's self-hosted value targets the
-    # linux-arm64 Tart VMs (8 GiB, passwordless sudo, so the sudo-aware
-    # `mise run e2e-setup` installs browser OS deps via --with-deps); the
-    # hosted fallback below keeps consumers working wherever the variable is
-    # unset. Toggle with `fleet ci mode <self|github-hosted> --tier e2e`.
-    runs-on: ${{ fromJSON(vars.RUNNER_E2E || '["ubuntu-latest"]') }}
+    # Playwright and its dependency install need more memory than the 1 GiB
+    # glue pool (the glue route OOM-killed a consumer in #154). Use the hosted
+    # x64 8 GiB runner rather than the shared ARM E2E pool.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
