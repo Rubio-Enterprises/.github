@@ -33,32 +33,14 @@ name: bump-homebrew-git (reusable)
         required: false
 permissions:
   contents: read
-# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
-# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
-# org maximum; any tighter timeout in this file is deliberate.
+# Job timeouts cap execution only, never queue time. Keep the existing
+# ceiling for a wedged job; tighter timeouts in this file are deliberate.
 jobs:
   bump:
-    # NOT RUNNER_GLUE. The glue pool is a rootless, locked-down container with no
-    # build toolchain and no ruby — it never had ruby — so the ruby heredoc below
-    # fails there with `ruby: command not found`, exit 127.
-    #
-    # The regression was THIS workflow's own sed → ruby swap (54f84651,
-    # 2026-06-26T02:45Z, "fix: scope homebrew formula revision bumps" #67), first
-    # released in v1.5.0 — not a runner change. Do not re-derive it as one: omlx
-    # bumped successfully ON glue 24 minutes earlier (run 28213030752, 02:21Z)
-    # using v1.4.1, whose rewrite step was sed. v1.4.6 and earlier work on glue;
-    # v1.5.0 and later do not, so the break reached each caller silently when
-    # Renovate advanced its pin past v1.4.6 — gmaps-sync 2026-08-09, clipssh
-    # 2026-08-14 (v1.4.0). Tap bumps only fire on release tags, and the failure
-    # never surfaces on the release PR, which is why it stayed invisible for two
-    # months. Reverting to sed is not the fix: #67 swapped it in to scope the
-    # rewrite to the top-level :git stanza, which sed could not do safely.
-    #
-    # VM-class it is: both RUNNER_LINUX_ARM routes (the self-hosted linux-arm64
-    # Tart VMs and the hosted ubuntu-24.04-arm fallback) have passwordless sudo,
-    # which the ruby preflight below needs. Same reasoning as the kcov coverage
-    # job in clipssh — the glue pool cannot host a job with toolchain needs.
-    runs-on: ${{ fromJSON(vars.RUNNER_LINUX_ARM || '["ubuntu-24.04-arm"]') }}
+    # NOT RUNNER_GLUE. Its rootless container has no Ruby or build toolchain;
+    # the top-level :git stanza rewrite needs Ruby (the sed version could not
+    # safely scope the rewrite). Hosted x64 has the required toolchain and sudo.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       TAP_APP_CONFIGURED: ${{ secrets.TAP_PUSH_APP_ID != '' && secrets.TAP_PUSH_APP_PRIVATE_KEY != '' }}
@@ -89,10 +71,8 @@ jobs:
         with:
           repository: ${{ inputs.tap }}
           token: ${{ steps.tap-app.outputs.token }}
-      # The rewrite below is a ruby script. Ruby ships on GitHub's hosted images
-      # but is NOT guaranteed on the self-hosted linux-arm64 Tart VM template
-      # (an externally baked playwright image), so install it when absent instead
-      # of assuming. No-op when already present.
+      # The rewrite below is Ruby. Hosted Ubuntu supplies it, with this
+      # preflight retaining the install fallback if the image changes.
       - name: Ensure ruby is available
         run: |
           set -euo pipefail

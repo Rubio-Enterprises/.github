@@ -74,15 +74,11 @@ consumer's rendered `standards.yml` (or a release workflow):
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
 | `cloud-setup-smoke.yml` | Runs the consumer's Claude Code on the web setup chain (`cloud-setup-shim.sh` → `common/cloud-setup.sh` → `repo-local/cloud-setup.sh`) on Linux under `CLOUD_SETUP_SMOKE`, so a cloud-environment defect fails the PR that introduces it | — |
 
-`cloud-setup-smoke.yml` is the only reusable here that runs **hosted x64 by
-default** rather than glue. That is the point of it: the cloud environment is x64
-Ubuntu and the glue pool is arm64, so routing it to glue would add
-architecture-specific false positives to a check whose whole question is "would
-this work in the cloud?". It reads `vars.RUNNER_CLOUD_SMOKE` with an
-`ubuntu-latest` fallback; that variable is deliberately **not** declared in
-`.github-private`'s `runners.tf` (declaring it would create it live and could
-point the job at a label no pool advertises — the 2026-07-21 stall). Absent
-variable means "behave as written", per the `RUNNER_GLUE_HEAVY` precedent.
+`cloud-setup-smoke.yml` runs hosted x64 by default so its Linux cloud-setup
+check matches the target architecture. It reads `vars.RUNNER_CLOUD_SMOKE`
+with an `ubuntu-latest` fallback; the variable is deliberately absent from
+`.github-private`'s `runners.tf` (declaring it could point at an unadvertised
+pool and stall the job, as on 2026-07-21).
 
 Two things about it are load-bearing and easy to break:
 
@@ -206,20 +202,17 @@ reread contract in the runbook.
 - **mise CLI pin.** Each `jdx/mise-action` version carries a
   `# renovate: datasource=github-releases depName=jdx/mise` marker so Renovate bumps them
   together (human-merge only — see below). Keep the marker when you add a job.
-- **Runner Route selection.** Glue-tier jobs use
-  `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}`. Rust workload policy
-  additionally maps symbolic `linux-arm` through `RUNNER_LINUX_ARM` with
-  `ubuntu-24.04-arm` as its class-specific hosted fallback. Repository policy stores only
-  the symbolic class and timeout; never copy physical self-hosted labels into a public
-  workflow. The Rust aggregate remains on the glue route. `e2e` has its own tier —
-  `RUNNER_E2E` with `ubuntu-latest` as its hosted fallback — because Playwright suites are
-  multi-GB jobs: its self-hosted value targets the linux-arm64 VM pool and must NEVER be
-  pointed at glue (tried and reverted in #154 after it OOM-killed the lightest consumer).
-  macOS is two-tiered and the tier is a deliberate choice, not a detail: short (≲2 min)
-  lints/shell tests take `RUNNER_MACOS_LITE` (cheap hosted) — `lint-hooks`' swift route is
-  one — while `RUNNER_MACOS` (the scarce self-hosted Tart pool) is reserved for long,
-  high-frequency Xcode work such as `testflight`'s signed build. Do not promote a lint job
-  onto `RUNNER_MACOS` to "match" the other macOS job.
+- **Runner Route selection.** Glue jobs use
+  `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}`. Rust workload
+  policy maps symbolic `linux-arm` through `RUNNER_LINUX_ARM` with
+  `ubuntu-24.04-arm` fallback; its aggregate stays on glue. Capability and
+  memory bound the shared reusables: `e2e` runs on hosted x64
+  `ubuntu-24.04` (8 GiB, not 1 GiB glue or the shared ARM pool);
+  `lint-hooks` sends Swift/Homebrew lint to hosted Intel
+  `macos-15-intel`, Ruby-only lint to hosted x64 `ubuntu-24.04`, and
+  other lint to its declared glue tier; `bump-brew` uses hosted x64
+  `ubuntu-24.04` for its Ruby formula rewrite. Keep long Xcode builds
+  such as `testflight` on the separate self-hosted `RUNNER_MACOS` route.
 - **The `glue-heavy` tier is DECLARED by the consumer, never derived.** `lint-hooks` and
   `typecheck-ts` route their Linux job by the repo's `lint_hooks_workload_class` /
   `typecheck_workload_class` answer (standards
