@@ -1,7 +1,7 @@
-# Reusable e2e workflow. A caller invokes it only for a repository with an
-# apex scripts.e2e; run that command and require a nonempty Playwright JUnit
-# report at reports/e2e/junit.xml. The consumer config owns the reporter path;
-# optional scripts.e2e:setup installs the package-pinned browser.
+# Reusable e2e workflow. A caller provides either an apex scripts.e2e or a
+# repo-owned mise e2e task (for nested/non-Node roots). Require a nonempty
+# Playwright JUnit report at reports/e2e/junit.xml; the consumer config owns
+# the reporter path. Optional scripts.e2e:setup installs the pinned browser.
 #
 # DEV-SERVER CONTRACT
 # -------------------
@@ -91,16 +91,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f package.json ] || ! jq -e '.scripts.e2e | strings | select(length > 0)' package.json >/dev/null; then
-            echo "::error::reusable e2e requires a nonempty apex package.json scripts.e2e" >&2
-            exit 1
-          fi
           if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
             echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
-          else
+          elif [ -f package.json ] && jq -e '.scripts.e2e | strings | select(length > 0)' package.json >/dev/null; then
             echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::reusable e2e requires an apex scripts.e2e or repo-owned mise e2e task" >&2
+            exit 1
           fi
-          if jq -e '.scripts["e2e:setup"] | strings | select(length > 0)' package.json >/dev/null; then
+          if [ -f package.json ] && jq -e '.scripts["e2e:setup"] | strings | select(length > 0)' package.json >/dev/null; then
             echo "setup=script" >> "$GITHUB_OUTPUT"
           else
             echo "setup=mise" >> "$GITHUB_OUTPUT"

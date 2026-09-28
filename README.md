@@ -6,7 +6,7 @@ Organization GitHub Actions workflows for `Rubio-Enterprises`: two Gate Family w
 
 | Workflow | Purpose |
 |---|---|
-| [`e2e.yml`](./.github/workflows/e2e.yml) | Playwright end-to-end harness; requires apex `scripts.e2e` and a nonempty JUnit report, supports package-pinned `scripts.e2e:setup`, and does not start a dev server |
+| [`e2e.yml`](./.github/workflows/e2e.yml) | Playwright end-to-end harness; runs an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
 
 Canonical non-E2E tests are not centrally executed: each enforcing repository
