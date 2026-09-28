@@ -1,11 +1,11 @@
 {
-  "expected_current_sha": "e1075fafc2bc96235329e473ba4eb245ef36ca84",
-  "target_sha": "c9160e4d0f3ce68c2d2a19e85be23c91657732a5",
-  "reason": "Publish the renamed standards-gates.yml required workflow and fail-closed end-to-end gate after org producer #302 and the Karakeep producer #477 are merged, before Terraform governance ruleset #324 applies. Publication advances the pinned gates/wf-v1 tag; until #324 updates the live ruleset, that ruleset still references the now-absent gate-composite.yml, creating a brief fail-closed red interval. Do not merge this Publication Request until the producer prerequisites are met; apply #324 after publication.",
+  "expected_current_sha": "c9160e4d0f3ce68c2d2a19e85be23c91657732a5",
+  "target_sha": "1d5a14b3a21914bae24606580ede3666b60d63ac",
+  "reason": "Publish .github #306's ordered mise uv bootstrap to the required standards-gates workflow. Mo #300 demonstrated the current tag fails before audit when pipx:check-jsonschema starts without its configured uv@0.12.15 dependency; the candidate first installs pinned uv, then installs and exports the selected gate tools. Source PR #306 passed CI; publication is required before Mo #300 can complete a green injected-gate rerun. Keep the active Gate Family on the exact source commit.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github-private/pull/302",
-    "https://github.com/Rubio-Enterprises/.github/pull/593",
-    "https://github.com/Rubio-Enterprises/karakeep/pull/477",
-    "https://github.com/Rubio-Enterprises/.github-private/pull/324"
+    "https://github.com/Rubio-Enterprises/.github/pull/306",
+    "https://github.com/Rubio-Enterprises/mo/pull/300",
+    "https://github.com/Rubio-Enterprises/mo/actions/runs/36466109099",
+    "https://github.com/Rubio-Enterprises/.github/actions/runs/36466989856"
   ]
 }
