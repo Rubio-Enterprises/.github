@@ -242,11 +242,28 @@ jobs:
         with:
           working_directory: .standards
           install: ${{ steps.applicability.outputs.standards_tools != '' }}
-          install_args: ${{ steps.applicability.outputs.standards_tools }}
+          # Audit installs its pinned uv first; a parallel install of uv and
+          # pipx:check-jsonschema cannot satisfy the latter's uv dependency.
+          install_args: ${{ steps.applicability.outputs.audit == 'true' && 'uv' || steps.applicability.outputs.standards_tools }}
           # No toolchain cache. Gate runs are pull_request-scoped, so a saved
           # cache serves only later pushes to the same pull request, and on
           # warm-glue saving cost more than restoring saved: 53 s of a 103 s
           # cold run (227-294 s under load), while warm runs still took 56-65 s.
+          cache: false
+          add_shims_to_path: false
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.9.11"
+
+      - name: Install audit tools after pinned uv
+        id: standards_audit_tools
+        if: steps.applicability.outputs.audit == 'true'
+        env:
+          MISE_CEILING_PATHS: ${{ github.workspace }}
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          working_directory: .standards
+          install: true
+          install_args: ${{ steps.applicability.outputs.standards_tools }}
           cache: false
           add_shims_to_path: false
           # renovate: datasource=github-releases depName=jdx/mise
@@ -290,6 +307,8 @@ jobs:
           UV_OUTCOME: ${{ steps.setup_uv.outcome }}
           UV_PYTHON_OUTCOME: ${{ steps.uv_python.outcome }}
           STANDARDS_MISE_OUTCOME: ${{ steps.standards_mise.outcome }}
+          AUDIT_NEEDED: ${{ steps.applicability.outputs.audit }}
+          STANDARDS_AUDIT_TOOLS_OUTCOME: ${{ steps.standards_audit_tools.outcome }}
           CONSUMER_LINT_NEEDED: ${{ steps.applicability.outputs.lint_format }}
           CONSUMER_LINT_OUTCOME: ${{ steps.consumer_lint_tools.outcome }}
         shell: bash
@@ -320,6 +339,9 @@ jobs:
             require_success "uv setup" "$UV_OUTCOME"
             require_success "uv-managed Python install" "$UV_PYTHON_OUTCOME"
             require_success "standards-side tool setup" "$STANDARDS_MISE_OUTCOME"
+            if [ "$AUDIT_NEEDED" = true ]; then
+              require_success "standards-side audit tool setup" "$STANDARDS_AUDIT_TOOLS_OUTCOME"
+            fi
             if [ "$CONSUMER_LINT_NEEDED" = true ]; then
               require_success "consumer lint tool setup" "$CONSUMER_LINT_OUTCOME"
             fi
