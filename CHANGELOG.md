@@ -1,5 +1,18 @@
 # Changelog
 
+## [4.1.0](https://github.com/Rubio-Enterprises/.github/compare/v4.0.1...v4.1.0) (2026-09-28)
+
+
+### Features
+
+* **gates:** rename standards gates and enforce E2E execution ([#302](https://github.com/Rubio-Enterprises/.github/issues/302)) ([c9160e4](https://github.com/Rubio-Enterprises/.github/commit/c9160e4d0f3ce68c2d2a19e85be23c91657732a5))
+
+
+### Bug Fixes
+
+* **ci:** fail fork hook findings and rewrites ([#308](https://github.com/Rubio-Enterprises/.github/issues/308)) ([aa53eaa](https://github.com/Rubio-Enterprises/.github/commit/aa53eaa54cdeb15ad534efb123640b1b14a1db1b))
+* **ci:** install pinned uv before audit tools ([#306](https://github.com/Rubio-Enterprises/.github/issues/306)) ([1d5a14b](https://github.com/Rubio-Enterprises/.github/commit/1d5a14b3a21914bae24606580ede3666b60d63ac))
+
 ## [4.0.1](https://github.com/Rubio-Enterprises/.github/compare/v4.0.0...v4.0.1) (2026-09-28)
 
 
