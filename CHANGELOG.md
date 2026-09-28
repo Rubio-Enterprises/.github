@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.0.1](https://github.com/Rubio-Enterprises/.github/compare/v4.0.0...v4.0.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **ci:** route shared jobs to x64 runners ([#299](https://github.com/Rubio-Enterprises/.github/issues/299)) ([f5cdc64](https://github.com/Rubio-Enterprises/.github/commit/f5cdc64eac08190c0fda594d2b806052f39ed479))
+
 ## [4.0.0](https://github.com/Rubio-Enterprises/.github/compare/v3.8.0...v4.0.0) (2026-09-27)
 
 
