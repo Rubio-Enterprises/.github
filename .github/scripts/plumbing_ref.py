@@ -163,8 +163,8 @@ def load_manifest(path: Path) -> dict[str, str]:
     manifest: dict[str, str] = {}
     for family, workflow_path in document.items():
         _validate_text(family, "Gate Family name")
-        if not family.startswith("gate-"):
-            raise PolicyError("Gate Family manifest keys must start with gate-")
+        if family != "standards-gates" and not family.startswith("gate-"):
+            raise PolicyError("Gate Family manifest keys must be standards-gates or start with gate-")
         if not isinstance(workflow_path, str):
             raise PolicyError(f"Gate Family {family} must map to a string path")
         _validate_text(workflow_path, f"Gate Family {family} workflow path")

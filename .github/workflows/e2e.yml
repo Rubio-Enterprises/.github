@@ -1,6 +1,7 @@
-# Reusable e2e workflow. Runs `mise run e2e` (or `npm run e2e` fallback) inside
-# a Playwright-shaped job after installing the consumer's mise toolchain +
-# lockfile-pinned JS deps + `mise run e2e-setup` (Playwright browser install).
+# Reusable e2e workflow. A caller invokes it only for a repository with an
+# apex scripts.e2e; run that command and require a nonempty Playwright JUnit
+# report at reports/e2e/junit.xml. The consumer config owns the reporter path;
+# optional scripts.e2e:setup installs the package-pinned browser.
 #
 # DEV-SERVER CONTRACT
 # -------------------
@@ -87,31 +88,23 @@ jobs:
           # renovate: datasource=github-releases depName=jdx/mise
           version: "2026.9.11"
       - id: detect
+        shell: bash
         run: |
           set -euo pipefail
-          # Ground truth: package.json scripts.e2e. The template renders a mise
-          # [tasks.e2e] for every ts-* archetype that delegates to `npm run e2e`,
-          # so the mise task's presence is NOT a reliable signal — what matters is
-          # whether scripts.e2e itself resolves. ensure-pkg-e2e-script.sh _tasks
-          # hook in standards/copier.yml auto-injects scripts.e2e when
-          # @playwright/test is a (dev)dependency, so this gate aligns naturally
-          # with "consumer actually has Playwright wired up".
-          # Surfaced 2026-05-17 by karakeep PR #5 (Plan 3 Task 45 follow-up):
-          # karakeep has the rendered mise e2e task BUT no @playwright/test (it
-          # uses `playwright` the lib for scraping, not @playwright/test) so
-          # ensure-pkg-e2e-script.sh correctly didn't add scripts.e2e; the prior
-          # detect picked the mise path and failed inside `npm run e2e`.
-          if [ -f package.json ] && jq -e '.scripts.e2e' package.json >/dev/null; then
-            if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
-              echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
-            else
-              echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "::notice::no scripts.e2e in apex package.json — skipping (consumer either opts out via has_e2e=false or has no Playwright harness wired)"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+          if [ ! -f package.json ] || ! jq -e '.scripts.e2e | strings | select(length > 0)' package.json >/dev/null; then
+            echo "::error::reusable e2e requires a nonempty apex package.json scripts.e2e" >&2
+            exit 1
           fi
-        shell: bash
+          if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
+            echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
+          else
+            echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
+          fi
+          if jq -e '.scripts["e2e:setup"] | strings | select(length > 0)' package.json >/dev/null; then
+            echo "setup=script" >> "$GITHUB_OUTPUT"
+          else
+            echo "setup=mise" >> "$GITHUB_OUTPUT"
+          fi
       # Stand up pnpm via the first-party `pnpm/action-setup` action rather
       # than `corepack pnpm install`. Corepack ≤ 0.29 (bundled with Node
       # 22.0–22.12) ships a stale pnpm signing-key trust store and crashes
@@ -120,10 +113,10 @@ jobs:
       # `packageManager` field in package.json and installs exactly that
       # version without going through corepack. The step is a no-op when
       # `pnpm-lock.yaml` is absent.
-      - if: steps.detect.outputs.skip != 'true' && hashFiles('pnpm-lock.yaml') != ''
+      - if: hashFiles('pnpm-lock.yaml') != ''
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - name: Install JS deps (lockfile-aware)
-        if: steps.detect.outputs.skip != 'true'
+        if: success()
         run: |
           set -euo pipefail
           if [ -f package.json ]; then
@@ -135,21 +128,55 @@ jobs:
             fi
           fi
         shell: bash
-      - name: e2e-setup (browser install, fixtures, etc.)
-        if: steps.detect.outputs.skip != 'true'
+      - name: e2e-setup (package-pinned browser install, fixtures, etc.)
         run: |
           set -euo pipefail
-          if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
+          if [ "${{ steps.detect.outputs.setup }}" = script ]; then
+            npm run e2e:setup
+          elif mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
             mise run e2e-setup
           fi
         shell: bash
-      - if: steps.detect.outputs.skip != 'true'
+      - name: Run E2E suite
+        id: suite
         env:
           PW_RETRIES: ${{ inputs.retries }}
           PW_SHARD: ${{ inputs.shard }}
-        run: ${{ steps.detect.outputs.cmd }}
+        run: |
+          mkdir -p reports/e2e
+          ${{ steps.detect.outputs.cmd }}
         timeout-minutes: ${{ inputs.timeout-minutes }}
-      - if: always() && steps.detect.outputs.skip != 'true'
+      - name: Require executed E2E tests
+        if: always()
+        env:
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report = Path("reports/e2e/junit.xml")
+          try:
+              root = ET.parse(report).getroot()
+          except (OSError, ET.ParseError) as error:
+              sys.exit(f"::error::missing or invalid E2E JUnit report: {error}")
+          if root.tag not in ("testsuites", "testsuite"):
+              sys.exit(f"::error::unexpected E2E JUnit root: {root.tag}")
+          tests = root.findall(".//testcase")
+          runnable = [test for test in tests if test.find("skipped") is None]
+          failed = [test for test in tests if test.find("failure") is not None or test.find("error") is not None]
+          if not runnable:
+              sys.exit("::error::E2E JUnit report contains zero executed tests")
+          if failed:
+              sys.exit(f"::error::E2E JUnit report contains {len(failed)} failed tests")
+          if os.environ["SUITE_OUTCOME"] != "success":
+              sys.exit(f"::error::E2E suite did not succeed: {os.environ['SUITE_OUTCOME']}")
+          print(f"Verified {len(runnable)} executed E2E tests")
+          PY
+        shell: bash
+      - if: always()
         uses: mikepenz/action-junit-report@a9170d5795813c01ab4901ffb045b52bab4ab09d # v6
         with:
           report_paths: 'reports/e2e/junit.xml'
@@ -158,9 +185,10 @@ jobs:
           annotate_only: >-
             ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
                 || github.actor == 'dependabot[bot]' }}
-      - if: always() && steps.detect.outputs.skip != 'true'
+      - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: e2e-reports-${{ github.run_id }}
           path: reports/e2e/
           retention-days: 14
+          if-no-files-found: error

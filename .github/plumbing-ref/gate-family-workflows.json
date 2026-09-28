@@ -1,4 +1,4 @@
 {
-  "gate-composite": ".github/workflows/gate-composite.yml",
+  "standards-gates": ".github/workflows/standards-gates.yml",
   "gate-typescript": ".github/workflows/typecheck-ts.yml"
 }

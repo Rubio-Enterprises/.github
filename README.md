@@ -1,13 +1,13 @@
 # rubio-dotgithub
 
-Organization GitHub Actions workflows for `Rubio-Enterprises`: two Gate Family workflows (`gate-composite.yml`, `typecheck-ts.yml`) injected by organization rulesets, plus the smaller set of reusables that consumers thin-call directly.
+Organization GitHub Actions workflows for `Rubio-Enterprises`: two Gate Family workflows (`standards-gates.yml`, `typecheck-ts.yml`) injected by organization rulesets, plus the smaller set of reusables that consumers thin-call directly.
 
 ## Reusable workflows
 
 | Workflow | Purpose |
 |---|---|
-| [`e2e.yml`](./.github/workflows/e2e.yml) | Playwright end-to-end harness; runs `mise run e2e` (or `npm run e2e`) and does not start a dev server |
-| [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `gate-composite.yml`) |
+| [`e2e.yml`](./.github/workflows/e2e.yml) | Playwright end-to-end harness; requires apex `scripts.e2e` and a nonempty JUnit report, supports package-pinned `scripts.e2e:setup`, and does not start a dev server |
+| [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
 
 Canonical non-E2E tests are not centrally executed: each enforcing repository
 gates landing through its own `.github/workflows/test-gate.yml` required status
@@ -38,7 +38,7 @@ See
 
 ## Standards dependency
 
-`gate-composite.yml` checks out `Rubio-Enterprises/standards` and runs its `ci/gate-*.sh` checks (audit, lint-format, PR title, gitleaks) there. Each run **resolves the ref at runtime for the calling repository** rather than using a fixed tag, so the gate tracks `standards` as it advances:
+`standards-gates.yml` checks out `Rubio-Enterprises/standards` and runs its `ci/gate-*.sh` checks (audit, lint-format, PR title, gitleaks) there. Each run **resolves the ref at runtime for the calling repository** rather than using a fixed tag, so the gate tracks `standards` as it advances:
 
 - Audit-side changes (`standards/scripts/`, `standards/schemas/`, `standards/policy/`, `standards/data/`, or audit-side `.mise.toml`) reach consumers through that resolved ref.
 - Template-side changes in `standards/template/` and `standards/copier.yml` reach consumers via `copier update`, not via `.github`, and **do not require a `.github` release**.
