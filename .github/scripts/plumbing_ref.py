@@ -23,6 +23,10 @@ MISE_PIN_PATTERN = re.compile(
     r'(?m)^[ \t]*# renovate: datasource=github-releases depName=jdx/mise\n'
     r'[ \t]*MISE_VERSION: "([0-9]{4}\.[0-9]+\.[0-9]+)"[ \t]*$'
 )
+LEGACY_MISE_PIN_PATTERN = re.compile(
+    r'(?m)^[ \t]*# renovate: datasource=github-releases depName=jdx/mise\n'
+    r'[ \t]*version: "([0-9]{4}\.[0-9]+\.[0-9]+)"[ \t]*$'
+)
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 REQUIRED_REQUEST_FIELDS = {
     "expected_current_sha",
@@ -286,17 +290,24 @@ def _blob_at(repository: Path, revision: str, path: str) -> str | None:
     return completed.stdout.strip()
 
 
-def _gate_mise_pin(repository: Path, revision: str) -> str:
+def _gate_mise_pin(repository: Path, revision: str, *, live: bool = False) -> str:
     workflow = _run_git(repository, "show", f"{revision}:{GATE_WORKFLOW}").stdout
     pins = MISE_PIN_PATTERN.findall(workflow)
-    if len(pins) != 1 or len(re.findall(r'(?m)^[ \t]*MISE_VERSION:', workflow)) != 1:
-        raise PolicyError(f"{GATE_WORKFLOW} at {revision} must have exactly one approved mise pin")
-    return pins[0]
+    if len(pins) == 1 and len(re.findall(r'(?m)^[ \t]*MISE_VERSION:', workflow)) == 1:
+        return pins[0]
+    # The currently published gate predates the single-pin cutover. Accept
+    # its repeated identical action inputs only when reading the LIVE ref;
+    # never authorize a new candidate carrying that old shape.
+    if live and not pins and "MISE_VERSION:" not in workflow:
+        legacy = LEGACY_MISE_PIN_PATTERN.findall(workflow)
+        if legacy and len(set(legacy)) == 1:
+            return legacy[0]
+    raise PolicyError(f"{GATE_WORKFLOW} at {revision} must have exactly one approved mise pin")
 
 
 def _require_deployed_mise(repository: Path, current: str, target: str) -> None:
     candidate_pin = _gate_mise_pin(repository, target)
-    if candidate_pin == _gate_mise_pin(repository, current):
+    if candidate_pin == _gate_mise_pin(repository, current, live=True):
         return  # No image prerequisite for a publication that keeps the pin.
     observed = os.environ.get("WARM_GLUE_MISE_VERSION", "")
     if not re.fullmatch(r"[0-9]{4}\.[0-9]+\.[0-9]+", observed):
