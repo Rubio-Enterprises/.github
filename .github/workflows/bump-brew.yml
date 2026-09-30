@@ -37,10 +37,10 @@ permissions:
 # ceiling for a wedged job; tighter timeouts in this file are deliberate.
 jobs:
   bump:
-    # NOT RUNNER_GLUE. Its rootless container has no Ruby or build toolchain;
-    # the top-level :git stanza rewrite needs Ruby (the sed version could not
-    # safely scope the rewrite). Hosted x64 has the required toolchain and sudo.
-    runs-on: ubuntu-24.04
+    # RUNNER_LINUX_ARM targets the linux-arm64 Tart pool. Its Ubuntu guests
+    # allow passwordless sudo for the Ruby apt fallback below; public callers
+    # cannot read private org variables and use hosted ARM Ubuntu instead.
+    runs-on: ${{ fromJSON(vars.RUNNER_LINUX_ARM || '["ubuntu-24.04-arm"]') }}
     timeout-minutes: 120
     env:
       TAP_APP_CONFIGURED: ${{ secrets.TAP_PUSH_APP_ID != '' && secrets.TAP_PUSH_APP_PRIVATE_KEY != '' }}
@@ -71,8 +71,8 @@ jobs:
         with:
           repository: ${{ inputs.tap }}
           token: ${{ steps.tap-app.outputs.token }}
-      # The rewrite below is Ruby. Hosted Ubuntu supplies it, with this
-      # preflight retaining the install fallback if the image changes.
+      # The formula rewrite needs Ruby. Tart Ubuntu supplies passwordless sudo
+      # for the apt fallback if Ruby is absent from the runner image.
       - name: Ensure ruby is available
         run: |
           set -euo pipefail

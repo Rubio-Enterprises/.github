@@ -40,10 +40,10 @@ jobs:
     permissions:
       contents: read
       checks: write
-    # Playwright and its dependency install need more memory than the 1 GiB
-    # glue pool (the glue route OOM-killed a consumer in #154). Use the hosted
-    # x64 8 GiB runner rather than the shared ARM E2E pool.
-    runs-on: ubuntu-24.04
+    # RUNNER_E2E targets the 4 GiB linux-arm64 Tart pool, not the 1 GiB glue
+    # tier; measured consumer installs and suites fit its slots. Public
+    # callers cannot read private org variables, so use hosted Ubuntu there.
+    runs-on: ${{ fromJSON(vars.RUNNER_E2E || '["ubuntu-24.04"]') }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
