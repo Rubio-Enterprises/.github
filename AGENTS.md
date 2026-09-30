@@ -211,14 +211,17 @@ reread contract in the runbook.
 - **Runner Route selection.** Glue jobs use
   `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}`. Rust workload
   policy maps symbolic `linux-arm` through `RUNNER_LINUX_ARM` with
-  `ubuntu-24.04-arm` fallback; its aggregate stays on glue. Capability and
-  memory bound the shared reusables: `e2e` runs on hosted x64
-  `ubuntu-24.04` (8 GiB, not 1 GiB glue or the shared ARM pool);
-  `lint-hooks` sends Swift/Homebrew lint to hosted Intel
-  `macos-15-intel`, Ruby-only lint to hosted x64 `ubuntu-24.04`, and
-  other lint to its declared glue tier; `bump-brew` uses hosted x64
-  `ubuntu-24.04` for its Ruby formula rewrite. Keep long Xcode builds
-  such as `testflight` on the separate self-hosted `RUNNER_MACOS` route.
+  `ubuntu-24.04-arm` fallback; its aggregate stays on glue. `e2e` routes through
+  operator-owned `RUNNER_E2E` to the self-hosted linux-arm64 Tart pool (4 GiB
+  slots, measured consumer fit), with hosted `ubuntu-24.04` fallback. `bump-brew`
+  routes through operator-owned `RUNNER_LINUX_ARM` to the same pool, with hosted
+  `ubuntu-24.04-arm` fallback; its Ruby preflight can install through passwordless
+  sudo and apt on Tart Ubuntu. Private org variables are invisible to public
+  consumers, so their literal hosted fallbacks matter. `lint-hooks` keeps
+  Swift/Homebrew lint on hosted Intel `macos-15-intel`, Ruby-only lint on
+  hosted x64 `ubuntu-24.04`, and other lint on its declared glue tier.
+  Keep long Xcode builds such as `testflight` on the separate self-hosted
+  `RUNNER_MACOS` route.
 - **The `glue-heavy` tier is DECLARED by the consumer, never derived.** `lint-hooks` and
   `typecheck-ts` route their Linux job by the repo's `lint_hooks_workload_class` /
   `typecheck_workload_class` answer (standards
