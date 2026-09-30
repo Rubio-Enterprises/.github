@@ -192,26 +192,26 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(CONFIG["rebaseWhen"], "automerging")
         self.assertEqual(CONFIG["minimumReleaseAge"], "7 days")
 
-    def test_automerge_uses_renovate_side_merge(self) -> None:
-        presets = {
-            "default.json": (CONFIG, 6),
-            "copier.json": (COPIER_CONFIG, 1),
-        }
-        for preset_name, (config, expected_side_merge_rules) in presets.items():
-            side_merge_rules = [
-                rule
-                for rule in config["packageRules"]
-                if rule.get("automerge") is True
-                and rule.get("platformAutomerge") is False
-            ]
-            self.assertEqual(len(side_merge_rules), expected_side_merge_rules)
+    def test_copier_native_automerge_does_not_widen_other_rules(self) -> None:
+        copier_rules = COPIER_CONFIG["packageRules"]
+        self.assertEqual(len(copier_rules), 1)
+        copier = copier_rules[0]
+        self.assertEqual(copier["matchManagers"], ["copier"])
+        self.assertTrue(copier["automerge"])
+        self.assertEqual(copier["automergeType"], "pr")
+        self.assertTrue(copier["platformAutomerge"])
 
-            for rule in config["packageRules"]:
-                with self.subTest(
-                    preset=preset_name,
-                    rule=rule.get("description", rule.get("groupName")),
-                ):
-                    self.assertIsNot(rule.get("platformAutomerge"), True)
+        side_merge_rules = [
+            rule
+            for rule in CONFIG["packageRules"]
+            if rule.get("automerge") is True
+            and rule.get("platformAutomerge") is False
+        ]
+        self.assertEqual(len(side_merge_rules), 6)
+        for rule in CONFIG["packageRules"]:
+            with self.subTest(rule=rule.get("description", rule.get("groupName"))):
+                self.assertIsNot(rule.get("platformAutomerge"), True)
+
 
     def test_python_interpreter_pins_and_floor_are_coordinated(self) -> None:
         dependency = {
