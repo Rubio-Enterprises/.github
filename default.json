@@ -292,7 +292,7 @@
       "platformAutomerge": false
     },
     {
-      "description": "mise CLI version pin (the `version:` input on jdx/mise-action across the reusable workflows). Renovate can extract this pin through either the built-in github-actions `uses-with` path or the jdx/mise customManager below, so this dep-name override is deliberately manager-independent. Human-merge only: a broken upstream mise release (e.g. v2026.6.7 shipped without linux-x64 binaries) must be reviewed before the fleet adopts it. The 7-day minimumReleaseAge already blocks same-day releases from automerging; this keeps the final merge a deliberate human decision and overrides the blanket automerge rule above.",
+      "description": "mise CLI pin on each workflow's MISE_VERSION fallback environment entry. The action receives the observed runner version instead, avoiding self-update on warm runners. Renovate updates the approved cold fallback (human merge only), with image convergence and a warm-glue receipt required before gate publication.",
       "matchDepNames": ["jdx/mise"],
       "groupName": "mise-cli",
       "groupSlug": "mise-cli",
@@ -316,7 +316,7 @@
       "customType": "regex",
       "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
       "matchStrings": [
-        "# renovate: datasource=github-releases depName=jdx/mise\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
+        "# renovate: datasource=github-releases depName=jdx/mise\\s+MISE_VERSION:\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "depNameTemplate": "jdx/mise",
       "datasourceTemplate": "github-releases",

@@ -22,6 +22,8 @@ jobs:
       # `mise exec` must never install the rest of a consumer or standards
       # toolchain (for example Rust), so a missing tool fails that gate instead.
       MISE_EXEC_AUTO_INSTALL: "false"
+      # renovate: datasource=github-releases depName=jdx/mise
+      MISE_VERSION: "2026.9.11"
     steps:
       - name: Resolve gate selection and standards channel
         id: selection
@@ -229,6 +231,26 @@ jobs:
         shell: bash
         run: uv python install
 
+      # Match mise-action's miseDir() + setupMise() lookup, not `command -v mise`.
+      # A warm runner's binary wins even when the approved cold pin has advanced.
+      - name: Resolve installed mise version
+        id: mise_version
+        if: steps.applicability.outputs.setup_needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          data_dir="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
+          if [ -n "${MISE_DATA_DIR:-}" ]; then data_dir="$MISE_DATA_DIR"; fi
+          binary="$data_dir/bin/mise"
+          version="$MISE_VERSION"
+          if [ -e "$binary" ]; then
+            [ -x "$binary" ] || { echo "::error::installed mise is not executable: $binary" >&2; exit 1; }
+            reported="$("$binary" version --json)"
+            version="$(jq -er '.version | strings | capture("^(?<number>[0-9]{4}[.][0-9]+[.][0-9]+)( |$)").number' <<<"$reported")"
+          fi
+          [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || { echo "::error::invalid mise version: $version" >&2; exit 1; }
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          echo "mise action version: $version"
       # Standards-side tools resolve from .standards alone: the ceiling
       # directory itself is excluded, so the consumer-root config is ignored.
       # Only resolved tool directories are exported; dynamic shims stay off
@@ -238,6 +260,7 @@ jobs:
         if: steps.applicability.outputs.setup_needed == 'true'
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
           MISE_CEILING_PATHS: ${{ github.workspace }}
         with:
           working_directory: .standards
@@ -251,14 +274,14 @@ jobs:
           # cold run (227-294 s under load), while warm runs still took 56-65 s.
           cache: false
           add_shims_to_path: false
-          # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.9.11"
+          version: ${{ steps.mise_version.outputs.version }}
 
       - name: Install audit tools after pinned uv
         id: standards_audit_tools
         if: steps.applicability.outputs.audit == 'true'
         env:
           MISE_CEILING_PATHS: ${{ github.workspace }}
+          MISE_GITHUB_TOKEN: ${{ github.token }}
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           working_directory: .standards
@@ -266,8 +289,7 @@ jobs:
           install_args: ${{ steps.applicability.outputs.standards_tools }}
           cache: false
           add_shims_to_path: false
-          # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.9.11"
+          version: ${{ steps.mise_version.outputs.version }}
 
       # lint-format runs the consumer's own pins through `mise exec` at the
       # repository root, so install exactly those pins from the consumer config.
