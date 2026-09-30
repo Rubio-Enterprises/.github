@@ -289,6 +289,14 @@ jobs:
           fi
           mapfile -t tools <<<"$selected"
           echo "consumer lint tools: ${tools[*]}"
+          # pipx installs require the consumer's selected uv and Python pins,
+          # which may differ from the standards-side tools already installed.
+          if jq -e 'has("uv")' <<<"$listing" >/dev/null; then
+            mise install uv
+          fi
+          if jq -e 'has("python")' <<<"$listing" >/dev/null; then
+            mise install python
+          fi
           mise install "${tools[@]}"
 
       - name: Confirm common setup
