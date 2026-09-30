@@ -1,5 +1,15 @@
 # Changelog
 
+## [4.1.2](https://github.com/Rubio-Enterprises/.github/compare/v4.1.1...v4.1.2) (2026-09-30)
+
+
+### Bug Fixes
+
+* accept legacy published mise pin during cutover ([#315](https://github.com/Rubio-Enterprises/.github/issues/315)) ([881d708](https://github.com/Rubio-Enterprises/.github/commit/881d70896fe31780704d97da54be9fd4f6ce1350))
+* install consumer lint prerequisites before pipx tools ([#311](https://github.com/Rubio-Enterprises/.github/issues/311)) ([8c85d9b](https://github.com/Rubio-Enterprises/.github/commit/8c85d9b56b75b1520bb81abb3f381afae581eeab))
+* match mise action to warm runner binary ([#314](https://github.com/Rubio-Enterprises/.github/issues/314)) ([1026757](https://github.com/Rubio-Enterprises/.github/commit/102675775b28ed87b6a9ec60788a3c629f696bed))
+* **renovate:** enable native Copier auto-merge ([#313](https://github.com/Rubio-Enterprises/.github/issues/313)) ([e9ceedc](https://github.com/Rubio-Enterprises/.github/commit/e9ceedc1357b9553a3527c0f628e577a344e6198))
+
 ## [4.1.1](https://github.com/Rubio-Enterprises/.github/compare/v4.1.0...v4.1.1) (2026-09-28)
 
 
