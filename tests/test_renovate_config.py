@@ -212,6 +212,46 @@ class RenovateConfigContractTests(unittest.TestCase):
             with self.subTest(rule=rule.get("description", rule.get("groupName"))):
                 self.assertIsNot(rule.get("platformAutomerge"), True)
 
+    def test_copier_rerender_resolves_to_native_automerge(self) -> None:
+        # Renovate applies an extended preset's packageRules before the
+        # extending config's own, so every default.json rule that matches a
+        # Copier re-render runs after copier.json's rule and can override it.
+        dependency = {
+            "repository": "Rubio-Enterprises/fleet",
+            "manager": "copier",
+            "depName": "https://github.com/Rubio-Enterprises/standards.git",
+            "packageName": "https://github.com/Rubio-Enterprises/standards.git",
+            "fileName": ".copier-answers.yml",
+            "currentVersion": "template/v1.55.108",
+            "updateType": "patch",
+        }
+        preset: dict[str, Any] = {}
+        for rule in COPIER_CONFIG["packageRules"]:
+            if _rule_matches(rule, dependency, preset):
+                preset.update(rule)
+        resolved = _resolve_dependency(
+            dependency,
+            {
+                key: preset[key]
+                for key in ("automerge", "platformAutomerge", "minimumReleaseAge")
+            },
+        )
+        self.assertTrue(resolved["automerge"])
+        self.assertTrue(resolved["platformAutomerge"])
+        self.assertEqual(resolved["minimumReleaseAge"], "0 days")
+
+    def test_other_safe_class_updates_keep_renovate_side_merge(self) -> None:
+        resolved = _resolve_dependency({
+            "repository": "Rubio-Enterprises/fleet",
+            "manager": "npm",
+            "depName": "vite",
+            "packageName": "vite",
+            "fileName": "package.json",
+            "currentVersion": "8.1.0",
+            "updateType": "patch",
+        })
+        self.assertTrue(resolved["automerge"])
+        self.assertFalse(resolved["platformAutomerge"])
 
     def test_python_interpreter_pins_and_floor_are_coordinated(self) -> None:
         dependency = {
