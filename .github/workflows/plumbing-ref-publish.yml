@@ -46,17 +46,25 @@ jobs:
               r'(?m)^[ \t]*# renovate: datasource=github-releases depName=jdx/mise\n'
               r'[ \t]*MISE_VERSION: "([0-9]{4}\.[0-9]+\.[0-9]+)"[ \t]*$'
           )
-          def pin(sha):
+          legacy = re.compile(
+              r'(?m)^[ \t]*# renovate: datasource=github-releases depName=jdx/mise\n'
+              r'[ \t]*version: "([0-9]{4}\.[0-9]+\.[0-9]+)"[ \t]*$'
+          )
+          def pin(sha, *, live=False):
               text = subprocess.check_output(
                   ["git", "show", f"{sha}:.github/workflows/standards-gates.yml"], text=True
               )
               pins = pattern.findall(text)
-              if len(pins) != 1 or len(re.findall(r'(?m)^[ \t]*MISE_VERSION:', text)) != 1:
-                  raise SystemExit("gate workflow must contain exactly one approved mise pin")
-              return pins[0]
+              if len(pins) == 1 and len(re.findall(r'(?m)^[ \t]*MISE_VERSION:', text)) == 1:
+                  return pins[0]
+              if live and not pins and "MISE_VERSION:" not in text:
+                  old_pins = legacy.findall(text)
+                  if old_pins and len(set(old_pins)) == 1:
+                      return old_pins[0]
+              raise SystemExit("gate workflow must contain exactly one approved mise pin")
 
           current, target = sys.argv[1:]
-          if pin(current) == pin(target):
+          if pin(current, live=True) == pin(target):
               print("unchanged gate mise pin; runner observation not required")
               raise SystemExit(0)
           data_dir = os.environ.get("MISE_DATA_DIR")

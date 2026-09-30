@@ -1236,6 +1236,27 @@ class MisePublicationPreflightTests(unittest.TestCase):
             with mock.patch.dict("os.environ", {"WARM_GLUE_MISE_VERSION": ""}):
                 plumbing_ref._require_deployed_mise(fixture.repo, current, target)
 
+    def test_first_cutover_accepts_identical_legacy_live_pins(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = GitFixture(Path(directory))
+            fixture.create_floor()
+            current = fixture.commit({
+                GATE_WORKFLOWS["standards-gates"]:
+                    "name: standards-gates\n"
+                    "# renovate: datasource=github-releases depName=jdx/mise\n"
+                    'version: "2026.9.11"\n'
+                    "# renovate: datasource=github-releases depName=jdx/mise\n"
+                    'version: "2026.9.11"\n'
+            }, "published legacy pins")
+            target = fixture.commit({
+                GATE_WORKFLOWS["standards-gates"]:
+                    "name: standards-gates\n"
+                    "# renovate: datasource=github-releases depName=jdx/mise\n"
+                    'MISE_VERSION: "2026.9.11"\n'
+            }, "single pin")
+            with mock.patch.dict("os.environ", {"WARM_GLUE_MISE_VERSION": ""}):
+                plumbing_ref._require_deployed_mise(fixture.repo, current, target)
+
     def test_changed_pin_requires_observed_warm_glue_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
