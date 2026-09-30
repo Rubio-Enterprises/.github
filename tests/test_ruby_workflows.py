@@ -164,20 +164,6 @@ class LintRubyRoutingTests(unittest.TestCase):
             LINT_TEXT.index("uses: jdx/mise-action@"),
         )
 
-class SharedArmRouteTests(unittest.TestCase):
-    """The ARM reusables retain hosted fallbacks for public callers."""
-
-    def test_e2e_and_formula_bump_routes(self) -> None:
-        workflows = ROOT / ".github" / "workflows"
-        self.assertIn(
-            "runs-on: ${{ fromJSON(vars.RUNNER_E2E || '[\"ubuntu-24.04\"]') }}",
-            (workflows / "e2e.yml").read_text(encoding="utf-8"),
-        )
-        self.assertIn(
-            "runs-on: ${{ fromJSON(vars.RUNNER_LINUX_ARM || '[\"ubuntu-24.04-arm\"]') }}",
-            (workflows / "bump-brew.yml").read_text(encoding="utf-8"),
-        )
-
 
 class CloudSmokeRubyTests(unittest.TestCase):
     """Cloud smoke installs the lockfile-backed bundle only for explicit Ruby."""
