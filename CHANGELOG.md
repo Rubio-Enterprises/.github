@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.1.3](https://github.com/Rubio-Enterprises/.github/compare/v4.1.2...v4.1.3) (2026-09-30)
+
+
+### Bug Fixes
+
+* **ci:** restore self-hosted ARM reusable routes ([#319](https://github.com/Rubio-Enterprises/.github/issues/319)) ([9166d0d](https://github.com/Rubio-Enterprises/.github/commit/9166d0d2b0ccf091fa553b6b88c5401eacb32ef4))
+* **renovate:** keep safe-class side-merge from overriding Copier native auto-merge ([#317](https://github.com/Rubio-Enterprises/.github/issues/317)) ([66a7523](https://github.com/Rubio-Enterprises/.github/commit/66a7523e7af01d18814dc94022a053decde0d144))
+
 ## [4.1.2](https://github.com/Rubio-Enterprises/.github/compare/v4.1.1...v4.1.2) (2026-09-30)
 
 
