@@ -687,6 +687,27 @@ class RenovateConfigContractTests(unittest.TestCase):
         )
         self.assertTrue(module_dependency["automerge"])
 
+    def test_mise_manager_tracks_workflow_fallbacks_exactly_once(self) -> None:
+        manager = next(
+            item for item in CONFIG["customManagers"]
+            if item.get("depNameTemplate") == "jdx/mise"
+        )
+        matcher = _python_regex(manager["matchStrings"][0])
+        workflows = ROOT / ".github" / "workflows"
+        expected = {
+            "standards-gates.yml": 1,
+            "lint-hooks.yml": 1,
+            "typecheck-ts.yml": 1,
+            "e2e.yml": 1,
+            "cloud-setup-smoke.yml": 1,
+        }
+        for filename, count in expected.items():
+            text = (workflows / filename).read_text(encoding="utf-8")
+            matches = matcher.findall(text)
+            self.assertEqual(matches, ["2026.9.11"] * count, filename)
+            self.assertEqual(text.count('MISE_VERSION: "'), count, filename)
+            self.assertIn("version: ${{ steps.mise", text)
+
     def test_mise_cli_override_is_manager_independent(self) -> None:
         mise_update = {
             "depName": "jdx/mise",

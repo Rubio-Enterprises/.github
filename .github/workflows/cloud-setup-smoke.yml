@@ -219,13 +219,33 @@ jobs:
       # That would make level `1` vacuous AND make it report tools "missing after
       # the bootstrap". Provisioning mise here is what gives the hook something to
       # bootstrap, exactly as the cloud base image does.
+      - name: Resolve installed mise version
+        id: mise-version
+        if: steps.probe.outputs.runnable == 'true'
+        env:
+          # renovate: datasource=github-releases depName=jdx/mise
+          MISE_VERSION: "2026.9.11"
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/bin/mise"
+          version="$MISE_VERSION"
+          if [ -e "$binary" ]; then
+            [ -x "$binary" ] || { echo "::error::installed mise is not executable: $binary" >&2; exit 1; }
+            reported="$("$binary" version --json)"
+            version="$(jq -er '.version | strings | capture("^(?<number>[0-9]{4}[.][0-9]+[.][0-9]+)( |$)").number' <<<"$reported")"
+          fi
+          [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || exit 1
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          echo "mise action version: $version"
       - name: Install the consumer's pinned toolchain
         if: steps.probe.outputs.runnable == 'true'
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
         with:
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-          # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.9.11"
+          version: ${{ steps.mise-version.outputs.version }}
 
       - name: Mint private-modules-reader token
         id: private-modules-token

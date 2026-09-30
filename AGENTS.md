@@ -199,9 +199,15 @@ reread contract in the runbook.
   (`manifest-file` only swaps the URL; `fetch` is undici, so a local path is not an
   option). The pin converts "every run, always" into "first run per runner per uv
   version" — it does not make the dependency disappear.
-- **mise CLI pin.** Each `jdx/mise-action` version carries a
-  `# renovate: datasource=github-releases depName=jdx/mise` marker so Renovate bumps them
-  together (human-merge only — see below). Keep the marker when you add a job.
+- **mise CLI pin and warm runner.** Each mise-using workflow tracks its quoted
+  `MISE_VERSION` cold fallback with `# renovate: datasource=github-releases depName=jdx/mise`.
+  `standards-gates.yml` has exactly one such pin in its job environment. A resolver
+  reads the executable at the same mise data directory path that mise-action checks
+  and passes its observed version to the action; an absent binary uses the fallback,
+  while a malformed present binary fails. The action receives `MISE_GITHUB_TOKEN`
+  before setup. Renovate bumps remain human-reviewed, and a changed gate pin
+  cannot be published until the publisher observes a matching binary on the
+  actual glue route.
 - **Runner Route selection.** Glue jobs use
   `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}`. Rust workload
   policy maps symbolic `linux-arm` through `RUNNER_LINUX_ARM` with
@@ -260,9 +266,10 @@ reread contract in the runbook.
   `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
   distinct groups so a manual member cannot disarm an otherwise-safe stable branch. Four
   `customManager`s remain. The first two track the
-  `# renovate: … jdx/mise` and `# renovate: … astral-sh/uv` workflow `version:` markers; they are
-  deliberately symmetric, except that uv tags are bare semver (`0.12.1`) while mise's are
-  v-prefixed and need `extractVersionTemplate`. The third tracks git-sourced entries in
+  `# renovate: … jdx/mise` workflow `MISE_VERSION:` cold fallback and
+  `# renovate: … astral-sh/uv` workflow `version:` marker, respectively.
+  The mise tags are v-prefixed and need `extractVersionTemplate`; uv tags
+  are bare semver (`0.12.1`). The third tracks git-sourced entries in
   `home/.chezmoidata/uv-tools.toml`: recursive matching first binds one TOML table to its GitHub
   repo, then replaces only that table's `version` line. A narrow package rule owns
   `pinDigests: true` (the field is not valid inside a custom manager), bootstrapping tag-only

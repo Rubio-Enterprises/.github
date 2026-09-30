@@ -18,6 +18,11 @@ LIVE_REF = "refs/tags/gates/wf-v1"
 REMOTE_MAIN_REF = "refs/remotes/plumbing-ref/main"
 LOCAL_LIVE_REF = "refs/plumbing-ref/live"
 VALIDATOR_PATH = ".github/scripts/plumbing_ref.py"
+GATE_WORKFLOW = ".github/workflows/standards-gates.yml"
+MISE_PIN_PATTERN = re.compile(
+    r'(?m)^[ \t]*# renovate: datasource=github-releases depName=jdx/mise\n'
+    r'[ \t]*MISE_VERSION: "([0-9]{4}\.[0-9]+\.[0-9]+)"[ \t]*$'
+)
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 REQUIRED_REQUEST_FIELDS = {
     "expected_current_sha",
@@ -281,6 +286,32 @@ def _blob_at(repository: Path, revision: str, path: str) -> str | None:
     return completed.stdout.strip()
 
 
+def _gate_mise_pin(repository: Path, revision: str) -> str:
+    workflow = _run_git(repository, "show", f"{revision}:{GATE_WORKFLOW}").stdout
+    pins = MISE_PIN_PATTERN.findall(workflow)
+    if len(pins) != 1 or len(re.findall(r'(?m)^[ \t]*MISE_VERSION:', workflow)) != 1:
+        raise PolicyError(f"{GATE_WORKFLOW} at {revision} must have exactly one approved mise pin")
+    return pins[0]
+
+
+def _require_deployed_mise(repository: Path, current: str, target: str) -> None:
+    candidate_pin = _gate_mise_pin(repository, target)
+    if candidate_pin == _gate_mise_pin(repository, current):
+        return  # No image prerequisite for a publication that keeps the pin.
+    observed = os.environ.get("WARM_GLUE_MISE_VERSION", "")
+    if not re.fullmatch(r"[0-9]{4}\.[0-9]+\.[0-9]+", observed):
+        raise PolicyError(
+            "changed gate mise pin requires a valid observed version from "
+            "the publisher's live RUNNER_GLUE preflight"
+        )
+    if candidate_pin != observed:
+        raise PolicyError(
+            f"gate mise pin {candidate_pin} differs from observed "
+            f"RUNNER_GLUE mise {observed}"
+        )
+
+
+
 def _changed_paths(
     repository: Path,
     before_sha: str,
@@ -466,6 +497,8 @@ def execute_forward(
     }
     try:
         _validate_required_workflows(repository, target_sha, manifest)
+        if direction != "bootstrap":
+            _require_deployed_mise(repository, observed_sha, target_sha)
     except PolicyError as error:
         raise OperationError(str(error), report) from error
 

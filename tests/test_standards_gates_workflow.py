@@ -27,6 +27,58 @@ def consumer_lint_step() -> str:
         body.append(line[indent + 2 :] if line.strip() else "")
     return "\n".join(body) + "\n"
 
+def mise_resolver_step() -> str:
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines)
+                 if line.strip() == "- name: Resolve installed mise version")
+    run = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run]) - len(lines[run].lstrip())
+    body = []
+    for line in lines[run + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) <= indent:
+            break
+        body.append(line[indent + 2:] if line.strip() else "")
+    return "\n".join(body) + "\n"
+
+
+class MiseVersionResolutionTests(unittest.TestCase):
+    def run_resolver(self, binary: str | None) -> tuple[subprocess.CompletedProcess[str], str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            (data / "bin").mkdir(parents=True)
+            if binary is not None:
+                executable = data / "bin/mise"
+                executable.write_text(binary, encoding="utf-8")
+                executable.chmod(0o755)
+            output = root / "output"
+            result = subprocess.run(
+                ["bash", "-c", mise_resolver_step()],
+                capture_output=True, text=True, check=False,
+                env={**os.environ, "MISE_DATA_DIR": str(data),
+                     "MISE_VERSION": "2026.9.11", "GITHUB_OUTPUT": str(output)},
+            )
+            return result, output.read_text() if output.exists() else ""
+
+    def test_warm_binary_wins_over_fallback_without_self_update(self) -> None:
+        result, output = self.run_resolver(
+            '#!/bin/sh\nprintf \'{"version":"2026.7.7 linux-x64 (2026-07-07)"}\\n\'\n'
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "version=2026.7.7\n")
+
+    def test_cold_runner_uses_approved_pin(self) -> None:
+        result, output = self.run_resolver(None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "version=2026.9.11\n")
+
+    def test_present_but_unparseable_binary_fails_closed(self) -> None:
+        result, output = self.run_resolver(
+            '#!/bin/sh\nprintf \'{"version":"not mise"}\\n\'\n'
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(output, "")
+
 
 class ConsumerLintBootstrapTests(unittest.TestCase):
     def run_step(self, listing: dict) -> tuple[subprocess.CompletedProcess[str], list[str]]:
