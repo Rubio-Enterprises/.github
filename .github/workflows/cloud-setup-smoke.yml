@@ -224,7 +224,7 @@ jobs:
         if: steps.probe.outputs.runnable == 'true'
         env:
           # renovate: datasource=github-releases depName=jdx/mise
-          MISE_VERSION: "2026.9.11"
+          MISE_VERSION: "2026.9.14"
         shell: bash
         run: |
           set -euo pipefail
