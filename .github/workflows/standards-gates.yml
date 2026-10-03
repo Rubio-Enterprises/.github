@@ -218,10 +218,10 @@ jobs:
       - name: Install uv
         id: setup_uv
         if: steps.applicability.outputs.setup_needed == 'true'
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          version: "0.12.19"
 
       # pipx-backed tools install through uvx. Give their venvs a uv-managed
       # interpreter rather than whatever Python the runner image ships.
