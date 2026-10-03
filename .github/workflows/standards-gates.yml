@@ -23,7 +23,7 @@ jobs:
       # toolchain (for example Rust), so a missing tool fails that gate instead.
       MISE_EXEC_AUTO_INSTALL: "false"
       # renovate: datasource=github-releases depName=jdx/mise
-      MISE_VERSION: "2026.9.11"
+      MISE_VERSION: "2026.9.14"
     steps:
       - name: Resolve gate selection and standards channel
         id: selection
