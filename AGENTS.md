@@ -8,7 +8,7 @@ working with code in this repository. `CLAUDE.md` is a symlink to this file — 
 
 `Rubio-Enterprises/.github` (local dir `Governance/dot-github`, remote `origin =
 git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
-**GitHub Actions workflows** that run the fleet's PR gates — the five
+**GitHub Actions workflows** that run the onboarded consumers' PR gates — the five
 property-targeted gate workflows the org rulesets **inject** into consumer PRs,
 plus the handful of reusables a consumer's `.github/workflows/standards.yml` still
 thin-calls. In the three-repo governance system it is the *delivery vehicle*:
@@ -16,7 +16,7 @@ thin-calls. In the three-repo governance system it is the *delivery vehicle*:
 `dot-github-private` enforces repo settings. The macro architecture (the three
 repos, the `standards` content layers, the channel release model, and the four
 propagation paths) is documented canonically in the sibling `standards` repo's
-`AGENTS.md` → "How changes propagate to the fleet"; this file covers only what is
+`docs/propagation-map.md` → "How changes propagate to the Org set"; this file covers only what is
 specific to working *inside* `dot-github`.
 
 This is a **bootstrap repo**: not rendered from the Copier template, not standards-onboarded,
@@ -37,8 +37,8 @@ runs on every `standards-onboarded` repo and reads its `gate-audit`,
 its checks (all set in `.github-private` Terraform). The org gate rulesets
 **inject** them into the consumer's PR checks. They are **not** thin-called
 from `standards.yml`. The content-bearing gate resolves its `standards` content
-at runtime from the repo's channel — `canary` for ring repos, `stable` for the
-fleet (read from the
+at runtime from the repo's channel — `canary` for Canary Ring repos, `stable` for
+other onboarded consumers (read from the
 `ring` custom property). The ruleset pins the workflow *file* to the `gates/wf-v1` tag; the tag object is
 published by this repository's guarded Publication Request/CAS workflow while
 Terraform owns the consuming rulesets and ref name. The *content* floats on the
@@ -111,7 +111,7 @@ There is intentionally **no `workflow-templates/`** (org "New workflow" picker s
 The two starters that once lived there (`standards-audit-starter`, `e2e-starter`) were
 removed: zero repos ever adopted them, and the audit one silently broke when `standards`
 went private (a picker-copied caller passes no `secrets: inherit`, so the standards-reader
-token mint fails). Repos join the fleet via Copier (`/onboard-repo`), which renders
+token mint fails). Repositories join the onboarded set via Copier (`/onboard-repo`), which renders
 `standards.yml` directly. Don't reintroduce starters without wiring the secrets contract.
 
 ## The load-bearing release ritual
@@ -121,9 +121,9 @@ coexist, and they move differently.
 
 1. **Gate content resolves by channel, not by an `audit/v1` pin.** The
    content-bearing gate workflow (`standards-gates.yml`) clones
-   `standards@<channel>` at runtime — `canary` for ring repos, `stable` for the
-   fleet (the repo's `ring` property picks) — and runs its `ci/gate-*.sh`
-   checks. So an audit-rule or gate-logic **content** change reaches the fleet
+   `standards@<channel>` at runtime — `canary` for Canary Ring repos, `stable` for
+   other onboarded consumers (the repo's `ring` property picks) — and runs its
+   `ci/gate-*.sh` checks. So an audit-rule or gate-logic **content** change reaches onboarded consumers
    when `standards` promotes `canary` → `stable` (see `standards`
    `RELEASES.md`), with **no `.github` release**. There is no `audit/v1` tag to
    move any more.
@@ -189,8 +189,8 @@ reread contract in the runbook.
   `LatestVersionResolver` must `fetch` `astral-sh/versions`'
   `v1/uv.ndjson` from `raw.githubusercontent.com` under a hard
   `AbortSignal.timeout(5_000)` on **every** run, before the tool cache is ever consulted —
-  an unconditional 5-second external dependency ahead of every linter and test in the
-  fleet, and the first thing to snap when the shared runners are saturated. With an exact
+  an unconditional 5-second external dependency ahead of every linter and test in
+  onboarded consumers, and the first thing to snap when the shared runners are saturated. With an exact
   version `ExactVersionResolver` returns offline, so a warm runner tool-cache hit installs
   uv with **zero** network calls. Keep the marker and the exact pin when you add a job.
   **Caveat, so nobody over-claims this:** on a *cold* tool cache the pin does not remove
@@ -255,7 +255,7 @@ reread contract in the runbook.
 
 - **`default.json`** is the **org-wide shared preset**. Every consumer's `renovate.json` does
   `extends: ["github>Rubio-Enterprises/.github"]`, which resolves to this file — so editing it
-  changes Renovate behavior fleet-wide. Key rules: built-in **`mise` manager disabled** (consumer
+  changes Renovate behavior across onboarded consumers. Key rules: built-in **`mise` manager disabled** (consumer
   `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against the copier
   re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
@@ -297,7 +297,7 @@ reread contract in the runbook.
   `GitRepository.spec.ref.tag` (github-tags) and a Flux `Kustomization.spec.images` entry (docker)
   are seen. **`managerFilePatterns` replaces the default rather than extending it**, so the
   upstream gotk pattern is repeated in the list on purpose — dropping it would stop tracking
-  `gotk-components.yaml` fleet-wide. Widening is safe against false positives: Renovate's flux
+  `gotk-components.yaml` across onboarded consumers. Widening is safe against false positives: Renovate's flux
   schema validates apiVersion prefixes (`kustomize.toolkit.fluxcd.io/`, `source.toolkit.fluxcd.io/`,
   `helm.toolkit.fluxcd.io/`), so a plain kustomize `kustomization.yaml`
   (`kustomize.config.k8s.io/v1beta1`) and ordinary Kubernetes YAML under `infrastructure/` yield
@@ -350,7 +350,7 @@ reread contract in the runbook.
   the first-party reusable digest, stable non-major tool runtime dependencies and registry pins,
   and — in `copier.json` — the template re-render). It was off
   because GitHub-native auto-merge waits only on **required** checks while Renovate's own engine
-  waits for **all** checks green, and the fleet had no required checks beyond the audit ruleset.
+  waits for **all** checks green, and the onboarded consumers had no required checks beyond the audit ruleset.
   `gate-tests` going active (2026-07-30) changed that for the 34 repos carrying
   `gate_tests = true`, which now expose a required `test-gate`. The cost of leaving it off was
   concrete: Renovate merges only *during* a wave, so eight green first-party PRs sat unmerged for
@@ -382,12 +382,12 @@ reread contract in the runbook.
   applicable* rather than merely undone: there are no canonical tests, and the template renders no
   `test-gate.yml` (the context is repo-owned, per standards ADR-0020).
 
-  **`rebaseWhen: "automerging"` is the exact fleet posture.** A branch Renovate is configured to
+  **`rebaseWhen: "automerging"` is the exact org-wide posture.** A branch Renovate is configured to
   auto-merge may be rebased while GitHub is holding that merge; manual branches are not churned
   merely for falling behind the base. Keep this at top level because the posture is
   manager-agnostic; `copier.json`'s contract remains copier-scoped configuration only.
 
-  **The fleet admission limits are `commitHourlyLimit: 1`, `prHourlyLimit: 1`,
+  **The per-repository admission limits are `commitHourlyLimit: 1`, `prHourlyLimit: 1`,
   `prConcurrentLimit: 5`, and `branchConcurrentLimit: 5`.** The hourly commit limit is the direct
   consumer-CI guard because it counts both new branch pushes and automatic rebases; the PR limit
   separately bounds new PR admission. The concurrent limits bound future ordinary branch/PR
