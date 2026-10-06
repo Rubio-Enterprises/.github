@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.0](https://github.com/Rubio-Enterprises/.github/compare/v4.1.3...v4.2.0) (2026-10-06)
+
+
+### Features
+
+* **ci:** route shared workflows through runners map ([#329](https://github.com/Rubio-Enterprises/.github/issues/329)) ([c4b6b56](https://github.com/Rubio-Enterprises/.github/commit/c4b6b5609bc309e28af8dd8d8e4d58f2d36896b1))
+
 ## [4.1.3](https://github.com/Rubio-Enterprises/.github/compare/v4.1.2...v4.1.3) (2026-09-30)
 
 
