@@ -1,13 +1,9 @@
 {
-  "expected_current_sha": "1d5a14b3a21914bae24606580ede3666b60d63ac",
-  "target_sha": "881d70896fe31780704d97da54be9fd4f6ce1350",
-  "reason": "Publish the mise lockstep gate fix (#314, #315) and the consumer lint prerequisite fix (#311) to the required standards-gates workflow. The published gate requests mise 2026.9.11 on warm-glue runners that bake 2026.7.7; mise-action then self-updates with an unauthenticated GitHub release lookup and fails with HTTP 403 whenever the glue egress rate budget is spent (51 of 60 template/v1.55.108 wave failures, and again after the devcontainer migration PRs). The candidate requests the version of the binary already installed on self-hosted runners (approved pin only when none is present), exports MISE_GITHUB_TOKEN before setup, and installs a consumer's configured uv and python before its pipx lint tools (rubio-cli-kit#62 cold-runner failure). Candidate Validation per owner decision: clean Ubuntu container runs with preinstalled mise 2026.7.7 (resolved 2026.7.7, no self-update) and cold (resolved 2026.9.11, no self-update), consumer uv 0.12.15 and python 3.14.6 installed, all lint tools installed; source PRs passed CI. The mise pin is unchanged (2026.9.11), so no warm-glue image prerequisite applies.",
+  "expected_current_sha": "881d70896fe31780704d97da54be9fd4f6ce1350",
+  "target_sha": "ad0feef5fb85ad6f026e2bdbdb85843c34a0d22f",
+  "reason": "Publish comment-only Gate Family changes: the retired fleet CLI is now org-ops (standards ADR 0024), plus the hosted glue-heavy routing comment correction (#325). Between the live tag and the target, the only Gate Family file that changes is typecheck-ts.yml, and only inside shell comments; standards-gates.yml is unchanged and the MISE_VERSION pin is unchanged, so no Candidate Validation or runner observation is required.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/311",
-    "https://github.com/Rubio-Enterprises/.github/pull/314",
-    "https://github.com/Rubio-Enterprises/.github/pull/315",
-    "https://github.com/Rubio-Enterprises/gha-outrunner/actions/runs/36647538536/job/109673885549",
-    "https://github.com/Rubio-Enterprises/rubio-cli-kit/actions/runs/36647364528/job/109673338774",
-    "https://github.com/Rubio-Enterprises/.github-private/actions/runs/36654806459/job/109696723975"
+    "https://github.com/Rubio-Enterprises/.github/pull/324",
+    "https://github.com/Rubio-Enterprises/.github/pull/325"
   ]
 }
