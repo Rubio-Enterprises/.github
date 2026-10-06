@@ -234,10 +234,14 @@ reread contract in the runbook.
   does. Two answers rather than one repo-wide flag because ADR-0018 rejected the repo-wide
   scalar and required workload-keying. **Capability outranks resource:** a `has_swift` /
   `has_homebrew_formulae` repo goes to macOS regardless of its declared class, because a
-  Linux tier cannot satisfy a requirement Linux cannot satisfy at all. `RUNNER_GLUE_HEAVY`
-  is deliberately absent from `runners.tf` until the pool converges, so a `glue-heavy`
-  declaration degrades through the fallback chain to glue rather than to hosted minutes —
-  declaring a class does not create its route.
+  Linux tier cannot satisfy a requirement Linux cannot satisfy at all. Terraform
+  owns `RUNNER_GLUE_HEAVY`'s existence and visibility in `runners.tf`; `org-ops ci mode`
+  owns its value. The current heavy route is `RUNNER_GLUE_HEAVY || ubuntu-slim` (the
+  `|| vars.RUNNER_GLUE` link was removed 2026-09-18). Both workflows reject a
+  declared heavy route that equals the declared glue route; hosted mode sets
+  distinct values (`ubuntu-latest` for heavy, `ubuntu-slim` for glue). When the
+  heavy variable is unavailable to a public caller or absent, the literal
+  `ubuntu-slim` fallback is only 5 GB, below the proven 6 GiB floor.
 - **Private Go modules in `lint-hooks`.** A consumer that needs private Go module
   forks sets `GO_PRIVATE_MODULE_REPOS` to their comma-separated repository names.
   The reusable reads that caller-side variable and mints a read-only App token;

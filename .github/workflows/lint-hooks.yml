@@ -78,9 +78,11 @@ jobs:
           # out every concurrent glue job, not just this one.
           #
           # Liveness is preserved, so the 2026-07-21 queue-forever stall stays
-          # closed: `ubuntu-slim` is GitHub-hosted (verified — runner group
-          # "GitHub Actions"). Degrading now costs billed minutes instead of a
-          # guaranteed OOM.
+          # closed. When RUNNER_GLUE_HEAVY is unset (public callers cannot see
+          # the private org variable, or the variable is absent), the literal
+          # fallback is hosted ubuntu-slim: 1 vCPU and 5 GB, below the proven
+          # 6 GiB floor. `org-ops ci mode github-hosted` instead sets heavy to
+          # hosted ubuntu-latest (8 GB), which meets that floor.
           HEAVY_RUNNER: ${{ vars.RUNNER_GLUE_HEAVY || '["ubuntu-slim"]' }}
           # Raw declared values for the aliasing guard: removing the chain stops
           # an ABSENT heavy variable landing on glue, not someone SETTING it
@@ -148,8 +150,10 @@ jobs:
             "^lint_hooks_workload_class:[[:space:]]*[\"']?glue-heavy[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
             # Aliasing guard: only fires when the heavy variable is SET and
-            # equal to the glue route. An unset heavy variable is the legitimate
-            # hosted fallback, and `fleet ci mode github-hosted` leaves both empty.
+            # equal to the glue route. Hosted mode sets distinct routes:
+            # RUNNER_GLUE=ubuntu-slim and RUNNER_GLUE_HEAVY=ubuntu-latest, so
+            # the guard does not fire. An unset heavy variable instead means a
+            # public caller cannot see it, or the variable is absent.
             if [ -n "$HEAVY_DECLARED" ] && [ "$HEAVY_DECLARED" = "$GLUE_DECLARED" ]; then
               echo "::error::glue-heavy is declared but RUNNER_GLUE_HEAVY equals RUNNER_GLUE ($GLUE_DECLARED). Refusing to route a hard-floor workload onto the light glue pool. Point RUNNER_GLUE_HEAVY at a distinct pool, or clear it to fall back to GitHub-hosted."
               exit 1
