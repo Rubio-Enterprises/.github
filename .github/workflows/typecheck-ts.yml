@@ -95,10 +95,14 @@ jobs:
           if grep -qiE \
             "^typecheck_workload_class:[[:space:]]*[\"']?(heavy|glue-heavy)[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
-            printf 'runner=%s\n' "$HEAVY_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$HEAVY_RUNNER"
           else
-            printf 'runner=%s\n' "$LIGHT_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$LIGHT_RUNNER"
           fi
+          # GitHub's toJSON emits indented multiline JSON; job outputs require
+          # one line. Reject invalid JSON rather than writing a broken output.
+          runner="$(jq -ce . <<<"$runner")" || exit 1
+          printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"
 
   typecheck:
     needs: route

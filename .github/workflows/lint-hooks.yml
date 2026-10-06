@@ -92,9 +92,9 @@ jobs:
           if grep -qE '^has_swift:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^has_homebrew_formulae:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
-            printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$MACOS_RUNNER"
           elif [ "$has_ruby" = true ]; then
-            printf 'runner=%s\n' "$RUBY_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$RUBY_RUNNER"
           # A repo that DECLARES the glue-heavy Workload Class goes to the
           # memory-bounded pool (`lint_hooks_workload_class`, standards
           # ADR-0022). This job's dependency install is the onboarded set's single
@@ -125,10 +125,14 @@ jobs:
           elif grep -qiE \
             "^lint_hooks_workload_class:[[:space:]]*[\"']?(heavy|glue-heavy)[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
-            printf 'runner=%s\n' "$HEAVY_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$HEAVY_RUNNER"
           else
-            printf 'runner=%s\n' "$LIGHT_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$LIGHT_RUNNER"
           fi
+          # GitHub's toJSON emits indented multiline JSON; job outputs require
+          # one line. Reject invalid JSON rather than writing a broken output.
+          runner="$(jq -ce . <<<"$runner")" || exit 1
+          printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"
           # Fork mode keys on repo_type (ADR-0013); the boolean `is_fork`
           # answer was retired in template v1.55.24, which silently flipped
           # forks to all-files mode while this grep still keyed on it. The
