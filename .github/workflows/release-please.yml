@@ -29,7 +29,7 @@ permissions:
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
   release-please:
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     steps:
       # App token so the release PR triggers workflows. PRs created with the

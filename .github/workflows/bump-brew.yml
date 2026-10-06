@@ -37,10 +37,10 @@ permissions:
 # ceiling for a wedged job; tighter timeouts in this file are deliberate.
 jobs:
   bump:
-    # RUNNER_LINUX_ARM targets the linux-arm64 Tart pool. Its Ubuntu guests
-    # allow passwordless sudo for the Ruby apt fallback below; public callers
-    # cannot read private org variables and use hosted ARM Ubuntu instead.
-    runs-on: ${{ fromJSON(vars.RUNNER_LINUX_ARM || '["ubuntu-24.04-arm"]') }}
+    # The arm route targets linux-arm64 Tart; its Ubuntu guests allow
+    # passwordless sudo for the Ruby apt fallback. Public callers use hosted
+    # ARM Ubuntu when the private org route is unavailable.
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
     timeout-minutes: 120
     env:
       TAP_APP_CONFIGURED: ${{ secrets.TAP_PUSH_APP_ID != '' && secrets.TAP_PUSH_APP_PRIVATE_KEY != '' }}

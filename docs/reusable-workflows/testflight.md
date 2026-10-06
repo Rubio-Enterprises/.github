@@ -66,7 +66,7 @@ The application repository owns:
 
 Every caller provides the same repository layout and command contract:
 
-- the macOS runner is selected from `vars.RUNNER_MACOS`, defaulting to `["macos-15"]` when unset;
+- the macOS runner is selected from `vars.RUNNERS` key `macos`, defaulting to `["macos-15"]` when unset;
 - the pinned Xcode version is stored in root `.xcode-version`;
 - the pinned Ruby version is stored in root `.ruby-version`;
 - the Bundler definition and lockfile are stored at the repository root;

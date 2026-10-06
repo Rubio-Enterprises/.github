@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   standards-gates:
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     env:
       # Bootstrap installs only what the applicable gates execute. A gate's

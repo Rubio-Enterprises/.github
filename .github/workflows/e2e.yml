@@ -40,10 +40,10 @@ jobs:
     permissions:
       contents: read
       checks: write
-    # RUNNER_E2E targets the 4 GiB linux-arm64 Tart pool, not the 1 GiB glue
-    # tier; measured consumer installs and suites fit its slots. Public
-    # callers cannot read private org variables, so use hosted Ubuntu there.
-    runs-on: ${{ fromJSON(vars.RUNNER_E2E || '["ubuntu-24.04"]') }}
+    # The e2e route targets the multi-GiB linux-arm64 Tart pool; measured
+    # consumer installs and suites fit its slots. Public callers use hosted
+    # Ubuntu when the private org route is unavailable.
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').e2e || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

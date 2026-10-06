@@ -69,7 +69,7 @@ jobs:
     # typecheck job cannot read the answers file to choose its own runner.
     # Named `route`, not `detect`, because the typecheck job below already has a
     # `detect` STEP that resolves the mise task.
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
@@ -82,61 +82,22 @@ jobs:
       - name: Pick the runner from the declared Workload Class
         id: pick
         env:
-          GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
-          # Fallback chain, ordered so degradation is MONOTONIC IN CAPABILITY.
-          # `|| vars.RUNNER_GLUE` was REMOVED 2026-09-18. A `glue-heavy`
-          # declaration asserts "glue is too small for me", so the glue route is
-          # never a valid degradation target — it is the one destination
-          # guaranteed to fail. Evidence: activity-planner's typecheck was
-          # OOM-killed on the 1 GiB glue container for 7 consecutive runs
-          # (2026-09-10 to 09-17), blocking its release-please PR, and completed
-          # in 36 s at 6 GiB.
-          #
-          # The stakes rise with the warm shared glue pool (ADR 0018): its
-          # runners are sized around a 768 MiB reservation under one ~10.5 GiB
-          # parent cgroup, and OOM victim selection there is NOT per-job, so this
-          # fallback could take out every concurrent glue job rather than just
-          # this one.
-          #
-          # Liveness is preserved, so the 2026-07-21 queue-forever stall stays
-          # closed. When RUNNER_GLUE_HEAVY is unset (public callers cannot see
-          # the private org variable, or the variable is absent), the literal
-          # fallback is hosted ubuntu-slim: 1 vCPU and 5 GB, below the proven
-          # 6 GiB floor. `org-ops ci mode github-hosted` instead sets heavy to
-          # hosted ubuntu-latest (8 GB), which meets that floor.
-          HEAVY_RUNNER: ${{ vars.RUNNER_GLUE_HEAVY || '["ubuntu-slim"]' }}
-          # Raw declared values, for the aliasing guard below. Removing the chain
-          # stops an ABSENT heavy variable from landing on glue; it cannot stop
-          # someone SETTING the heavy variable equal to the glue route.
-          HEAVY_DECLARED: ${{ vars.RUNNER_GLUE_HEAVY }}
-          GLUE_DECLARED: ${{ vars.RUNNER_GLUE }}
+          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
+          # A heavy declaration cannot degrade onto the undersized light
+          # route. Public consumers use hosted ubuntu-latest when RUNNERS is
+          # unavailable, satisfying the measured memory floor.
+          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
         shell: bash
         run: |
-          # Anchored and quote-tolerant. The answers file is copier-generated so
-          # the value is unquoted, but the `$` anchor stops a future class whose
-          # name merely STARTS with glue-heavy from matching by prefix.
-          # Case-insensitive per ADR-0018: classes are stored canonically in
-          # lowercase but are case-insensitive at workflow boundaries.
-          #
-          # An absent file or absent answer falls through to glue. That is the
-          # intended degradation for a repo that has not re-rendered yet, and it
-          # is why the answer carries no copier `when:` mask — a pruned answer
-          # would be indistinguishable from a deliberate `glue` declaration.
+          # Anchored and quote-tolerant. The new `heavy` and legacy
+          # `glue-heavy` answers both select the heavy route until all
+          # consumers are re-rendered. Absent answers default to light.
           if grep -qiE \
-            "^typecheck_workload_class:[[:space:]]*[\"']?glue-heavy[\"']?[[:space:]]*\$" \
+            "^typecheck_workload_class:[[:space:]]*[\"']?(heavy|glue-heavy)[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
-            # Aliasing guard: fail loudly rather than route a hard-floor
-            # workload onto the light pool. Hosted mode sets distinct routes:
-            # RUNNER_GLUE=ubuntu-slim and RUNNER_GLUE_HEAVY=ubuntu-latest, so
-            # the guard does not fire. An unset heavy variable instead means a
-            # public caller cannot see it, or the variable is absent.
-            if [ -n "$HEAVY_DECLARED" ] && [ "$HEAVY_DECLARED" = "$GLUE_DECLARED" ]; then
-              echo "::error::glue-heavy is declared but RUNNER_GLUE_HEAVY equals RUNNER_GLUE ($GLUE_DECLARED). Refusing to route a workload with a proven 6 GiB floor onto the light glue pool. Point RUNNER_GLUE_HEAVY at a distinct pool, or clear it to fall back to GitHub-hosted."
-              exit 1
-            fi
             printf 'runner=%s\n' "$HEAVY_RUNNER" >> "$GITHUB_OUTPUT"
           else
-            printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
+            printf 'runner=%s\n' "$LIGHT_RUNNER" >> "$GITHUB_OUTPUT"
           fi
 
   typecheck:

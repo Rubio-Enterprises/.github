@@ -20,6 +20,24 @@ publishes a JUnit GitHub Check on writable-token runs. Fork pull requests and
 Dependabot runs retain annotations, the job summary, and artifacts without
 attempting a Checks API write. The E2E command's exit status remains the gate.
 
+## Runner routes and dependency updates
+
+Workflows select capabilities from the private org `RUNNERS` JSON map. Each
+route has its own hosted fallback for public callers:
+
+| Route | Self-hosted | Hosted fallback |
+|---|---|---|
+| `light` | `glue-x64` | `ubuntu-slim` |
+| `heavy`, `docker`, `kvm` | `linux-x64` | `ubuntu-latest` |
+| `arm` | `linux-arm64` | `ubuntu-24.04-arm` |
+| `e2e` | `linux-arm64` | `ubuntu-latest` |
+| `vrt` | `linux-x64` | self-only `linux-x64` |
+| `macos` | `macos-tart` | `macos-15` |
+
+The shared Renovate preset in `default.json` schedules ordinary updates on
+weekends in `America/Chicago`; vulnerability alerts remain immediate. Existing
+package-specific schedules still apply.
+
 ### Gate workflow publication
 
 Organization rulesets load Gate workflow files from the lightweight
