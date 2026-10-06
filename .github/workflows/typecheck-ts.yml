@@ -89,11 +89,10 @@ jobs:
           HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
         shell: bash
         run: |
-          # Anchored and quote-tolerant. The new `heavy` and legacy
-          # `glue-heavy` answers both select the heavy route until all
-          # consumers are re-rendered. Absent answers default to light.
+          # Anchored and quote-tolerant: only a declared `heavy` answer
+          # selects the heavy route. Absent answers default to light.
           if grep -qiE \
-            "^typecheck_workload_class:[[:space:]]*[\"']?(heavy|glue-heavy)[\"']?[[:space:]]*\$" \
+            "^typecheck_workload_class:[[:space:]]*[\"']?heavy[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
             runner="$HEAVY_RUNNER"
           else
