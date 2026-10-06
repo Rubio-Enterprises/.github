@@ -224,10 +224,12 @@ reread contract in the runbook.
   | `vrt` | `linux-x64` | `linux-x64` (self-only) | pinned visual rendering |
   | `macos` | `macos-tart` | `macos-15` | Xcode and signing |
 
-  `e2e` uses the `e2e` route; `bump-brew` uses `arm` and its Ruby preflight
-  can install through passwordless sudo on Tart Ubuntu. `lint-hooks` keeps
+  This repo's `e2e.yml` uses the `e2e` route but retains its existing
+  `ubuntu-24.04` call-site fallback; the table describes the org-wide hosted
+  route value. `bump-brew` uses `arm` and its Ruby preflight can install
+  through passwordless sudo on Tart Ubuntu. `lint-hooks` keeps
   Swift/Homebrew lint on hosted Intel `macos-15-intel`, Ruby-only lint on
-  hosted ARM `ubuntu-24.04-arm`, and other lint on its declared tier.
+  hosted x64 `ubuntu-24.04`, and other lint on its declared tier.
   Long Xcode builds such as `testflight` use `macos`. Cloud smoke stays on
   literal hosted `ubuntu-latest`, not a configurable route.
 - **The heavy tier is DECLARED by the consumer, never derived.** `lint-hooks` and

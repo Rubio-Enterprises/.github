@@ -43,7 +43,7 @@ jobs:
     # The e2e route targets the multi-GiB linux-arm64 Tart pool; measured
     # consumer installs and suites fit its slots. Public callers use hosted
     # Ubuntu when the private org route is unavailable.
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').e2e || fromJSON('["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').e2e || fromJSON('["ubuntu-24.04"]') }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

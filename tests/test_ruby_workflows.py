@@ -103,8 +103,8 @@ class LintRubyRoutingTests(unittest.TestCase):
     runners = {
         "RUBY_RUNNER": '["ruby"]',
         "MACOS_RUNNER": '["macos"]',
-        "GLUE_RUNNER": '["glue"]',
-        "HEAVY_RUNNER": '["glue-heavy"]',
+        "LIGHT_RUNNER": '["light"]',
+        "HEAVY_RUNNER": '["heavy"]',
     }
 
     def route(self, answers: str) -> dict[str, str]:
@@ -120,7 +120,7 @@ class LintRubyRoutingTests(unittest.TestCase):
             """
             has_ruby: true
             has_swift: true
-            lint_hooks_workload_class: glue-heavy
+            lint_hooks_workload_class: heavy
             """
         )
         self.assertEqual(outputs["has_ruby"], "true")
@@ -130,17 +130,18 @@ class LintRubyRoutingTests(unittest.TestCase):
         outputs = self.route(
             """
             has_ruby: true
-            lint_hooks_workload_class: glue-heavy
+            lint_hooks_workload_class: heavy
             """
         )
         self.assertEqual(outputs["has_ruby"], "true")
         self.assertEqual(outputs["runner"], '["ruby"]')
 
-    def test_non_ruby_routes_are_unchanged(self) -> None:
+    def test_non_ruby_routes_use_declared_classes(self) -> None:
         cases = (
             ("has_ruby: false\nhas_swift: true\n", '["macos"]'),
-            ("has_ruby: false\nlint_hooks_workload_class: glue-heavy\n", '["glue-heavy"]'),
-            ("repo_type: private\n", '["glue"]'),
+            ("has_ruby: false\nlint_hooks_workload_class: heavy\n", '["heavy"]'),
+            ("has_ruby: false\nlint_hooks_workload_class: light\n", '["light"]'),
+            ("repo_type: private\n", '["light"]'),
         )
         for answers, expected in cases:
             with self.subTest(answers=answers):
@@ -148,10 +149,14 @@ class LintRubyRoutingTests(unittest.TestCase):
                 self.assertEqual(outputs["has_ruby"], "false")
                 self.assertEqual(outputs["runner"], expected)
 
+    def test_legacy_glue_heavy_answer_selects_heavy_until_migration(self) -> None:
+        outputs = self.route("lint_hooks_workload_class: glue-heavy\n")
+        self.assertEqual(outputs["runner"], '["heavy"]')
+
     def test_only_literal_true_enables_ruby(self) -> None:
         outputs = self.route("has_ruby: 'true'\n")
         self.assertEqual(outputs["has_ruby"], "false")
-        self.assertEqual(outputs["runner"], '["glue"]')
+        self.assertEqual(outputs["runner"], '["light"]')
 
     def test_lint_setup_is_pinned_locked_and_before_mise(self) -> None:
         step = extract_step(LINT_TEXT, "Install Ruby and locked bundle")

@@ -63,7 +63,7 @@ jobs:
       - name: Pick runner from the language facets
         id: pick
         env:
-          RUBY_RUNNER: '["ubuntu-24.04-arm"]'
+          RUBY_RUNNER: '["ubuntu-24.04"]'
           MACOS_RUNNER: '["macos-15-intel"]'
           LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
           # Heavy work must not degrade to the undersized light route.

@@ -34,6 +34,9 @@ route has its own hosted fallback for public callers:
 | `vrt` | `linux-x64` | self-only `linux-x64` |
 | `macos` | `macos-tart` | `macos-15` |
 
+The `e2e.yml` call site retains its previous `ubuntu-24.04` fallback when the
+private map is unavailable; the table lists the org-wide hosted route value.
+
 The shared Renovate preset in `default.json` schedules ordinary updates on
 weekends in `America/Chicago`; vulnerability alerts remain immediate. Existing
 package-specific schedules still apply.
