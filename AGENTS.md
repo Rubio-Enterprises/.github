@@ -74,11 +74,9 @@ consumer's rendered `standards.yml` (or a release workflow):
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
 | `cloud-setup-smoke.yml` | Runs the consumer's Claude Code on the web setup chain (`cloud-setup-shim.sh` → `common/cloud-setup.sh` → `repo-local/cloud-setup.sh`) on Linux under `CLOUD_SETUP_SMOKE`, so a cloud-environment defect fails the PR that introduces it | — |
 
-`cloud-setup-smoke.yml` runs hosted x64 by default so its Linux cloud-setup
-check matches the target architecture. It reads `vars.RUNNER_CLOUD_SMOKE`
-with an `ubuntu-latest` fallback; the variable is deliberately absent from
-`.github-private`'s `runners.tf` (declaring it could point at an unadvertised
-pool and stall the job, as on 2026-07-21).
+`cloud-setup-smoke.yml` always runs hosted x64 (`ubuntu-latest`) so its
+Linux cloud-setup check matches the target architecture; it has no org-variable
+routing lever.
 
 Two things about it are load-bearing and easy to break:
 
@@ -208,40 +206,45 @@ reread contract in the runbook.
   before setup. Renovate bumps remain human-reviewed, and a changed gate pin
   cannot be published until the publisher observes a matching binary on the
   actual glue route.
-- **Runner Route selection.** Glue jobs use
-  `runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}`. Rust workload
-  policy maps symbolic `linux-arm` through `RUNNER_LINUX_ARM` with
-  `ubuntu-24.04-arm` fallback; its aggregate stays on glue. `e2e` routes through
-  operator-owned `RUNNER_E2E` to the self-hosted linux-arm64 Tart pool (4 GiB
-  slots, measured consumer fit), with hosted `ubuntu-24.04` fallback. `bump-brew`
-  routes through operator-owned `RUNNER_LINUX_ARM` to the same pool, with hosted
-  `ubuntu-24.04-arm` fallback; its Ruby preflight can install through passwordless
-  sudo and apt on Tart Ubuntu. Private org variables are invisible to public
-  consumers, so their literal hosted fallbacks matter. `lint-hooks` keeps
+- **Runner Route selection.** Private org variable `RUNNERS` is a JSON map;
+  `org-ops ci mode` owns live values. Each key has an independent hosted
+  fallback, so public consumers (which cannot see private org variables)
+  remain runnable. Use
+  `runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}`
+  for light work. Route by actual capability:
+
+  | Key | Self-hosted | Hosted fallback | Work |
+  |---|---|---|---|
+  | `light` | `glue-x64` | `ubuntu-slim` | small work without Docker |
+  | `heavy` | `linux-x64` | `ubuntu-latest` | multi-GiB work without Docker |
+  | `docker` | `linux-x64` | `ubuntu-latest` | x64 Docker/Compose/builds |
+  | `kvm` | `linux-x64` | `ubuntu-latest` | nested x86 virtualization |
+  | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds and VM workloads |
+  | `e2e` | `linux-arm64` | `ubuntu-latest` | multi-GiB Playwright suites |
+  | `vrt` | `linux-x64` | `linux-x64` (self-only) | pinned visual rendering |
+  | `macos` | `macos-tart` | `macos-15` | Xcode and signing |
+
+  This repo's `e2e.yml` uses the `e2e` route but retains its existing
+  `ubuntu-24.04` call-site fallback; the table describes the org-wide hosted
+  route value. `bump-brew` uses `arm` and its Ruby preflight can install
+  through passwordless sudo on Tart Ubuntu. `lint-hooks` keeps
   Swift/Homebrew lint on hosted Intel `macos-15-intel`, Ruby-only lint on
-  hosted x64 `ubuntu-24.04`, and other lint on its declared glue tier.
-  Keep long Xcode builds such as `testflight` on the separate self-hosted
-  `RUNNER_MACOS` route.
-- **The `glue-heavy` tier is DECLARED by the consumer, never derived.** `lint-hooks` and
-  `typecheck-ts` route their Linux job by the repo's `lint_hooks_workload_class` /
+  hosted x64 `ubuntu-24.04`, and other lint on its declared tier.
+  Long Xcode builds such as `testflight` use `macos`. Cloud smoke stays on
+  literal hosted `ubuntu-latest`, not a configurable route.
+- **The heavy tier is DECLARED by the consumer, never derived.** `lint-hooks` and
+  `typecheck-ts` route Linux work by the repo's `lint_hooks_workload_class` /
   `typecheck_workload_class` answer (standards
   [ADR-0022](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0022-glue-heavy-workload-class.md)),
-  read out of the sparse-checked-out `.copier-answers.yml` in a small `detect` / `route`
-  job — `runs-on:` is evaluated before checkout, which is the only reason that job exists.
-  Both previously keyed on `has_typescript`, which is a proxy for *language*, not memory:
-  it is true for `static-webpage-template` and `kodus-ai` alike, so it put **15 repos onto
-  a 3-slot pool**, where a repo that does not need the tier takes a slot from one that
-  does. Two answers rather than one repo-wide flag because ADR-0018 rejected the repo-wide
-  scalar and required workload-keying. **Capability outranks resource:** a `has_swift` /
-  `has_homebrew_formulae` repo goes to macOS regardless of its declared class, because a
-  Linux tier cannot satisfy a requirement Linux cannot satisfy at all. Terraform
-  owns `RUNNER_GLUE_HEAVY`'s existence and visibility in `runners.tf`; `org-ops ci mode`
-  owns its value. The current heavy route is `RUNNER_GLUE_HEAVY || ubuntu-slim` (the
-  `|| vars.RUNNER_GLUE` link was removed 2026-09-18). Both workflows reject a
-  declared heavy route that equals the declared glue route; hosted mode sets
-  distinct values (`ubuntu-latest` for heavy, `ubuntu-slim` for glue). When the
-  heavy variable is unavailable to a public caller or absent, the literal
-  `ubuntu-slim` fallback is only 5 GB, below the proven 6 GiB floor.
+  read from a sparse-checkout of `.copier-answers.yml` in a `detect` / `route`
+  job because `runs-on:` is evaluated before checkout. `light` and legacy `glue`
+  select `RUNNERS.light`; `heavy` and legacy `glue-heavy` select `RUNNERS.heavy`.
+  Absent answers select light. The two answers are workload-specific rather than
+  a repo-wide language proxy; selecting heavy from `has_typescript` once put
+  15 repos on a 3-slot pool. **Capability outranks resource:** Swift/Homebrew
+  needs macOS even if the answer says heavy. The heavy route falls back to
+  hosted `ubuntu-latest` (8 GB), never the 5 GB light fallback. The old
+  separate-variable aliasing guards are unnecessary with one JSON route map.
 - **Private Go modules in `lint-hooks`.** A consumer that needs private Go module
   forks sets `GO_PRIVATE_MODULE_REPOS` to their comma-separated repository names.
   The reusable reads that caller-side variable and mints a read-only App token;
@@ -255,7 +258,10 @@ reread contract in the runbook.
 
 - **`default.json`** is the **org-wide shared preset**. Every consumer's `renovate.json` does
   `extends: ["github>Rubio-Enterprises/.github"]`, which resolves to this file — so editing it
-  changes Renovate behavior across onboarded consumers. Key rules: built-in **`mise` manager disabled** (consumer
+  changes Renovate behavior across onboarded consumers. The shared preset schedules
+  ordinary update branches for weekends in `America/Chicago`; package-specific
+  rules may have narrower schedules. Security vulnerability alert PRs retain
+  Renovate's immediate default. Key rules: built-in **`mise` manager disabled** (consumer
   `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against the copier
   re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
   (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE

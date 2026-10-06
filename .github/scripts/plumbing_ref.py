@@ -313,12 +313,12 @@ def _require_deployed_mise(repository: Path, current: str, target: str) -> None:
     if not re.fullmatch(r"[0-9]{4}\.[0-9]+\.[0-9]+", observed):
         raise PolicyError(
             "changed gate mise pin requires a valid observed version from "
-            "the publisher's live RUNNER_GLUE preflight"
+            "the publisher's live RUNNERS.light preflight"
         )
     if candidate_pin != observed:
         raise PolicyError(
             f"gate mise pin {candidate_pin} differs from observed "
-            f"RUNNER_GLUE mise {observed}"
+            f"RUNNERS.light mise {observed}"
         )
 
 

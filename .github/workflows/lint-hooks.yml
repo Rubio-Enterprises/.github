@@ -19,10 +19,10 @@ name: lint hooks (reusable)
 # hosted Intel macOS rather than the scarce self-hosted Xcode build pool.
 #
 # Everything else takes the Linux route, whose tier is the consumer's DECLARED
-# `lint_hooks_workload_class` (standards ADR-0022): `glue-heavy` for the
-# memory-bounded pool, `glue` — the default — for everything else. A
-# capability-routed repo's declared class is therefore ignored: a resource tier
-# cannot satisfy a runtime or platform requirement it does not provide.
+# `lint_hooks_workload_class` (standards ADR-0022): `heavy` (or legacy
+# `glue-heavy`) for memory-heavy work, `light` (or legacy `glue`) by default.
+# A capability-routed repo's declared class is ignored: a resource tier cannot
+# satisfy a runtime or platform requirement it does not provide.
 #
 # Consumer thin-callers invoke this via `uses:`. The `pull_request:` trigger is
 # required so GitHub's org-ruleset `required_workflows` validator accepts the
@@ -48,7 +48,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
@@ -65,30 +65,11 @@ jobs:
         env:
           RUBY_RUNNER: '["ubuntu-24.04"]'
           MACOS_RUNNER: '["macos-15-intel"]'
-          GLUE_RUNNER: ${{ vars.RUNNER_GLUE || '["ubuntu-slim"]' }}
-          # Fallback chain, ordered so degradation is MONOTONIC IN CAPABILITY.
-          # `|| vars.RUNNER_GLUE` was REMOVED 2026-09-18. A `glue-heavy`
-          # declaration asserts "glue is too small for me", so the glue route is
-          # never a valid degradation target — it is the one destination
-          # guaranteed to fail. Precedent: activity-planner's typecheck was
-          # OOM-killed on the 1 GiB glue container for 7 consecutive runs
-          # (2026-09-10 to 09-17) and completed in 36 s at 6 GiB. Under the warm
-          # shared glue pool (ADR 0018, ~768 MiB per runner under one parent
-          # cgroup, non-per-job OOM victim selection) that fallback could take
-          # out every concurrent glue job, not just this one.
-          #
-          # Liveness is preserved, so the 2026-07-21 queue-forever stall stays
-          # closed. When RUNNER_GLUE_HEAVY is unset (public callers cannot see
-          # the private org variable, or the variable is absent), the literal
-          # fallback is hosted ubuntu-slim: 1 vCPU and 5 GB, below the proven
-          # 6 GiB floor. `org-ops ci mode github-hosted` instead sets heavy to
-          # hosted ubuntu-latest (8 GB), which meets that floor.
-          HEAVY_RUNNER: ${{ vars.RUNNER_GLUE_HEAVY || '["ubuntu-slim"]' }}
-          # Raw declared values for the aliasing guard: removing the chain stops
-          # an ABSENT heavy variable landing on glue, not someone SETTING it
-          # equal to the glue route.
-          HEAVY_DECLARED: ${{ vars.RUNNER_GLUE_HEAVY }}
-          GLUE_DECLARED: ${{ vars.RUNNER_GLUE }}
+          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
+          # Heavy work must not degrade to the undersized light route.
+          # Public consumers cannot read private org variables; hosted
+          # ubuntu-latest provides the required memory when RUNNERS is absent.
+          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
         shell: bash
         run: |
           # Only an explicit true enables the facet, so transitional answers
@@ -111,9 +92,9 @@ jobs:
           if grep -qE '^has_swift:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^has_homebrew_formulae:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
-            printf 'runner=%s\n' "$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$MACOS_RUNNER"
           elif [ "$has_ruby" = true ]; then
-            printf 'runner=%s\n' "$RUBY_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$RUBY_RUNNER"
           # A repo that DECLARES the glue-heavy Workload Class goes to the
           # memory-bounded pool (`lint_hooks_workload_class`, standards
           # ADR-0022). This job's dependency install is the onboarded set's single
@@ -138,30 +119,20 @@ jobs:
           # a measured declaration.
           #
           # Anchored, quote-tolerant, case-insensitive: the answers file is
-          # copier-generated so the value is unquoted, but `$` stops a future
-          # class merely PREFIXED with glue-heavy from matching, and ADR-0018
-          # stores classes canonically lowercase while treating identifiers as
-          # case-insensitive at workflow boundaries. An absent file or answer
-          # falls through to glue — the intended degradation for a repo that has
-          # not re-rendered yet, and why the answer carries no copier `when:`
-          # mask (a pruned answer would be indistinguishable from a deliberate
-          # `glue` declaration).
+          # copier-generated, but legacy `glue-heavy` and new `heavy` both map
+          # to the heavy route during the migration. Absent answers default to
+          # light. Capability routes above still take precedence.
           elif grep -qiE \
-            "^lint_hooks_workload_class:[[:space:]]*[\"']?glue-heavy[\"']?[[:space:]]*\$" \
+            "^lint_hooks_workload_class:[[:space:]]*[\"']?(heavy|glue-heavy)[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
-            # Aliasing guard: only fires when the heavy variable is SET and
-            # equal to the glue route. Hosted mode sets distinct routes:
-            # RUNNER_GLUE=ubuntu-slim and RUNNER_GLUE_HEAVY=ubuntu-latest, so
-            # the guard does not fire. An unset heavy variable instead means a
-            # public caller cannot see it, or the variable is absent.
-            if [ -n "$HEAVY_DECLARED" ] && [ "$HEAVY_DECLARED" = "$GLUE_DECLARED" ]; then
-              echo "::error::glue-heavy is declared but RUNNER_GLUE_HEAVY equals RUNNER_GLUE ($GLUE_DECLARED). Refusing to route a hard-floor workload onto the light glue pool. Point RUNNER_GLUE_HEAVY at a distinct pool, or clear it to fall back to GitHub-hosted."
-              exit 1
-            fi
-            printf 'runner=%s\n' "$HEAVY_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$HEAVY_RUNNER"
           else
-            printf 'runner=%s\n' "$GLUE_RUNNER" >> "$GITHUB_OUTPUT"
+            runner="$LIGHT_RUNNER"
           fi
+          # GitHub's toJSON emits indented multiline JSON; job outputs require
+          # one line. Reject invalid JSON rather than writing a broken output.
+          runner="$(jq -ce . <<<"$runner")" || exit 1
+          printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"
           # Fork mode keys on repo_type (ADR-0013); the boolean `is_fork`
           # answer was retired in template v1.55.24, which silently flipped
           # forks to all-files mode while this grep still keyed on it. The

@@ -72,7 +72,7 @@ permissions:
 jobs:
   testflight:
     name: Internal TestFlight release
-    runs-on: ${{ fromJSON(vars.RUNNER_MACOS || '["macos-15"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-15"]') }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     env:
       # Run-scoped so concurrent or retried runs never collide on one keychain.

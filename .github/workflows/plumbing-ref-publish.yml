@@ -15,7 +15,7 @@ jobs:
   readiness:
     permissions:
       contents: read
-    runs-on: ${{ fromJSON(vars.RUNNER_GLUE || '["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       version: ${{ steps.observe.outputs.version }}
@@ -73,7 +73,7 @@ jobs:
               data_dir = str(Path(xdg) / "mise" if xdg else Path.home() / ".local/share/mise")
           binary = Path(data_dir) / "bin/mise"
           if not binary.is_file():
-              raise SystemExit(f"pin change requires preinstalled mise on RUNNER_GLUE: {binary}")
+              raise SystemExit(f"pin change requires preinstalled mise on RUNNERS.light: {binary}")
           try:
               reported = json.loads(subprocess.check_output(
                   [str(binary), "version", "--json"], text=True
@@ -83,10 +83,10 @@ jobs:
           if not re.fullmatch(r"[0-9]{4}\.[0-9]+\.[0-9]+", reported):
               raise SystemExit("unparseable preinstalled mise version")
           if pin(target) != reported:
-              raise SystemExit(f"candidate mise {pin(target)} != observed RUNNER_GLUE {reported}")
+              raise SystemExit(f"candidate mise {pin(target)} != observed RUNNERS.light {reported}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"version={reported}\n")
-          print(f"observed RUNNER_GLUE mise {reported}")
+          print(f"observed RUNNERS.light mise {reported}")
           PY
 
   validate:

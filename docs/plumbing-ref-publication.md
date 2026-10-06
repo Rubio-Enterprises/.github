@@ -56,7 +56,7 @@ state, compare-and-swap, and final verification.
 The publisher compares the candidate gate workflow's single annotated
 `MISE_VERSION` with the live tag's pin. An unchanged pin needs no runner
 observation, including this initial rollout. For a changed pin, a preflight
-job runs on the same `RUNNER_GLUE` route as the required gate and reads
+job runs on the same `RUNNERS.light` route as the required gate and reads
 `$MISE_DATA_DIR/bin/mise` (or mise-action's equivalent default data directory).
 The publisher refuses to advance the tag if that executable is absent,
 unparseable, or different from the candidate pin. A hosted fallback with no

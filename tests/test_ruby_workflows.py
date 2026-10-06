@@ -12,8 +12,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LINT_WORKFLOW = ROOT / ".github" / "workflows" / "lint-hooks.yml"
+TYPECHECK_WORKFLOW = ROOT / ".github" / "workflows" / "typecheck-ts.yml"
 SMOKE_WORKFLOW = ROOT / ".github" / "workflows" / "cloud-setup-smoke.yml"
 LINT_TEXT = LINT_WORKFLOW.read_text(encoding="utf-8")
+TYPECHECK_TEXT = TYPECHECK_WORKFLOW.read_text(encoding="utf-8")
 SMOKE_TEXT = SMOKE_WORKFLOW.read_text(encoding="utf-8")
 RUBY_SETUP_PATTERN = re.compile(
     r"ruby/setup-ruby@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+"
@@ -103,24 +105,24 @@ class LintRubyRoutingTests(unittest.TestCase):
     runners = {
         "RUBY_RUNNER": '["ruby"]',
         "MACOS_RUNNER": '["macos"]',
-        "GLUE_RUNNER": '["glue"]',
-        "HEAVY_RUNNER": '["glue-heavy"]',
+        "LIGHT_RUNNER": '["light"]',
+        "HEAVY_RUNNER": '["heavy"]',
     }
 
-    def route(self, answers: str) -> dict[str, str]:
+    def route(self, answers: str, **runner_env: str) -> dict[str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             (repo / ".copier-answers.yml").write_text(
                 textwrap.dedent(answers), encoding="utf-8"
             )
-            return run_script(self.script, repo, **self.runners)
+            return run_script(self.script, repo, **(self.runners | runner_env))
 
     def test_platform_capability_wins_and_keeps_ruby_setup_enabled(self) -> None:
         outputs = self.route(
             """
             has_ruby: true
             has_swift: true
-            lint_hooks_workload_class: glue-heavy
+            lint_hooks_workload_class: heavy
             """
         )
         self.assertEqual(outputs["has_ruby"], "true")
@@ -130,17 +132,18 @@ class LintRubyRoutingTests(unittest.TestCase):
         outputs = self.route(
             """
             has_ruby: true
-            lint_hooks_workload_class: glue-heavy
+            lint_hooks_workload_class: heavy
             """
         )
         self.assertEqual(outputs["has_ruby"], "true")
         self.assertEqual(outputs["runner"], '["ruby"]')
 
-    def test_non_ruby_routes_are_unchanged(self) -> None:
+    def test_non_ruby_routes_use_declared_classes(self) -> None:
         cases = (
             ("has_ruby: false\nhas_swift: true\n", '["macos"]'),
-            ("has_ruby: false\nlint_hooks_workload_class: glue-heavy\n", '["glue-heavy"]'),
-            ("repo_type: private\n", '["glue"]'),
+            ("has_ruby: false\nlint_hooks_workload_class: heavy\n", '["heavy"]'),
+            ("has_ruby: false\nlint_hooks_workload_class: light\n", '["light"]'),
+            ("repo_type: private\n", '["light"]'),
         )
         for answers, expected in cases:
             with self.subTest(answers=answers):
@@ -148,10 +151,42 @@ class LintRubyRoutingTests(unittest.TestCase):
                 self.assertEqual(outputs["has_ruby"], "false")
                 self.assertEqual(outputs["runner"], expected)
 
+    def test_legacy_glue_heavy_answer_selects_heavy_until_migration(self) -> None:
+        outputs = self.route("lint_hooks_workload_class: glue-heavy\n")
+        self.assertEqual(outputs["runner"], '["heavy"]')
+
+    def test_pretty_json_routes_emit_single_line_job_outputs(self) -> None:
+        pretty = {"LIGHT_RUNNER": '[\n  "light"\n]', "HEAVY_RUNNER": '[\n  "heavy"\n]'}
+        typecheck_script = extract_run_block(
+            TYPECHECK_TEXT, "Pick the runner from the declared Workload Class"
+        )
+        for workflow, script, answer in (
+            ("lint", self.script, "lint_hooks_workload_class"),
+            ("typecheck", typecheck_script, "typecheck_workload_class"),
+        ):
+            for workload, expected in (("light", '["light"]'), ("heavy", '["heavy"]')):
+                with self.subTest(workflow=workflow, workload=workload):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        repo = Path(tmp)
+                        (repo / ".copier-answers.yml").write_text(
+                            f"{answer}: {workload}\n", encoding="utf-8"
+                        )
+                        outputs = run_script(script, repo, **(self.runners | pretty))
+                        self.assertEqual(outputs["runner"], expected)
+
+    def test_invalid_route_json_fails_before_writing_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".copier-answers.yml").write_text(
+                "lint_hooks_workload_class: heavy\n", encoding="utf-8"
+            )
+            with self.assertRaises(subprocess.CalledProcessError):
+                run_script(self.script, repo, **(self.runners | {"HEAVY_RUNNER": "["}))
+
     def test_only_literal_true_enables_ruby(self) -> None:
         outputs = self.route("has_ruby: 'true'\n")
         self.assertEqual(outputs["has_ruby"], "false")
-        self.assertEqual(outputs["runner"], '["glue"]')
+        self.assertEqual(outputs["runner"], '["light"]')
 
     def test_lint_setup_is_pinned_locked_and_before_mise(self) -> None:
         step = extract_step(LINT_TEXT, "Install Ruby and locked bundle")

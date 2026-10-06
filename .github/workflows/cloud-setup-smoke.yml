@@ -99,14 +99,7 @@ jobs:
     # the glue default. The cloud environment is x64 Ubuntu; the glue pool is
     # arm64, which would add architecture-specific false positives to a check
     # whose entire job is to answer "would this work in the cloud?".
-    #
-    # `RUNNER_CLOUD_SMOKE` is deliberately NOT declared in .github-private's
-    # runners.tf — declaring it would CREATE the variable live on the next apply
-    # and could point this job at a label no pool advertises, the 2026-07-21
-    # stall. Referencing it with a fallback is the safe direction (the
-    # RUNNER_GLUE_HEAVY precedent): absent variable means "behave exactly as
-    # written here", and the org gains a routing lever the day a pool exists.
-    runs-on: ${{ fromJSON(vars.RUNNER_CLOUD_SMOKE || '["ubuntu-latest"]') }}
+    runs-on: ubuntu-latest
     # The cloud snapshot build has a ~5 min budget; this runs the same work with
     # a cold cache, so the cap is generous but still bounded.
     timeout-minutes: 15
