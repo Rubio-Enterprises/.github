@@ -116,7 +116,7 @@ jobs:
             printf 'runner=%s\n' "$RUBY_RUNNER" >> "$GITHUB_OUTPUT"
           # A repo that DECLARES the glue-heavy Workload Class goes to the
           # memory-bounded pool (`lint_hooks_workload_class`, standards
-          # ADR-0022). This job's dependency install is the fleet's single
+          # ADR-0022). This job's dependency install is the onboarded set's single
           # biggest OOM site: of 37 kodus-ai standards.yml runs on 2026-07-29,
           # 21 failed and EVERY one failed in lint-hooks — 16 of them in that
           # install (exit 137 kills and registry timeouts, roughly evenly
@@ -166,7 +166,7 @@ jobs:
           # answer was retired in template v1.55.24, which silently flipped
           # forks to all-files mode while this grep still keyed on it. The
           # legacy grep stays as a fallback for consumers on a pre-retirement
-          # render — identical behavior, removable once the fleet is fully
+          # render — identical behavior, removable once all onboarded consumers are
           # >= v1.55.24.
           if grep -qE '^repo_type:[[:space:]]*(extended_fork|pristine_fork)' .copier-answers.yml 2>/dev/null ||
             grep -qE '^is_fork:[[:space:]]*true' .copier-answers.yml 2>/dev/null; then
@@ -183,7 +183,7 @@ jobs:
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
     runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}
-    # Backstop for hook-time hangs. Fleet-live on the template/v1.55.2 wave: a
+    # Backstop for hook-time hangs. Observed on the template/v1.55.2 wave: a
     # consumer branch carrying the new lefthook `remotes:` stub thin-called an
     # old pin of this workflow (no standards-reader token), and the anonymous
     # clone of the private standards repo left git-credential-manager waiting

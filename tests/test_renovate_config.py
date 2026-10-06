@@ -217,7 +217,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         # extending config's own, so every default.json rule that matches a
         # Copier re-render runs after copier.json's rule and can override it.
         dependency = {
-            "repository": "Rubio-Enterprises/fleet",
+            "repository": "Rubio-Enterprises/org-ops",
             "manager": "copier",
             "depName": "https://github.com/Rubio-Enterprises/standards.git",
             "packageName": "https://github.com/Rubio-Enterprises/standards.git",
@@ -242,7 +242,7 @@ class RenovateConfigContractTests(unittest.TestCase):
 
     def test_other_safe_class_updates_keep_renovate_side_merge(self) -> None:
         resolved = _resolve_dependency({
-            "repository": "Rubio-Enterprises/fleet",
+            "repository": "Rubio-Enterprises/org-ops",
             "manager": "npm",
             "depName": "vite",
             "packageName": "vite",
@@ -255,7 +255,7 @@ class RenovateConfigContractTests(unittest.TestCase):
 
     def test_python_interpreter_pins_and_floor_are_coordinated(self) -> None:
         dependency = {
-            "repository": "Rubio-Enterprises/fleet",
+            "repository": "Rubio-Enterprises/org-ops",
             "depName": "python",
             "packageName": "python",
             "currentVersion": "3.14.6",
@@ -363,7 +363,7 @@ class RenovateConfigContractTests(unittest.TestCase):
 
     def test_template_rendered_workflow_pins_advance_only_through_the_template(self) -> None:
         dependency = {
-            "repository": "Rubio-Enterprises/fleet",
+            "repository": "Rubio-Enterprises/org-ops",
             "manager": "github-actions",
             "depName": "jdx/mise-action",
             "packageName": "jdx/mise-action",
