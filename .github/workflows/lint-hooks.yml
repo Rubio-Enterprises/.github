@@ -19,8 +19,8 @@ name: lint hooks (reusable)
 # hosted Intel macOS rather than the scarce self-hosted Xcode build pool.
 #
 # Everything else takes the Linux route, whose tier is the consumer's DECLARED
-# `lint_hooks_workload_class` (standards ADR-0022): `heavy` (or legacy
-# `glue-heavy`) for memory-heavy work, `light` (or legacy `glue`) by default.
+# `lint_hooks_workload_class` (standards ADR-0022): `heavy` for memory-heavy
+# work, `light` by default.
 # A capability-routed repo's declared class is ignored: a resource tier cannot
 # satisfy a runtime or platform requirement it does not provide.
 #
@@ -118,12 +118,11 @@ jobs:
           # consumer a second fetch — to get a worse predictor of peak RSS than
           # a measured declaration.
           #
-          # Anchored, quote-tolerant, case-insensitive: the answers file is
-          # copier-generated, but legacy `glue-heavy` and new `heavy` both map
-          # to the heavy route during the migration. Absent answers default to
+          # Anchored, quote-tolerant, case-insensitive: only a declared
+          # `heavy` answer selects the heavy route. Absent answers default to
           # light. Capability routes above still take precedence.
           elif grep -qiE \
-            "^lint_hooks_workload_class:[[:space:]]*[\"']?(heavy|glue-heavy)[\"']?[[:space:]]*\$" \
+            "^lint_hooks_workload_class:[[:space:]]*[\"']?heavy[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
             runner="$HEAVY_RUNNER"
           else

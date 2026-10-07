@@ -237,8 +237,8 @@ reread contract in the runbook.
   `typecheck_workload_class` answer (standards
   [ADR-0022](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0022-glue-heavy-workload-class.md)),
   read from a sparse-checkout of `.copier-answers.yml` in a `detect` / `route`
-  job because `runs-on:` is evaluated before checkout. `light` and legacy `glue`
-  select `RUNNERS.light`; `heavy` and legacy `glue-heavy` select `RUNNERS.heavy`.
+  job because `runs-on:` is evaluated before checkout. `light` selects
+  `RUNNERS.light`; `heavy` selects `RUNNERS.heavy`.
   Absent answers select light. The two answers are workload-specific rather than
   a repo-wide language proxy; selecting heavy from `has_typescript` once put
   15 repos on a 3-slot pool. **Capability outranks resource:** Swift/Homebrew

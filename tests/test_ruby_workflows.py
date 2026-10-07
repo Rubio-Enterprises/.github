@@ -151,10 +151,6 @@ class LintRubyRoutingTests(unittest.TestCase):
                 self.assertEqual(outputs["has_ruby"], "false")
                 self.assertEqual(outputs["runner"], expected)
 
-    def test_legacy_glue_heavy_answer_selects_heavy_until_migration(self) -> None:
-        outputs = self.route("lint_hooks_workload_class: glue-heavy\n")
-        self.assertEqual(outputs["runner"], '["heavy"]')
-
     def test_pretty_json_routes_emit_single_line_job_outputs(self) -> None:
         pretty = {"LIGHT_RUNNER": '[\n  "light"\n]', "HEAVY_RUNNER": '[\n  "heavy"\n]'}
         typecheck_script = extract_run_block(
