@@ -59,7 +59,7 @@ See
 
 ## Standards dependency
 
-`standards-gates.yml` checks out `Rubio-Enterprises/standards` and runs its `ci/gate-*.sh` checks (audit, lint-format, PR title, gitleaks) there. Each run **resolves the ref at runtime for the calling repository** rather than using a fixed tag, so the gate tracks `standards` as it advances:
+`standards-gates.yml` checks out `Rubio-Enterprises/standards` and runs its `ci/gate-*.sh` checks (audit, lint-config, PR title, gitleaks) there. Each run **resolves the ref at runtime for the calling repository** rather than using a fixed tag, so the gate tracks `standards` as it advances:
 
 - Audit-side changes (`standards/scripts/`, `standards/schemas/`, `standards/policy/`, `standards/data/`, or audit-side `.mise.toml`) reach consumers through that resolved ref.
 - Template-side changes in `standards/template/` and `standards/copier.yml` reach consumers via `copier update`, not via `.github`, and **do not require a `.github` release**.

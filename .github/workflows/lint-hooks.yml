@@ -354,41 +354,6 @@ jobs:
         env:
           MISE_ENV: ci
         run: mise exec -- lefthook run pre-commit --all-files
-      - name: Fail if a hook rewrote a tracked file
-        # The formatter hooks are WRITE-mode by design (`prettier --write`,
-        # `shfmt -w`, `gofmt -w`, `rustfmt`, `ruff format`, `biome check
-        # --write`): locally they fix the file and `stage_fixed` the rewrite
-        # into the commit. They exit 0 after rewriting, so the step above can
-        # never fail on formatting. Until this step landed (2026-09-01) the
-        # gate enforced the linters — yamllint, markdownlint, shellcheck,
-        # `ruff check --exit-non-zero-on-fix`, clippy — and NONE of the
-        # formatting: dotfiles#502 passed with a `.copier-answers.yml` that
-        # prettier rewrites. `lint-format` re-checks python (`ruff format
-        # --check`) and biome in check mode, but YAML, shell, Go and Rust
-        # formatting had no CI enforcement anywhere.
-        #
-        # `git diff HEAD` covers staged AND unstaged edits to tracked files
-        # (`stage_fixed` hooks `git add` their rewrites, so a plain `git diff`
-        # would miss them) and ignores untracked output such as tool caches.
-        # Remediation runs the same hook stage over the affected files locally.
-        env:
-          IS_FORK: ${{ needs.detect.outputs.is_fork }}
-        run: |
-          if git diff --quiet HEAD --; then
-            echo "no hook rewrote a tracked file"
-            exit 0
-          fi
-          if [ "$IS_FORK" = "true" ]; then
-            fix="run 'mise exec -- lefthook run pre-commit' on the changed files"
-          else
-            fix="run 'mise exec -- lefthook run pre-commit --all-files'"
-          fi
-          fix="${fix} locally and commit the result"
-          echo "::error title=lint-hooks::hooks rewrote tracked files — ${fix}"
-          git --no-pager diff --stat HEAD --
-          git --no-pager diff HEAD -- | head -n 400
-          exit 1
-        shell: bash
       - name: Run lefthook pre-commit on changed fork files
         if: needs.detect.outputs.is_fork == 'true'
         env:
@@ -447,6 +412,33 @@ jobs:
             exit 1
           fi
           echo "fork-mode lefthook hooks passed"
+        shell: bash
+      - name: Fail if a hook rewrote a tracked file
+        # Both execution paths above run write-mode Fixers. Check their
+        # rewrites afterward, including stage_fixed changes on fork PRs.
+        # lint-config verifies configuration only; this is the formatting gate.
+        #
+        # `git diff HEAD` covers staged AND unstaged edits to tracked files
+        # (`stage_fixed` hooks `git add` their rewrites, so a plain `git diff`
+        # would miss them) and ignores untracked output such as tool caches.
+        # Remediation runs the same hook stage over the affected files locally.
+        env:
+          IS_FORK: ${{ needs.detect.outputs.is_fork }}
+        run: |
+          if git diff --quiet HEAD --; then
+            echo "no hook rewrote a tracked file"
+            exit 0
+          fi
+          if [ "$IS_FORK" = "true" ]; then
+            fix="run 'mise exec -- lefthook run pre-commit' on the changed files"
+          else
+            fix="run 'mise exec -- lefthook run pre-commit --all-files'"
+          fi
+          fix="${fix} locally and commit the result"
+          echo "::error title=lint-hooks::hooks rewrote tracked files — ${fix}"
+          git --no-pager diff --stat HEAD --
+          git --no-pager diff HEAD -- | head -n 400
+          exit 1
         shell: bash
       - name: Validate commit-msg hook accepts a conventional commit
         # Writes a well-formed conventional-commit message and runs the
