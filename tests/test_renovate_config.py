@@ -285,7 +285,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertNotIn(
             "enabled",
             _resolve_dependency(
-                {**consumer_manifest, "packageName": "ruff", "depName": "ruff"}
+                {**consumer_manifest, "packageName": "mypy", "depName": "mypy"}
             ),
         )
         self.assertNotIn(
@@ -309,15 +309,15 @@ class RenovateConfigContractTests(unittest.TestCase):
         dependency = {
             "repository": "Rubio-Enterprises/avr",
             "manager": "pep621",
-            "depName": "ruff",
-            "packageName": "ruff",
+            "depName": "mypy",
+            "packageName": "mypy",
             "fileName": "pyproject.toml",
             "depType": "dependency-groups",
             "currentVersion": "0.16.7",
             "updateType": "patch",
         }
         for dep_type in ("dependency-groups", "tool.uv.dev-dependencies"):
-            for name in ("ruff", "pytest", "pytest-cov", "mypy", "pyright", "coverage", "hypothesis"):
+            for name in ("pytest", "pytest-cov", "mypy", "pyright", "coverage", "hypothesis"):
                 with self.subTest(dep_type=dep_type, name=name):
                     resolved = _resolve_dependency(
                         {**dependency, "depType": dep_type, "depName": name, "packageName": name}
@@ -338,8 +338,8 @@ class RenovateConfigContractTests(unittest.TestCase):
         dependency = {
             "repository": "Rubio-Enterprises/avr",
             "manager": "pep621",
-            "depName": "ruff",
-            "packageName": "ruff",
+            "depName": "mypy",
+            "packageName": "mypy",
             "fileName": "pyproject.toml",
             "depType": "dependency-groups",
             "currentVersion": "0.16.4",
@@ -389,8 +389,8 @@ class RenovateConfigContractTests(unittest.TestCase):
         dependency = {
             "repository": "Rubio-Enterprises/avr",
             "manager": "pep621",
-            "depName": "ruff",
-            "packageName": "ruff",
+            "depName": "mypy",
+            "packageName": "mypy",
             "fileName": "pyproject.toml",
             "depType": "dependency-groups",
             "currentVersion": "0.16.7",
@@ -1288,6 +1288,32 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertGreater(sandbox, standing)
         self.assertFalse(rules[sandbox]["automerge"])
         self.assertFalse(rules[sandbox]["platformAutomerge"])
+
+
+class MiseOwnedToolTests(unittest.TestCase):
+    def test_manifest_copies_are_frozen_but_regex_floor_and_schema_are_live(self) -> None:
+        cases = [
+            ("npm", "npm", "@biomejs/biome", "package.json", False),
+            ("npm", "npm", "@biomejs/biome", "app/package.json", False),
+            ("pep621", "pypi", "ruff", "pyproject.toml", False),
+            ("pip_requirements", "pypi", "ruff", "requirements-dev.txt", False),
+            ("poetry", "pypi", "ruff", "pyproject.toml", False),
+            ("custom.regex", "npm", "@biomejs/biome", "template/.mise.toml.jinja", True),
+            ("custom.regex", "npm", "@biomejs/biome", "template/biome.json.fragment.jinja", True),
+            ("custom.regex", "pypi", "ruff", "template/.mise.toml.jinja", True),
+            ("pep621", "pypi", "pytest", "pyproject.toml", True),
+        ]
+        for manager, datasource, package, filename, enabled in cases:
+            for repo in ("native-example", "extended-fork-example", "standards"):
+                with self.subTest(manager=manager, package=package, repo=repo):
+                    result = _resolve_dependency({
+                        "manager": manager, "datasource": datasource,
+                        "packageName": package, "depName": package,
+                        "fileName": filename, "repository": f"Rubio-Enterprises/{repo}",
+                        "currentVersion": "2.5.14", "updateType": "patch",
+                        "depType": "dependency-groups",
+                    })
+                    self.assertEqual(result.get("enabled", True), enabled)
 
 
 if __name__ == "__main__":
