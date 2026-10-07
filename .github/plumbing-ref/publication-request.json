@@ -1,8 +1,9 @@
 {
-  "expected_current_sha": "ad0feef5fb85ad6f026e2bdbdb85843c34a0d22f",
-  "target_sha": "45453d8a540ccbc25e1a7a6a178e3740e1508485",
-  "reason": "Publish the Gate Family workflow RUNNERS route migration from .github PR #329: standards-gates lint work uses RUNNERS.light, and typecheck-ts selects RUNNERS.light or RUNNERS.heavy according to workload class. This advances the required gate workflows to the released v4.2.0 commit so they no longer depend on the old RUNNER_GLUE and RUNNER_GLUE_HEAVY variables. The annotated MISE_VERSION pin is unchanged, so the publisher does not require a runner preflight.",
+  "expected_current_sha": "45453d8a540ccbc25e1a7a6a178e3740e1508485",
+  "target_sha": "9634081f9a3a599f936d1fc7aadb558e856187fd",
+  "reason": "Publish the v4.2.1 Gate Family workflows after the workload class cleanup in .github PR #333. The temporary glue and glue-heavy workload class acceptance is no longer needed following the standards migration. The annotated MISE_VERSION pin is unchanged.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/329"
+    "https://github.com/Rubio-Enterprises/.github/pull/333",
+    "https://github.com/Rubio-Enterprises/.github/pull/337"
   ]
 }
