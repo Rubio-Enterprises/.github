@@ -27,6 +27,19 @@
   },
   "packageRules": [
     {
+      "description": "Biome is owned only by the standards mise floor. Freeze npm manifest copies (including upstream fork pins) without disabling custom.regex floor/schema bumps in standards.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["@biomejs/biome"],
+      "enabled": false
+    },
+    {
+      "description": "Ruff is owned only by the standards mise floor. Freeze PyPI manifest copies, including optional/dev groups and requirements, while leaving standards custom.regex pipx floor bumps enabled.",
+      "matchManagers": ["pep621", "pip_requirements", "pip_setup", "poetry", "pipenv"],
+      "matchDatasources": ["pypi"],
+      "matchPackageNames": ["ruff"],
+      "enabled": false
+    },
+    {
       "description": "Disable Renovate's built-in mise manager across onboarded consumers: consumer .mise.toml tool pins are TEMPLATE-OWNED (enforced by standards' normalize-mise-pins.sh against template/.mise.toml.jinja floors). Letting Renovate also bump .mise.toml created an infinite thrash (Renovate bumps up, copier-sync reverts to floor). Currency for these tools is driven from the template's .mise.toml.jinja via custom managers in the standards repo, so one reviewed bump propagates uniformly to the all onboarded consumers. NOTE: does NOT affect the jdx/mise CLI pin below — that is a custom.regex manager (workflow YAML), a different manager.",
       "matchManagers": ["mise"],
       "enabled": false
@@ -63,17 +76,17 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Pin only named Python dev tools in pep621 dev groups: rangeStrategy:bump writes ruff>=0.16.7, then uv lock resolves 0.16.8 while it is inside the seven-day soak, and Renovate's artifact guard rejects the lockfile. An exact pin keeps the selected, aged version and its uv resolution aligned; runtime and optional dependencies retain their own range strategy.",
+      "description": "Pin only named Python dev tools in pep621 dev groups: rangeStrategy:bump writes pyright>=1.1.413, then uv lock resolves 1.1.414 while it is inside the seven-day soak, and Renovate's artifact guard rejects the lockfile. An exact pin keeps the selected, aged version and its uv resolution aligned; runtime and optional dependencies retain their own range strategy.",
       "matchManagers": ["pep621"],
       "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
-      "matchPackageNames": ["ruff", "pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
+      "matchPackageNames": ["pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
       "rangeStrategy": "pin"
     },
     {
       "description": "The exact pin of these dev tools writes the version uv.lock already resolves (Renovate 44 derives pep621 current versions from the lock), so it adopts no new release and the seven-day soak has nothing to age. Renovate also wires no release timestamp into `pin` updates (renovatebot/renovate#40288), so under timestamp-required every such pin branch otherwise holds renovate/stability-days pending forever. Only the pin skips the soak; version updates of these tools keep it.",
       "matchManagers": ["pep621"],
       "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
-      "matchPackageNames": ["ruff", "pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
+      "matchPackageNames": ["pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
       "matchUpdateTypes": ["pin"],
       "minimumReleaseAge": null
     },
@@ -81,7 +94,7 @@
       "description": "Experimental-tier Python dev tools may merge green major and pre-1.0 updates without dashboard approval, after the normal seven-day release soak. Production standards/.github/.github-private and internal agent-workspaces keep their manual posture; later manual exceptions remain authoritative.",
       "matchManagers": ["pep621"],
       "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
-      "matchPackageNames": ["ruff", "pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
+      "matchPackageNames": ["pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
       "matchRepositories": ["!Rubio-Enterprises/standards", "!Rubio-Enterprises/.github", "!Rubio-Enterprises/.github-private", "!Rubio-Enterprises/agent-workspaces"],
       "dependencyDashboardApproval": false,
       "automerge": true,
