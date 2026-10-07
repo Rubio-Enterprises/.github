@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.2.1](https://github.com/Rubio-Enterprises/.github/compare/v4.2.0...v4.2.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **ci:** verify lint configuration and catch fork hook rewrites ([#335](https://github.com/Rubio-Enterprises/.github/issues/335)) ([d8fd392](https://github.com/Rubio-Enterprises/.github/commit/d8fd392ef34fd31144404775d30d35294f96681d))
+* **renovate:** freeze package copies of mise-owned tools ([#336](https://github.com/Rubio-Enterprises/.github/issues/336)) ([2ed2ca9](https://github.com/Rubio-Enterprises/.github/commit/2ed2ca921047127fb8cad7b61d6628ef7a3d1896))
+
 ## [4.2.0](https://github.com/Rubio-Enterprises/.github/compare/v4.1.3...v4.2.0) (2026-10-06)
 
 
