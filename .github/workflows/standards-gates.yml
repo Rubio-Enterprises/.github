@@ -44,7 +44,13 @@ jobs:
 
           ring="$(property_value ring)"
           audit="$(property_value gate-audit)"
-          lint_format="$(property_value gate-lint-format)"
+          lint_config="$(property_value gate-lint-config)"
+          # The old selector stays enforced until the Terraform bridge lands.
+          # Both are projected from the same declaration during the cutover.
+          legacy_lint_config="$(property_value gate-lint-format)"
+          if [ "$legacy_lint_config" = true ]; then
+            lint_config=true
+          fi
           pr_title="$(property_value gate-pr-title)"
           secret_scan="$(property_value gate-secret-scan)"
 
@@ -56,14 +62,14 @@ jobs:
             Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@refs/heads/*|Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@refs/pull/*)
               if [ "$GITHUB_REPOSITORY" = "Rubio-Enterprises/.github" ]; then
                 audit=false
-                lint_format=false
+                lint_config=false
                 pr_title=false
                 secret_scan=false
               fi
               ;;
           esac
 
-          for value in "$audit" "$lint_format" "$pr_title" "$secret_scan"; do
+          for value in "$audit" "$lint_config" "$legacy_lint_config" "$pr_title" "$secret_scan"; do
             if [ "$value" != "true" ] && [ "$value" != "false" ]; then
               echo "::error::gate selector values must be boolean true or false" >&2
               exit 1
@@ -77,20 +83,20 @@ jobs:
           fi
 
           any_selected=false
-          if [ "$audit" = true ] || [ "$lint_format" = true ] || \
+          if [ "$audit" = true ] || [ "$lint_config" = true ] || \
             [ "$pr_title" = true ] || [ "$secret_scan" = true ]; then
             any_selected=true
           fi
 
           {
             echo "audit=$audit"
-            echo "lint_format=$lint_format"
+            echo "lint_config=$lint_config"
             echo "pr_title=$pr_title"
             echo "secret_scan=$secret_scan"
             echo "any_selected=$any_selected"
             echo "channel=$channel"
           } >> "$GITHUB_OUTPUT"
-          echo "::notice::standards channel '$channel' (ring='${ring:-<unset>}'); selected: audit=$audit lint-format=$lint_format pr-title=$pr_title secret-scan=$secret_scan"
+          echo "::notice::standards channel '$channel' (ring='${ring:-<unset>}'); selected: audit=$audit lint-config=$lint_config pr-title=$pr_title secret-scan=$secret_scan"
 
       - name: Check out the consumer repository
         id: consumer_checkout
@@ -108,14 +114,14 @@ jobs:
         if: steps.selection.outputs.any_selected == 'true'
         env:
           AUDIT_SELECTED: ${{ steps.selection.outputs.audit }}
-          LINT_SELECTED: ${{ steps.selection.outputs.lint_format }}
+          LINT_SELECTED: ${{ steps.selection.outputs.lint_config }}
           TITLE_SELECTED: ${{ steps.selection.outputs.pr_title }}
           SECRET_SELECTED: ${{ steps.selection.outputs.secret_scan }}
         shell: bash
         run: |
           set -euo pipefail
           audit="$AUDIT_SELECTED"
-          lint_format="$LINT_SELECTED"
+          lint_config="$LINT_SELECTED"
           pr_title="$TITLE_SELECTED"
           secret_scan="$SECRET_SELECTED"
 
@@ -123,24 +129,24 @@ jobs:
             pr_title=false
           fi
 
-          if [ "$lint_format" = true ]; then
+          if [ "$lint_config" = true ]; then
             if [ ! -f .copier-answers.yml ]; then
-              echo "::notice::no .copier-answers.yml; lint-format is not applicable"
-              lint_format=false
+              echo "::notice::no .copier-answers.yml; lint-config is not applicable"
+              lint_config=false
             elif grep -qE '^repo_type:[[:space:]]*(pristine_fork|governance_repo)' .copier-answers.yml 2>/dev/null; then
-              echo "::notice::repo_type uses the minimal render; lint-format is not applicable"
-              lint_format=false
+              echo "::notice::repo_type uses the minimal render; lint-config is not applicable"
+              lint_config=false
             fi
           fi
 
           setup_needed=false
-          if [ "$audit" = true ] || [ "$lint_format" = true ] || \
+          if [ "$audit" = true ] || [ "$lint_config" = true ] || \
             [ "$pr_title" = true ] || [ "$secret_scan" = true ]; then
             setup_needed=true
           fi
 
-          # The standards-side tools each applicable gate executes. lint-format
-          # runs the consumer's own pins instead; see "Install consumer lint tools".
+          # The standards-side tools each applicable gate executes. lint-config
+          # needs only consumer rendering tools; linters run in lint-hooks.
           standards_tools=""
           add_standards_tools() {
             for tool in "$@"; do
@@ -153,6 +159,9 @@ jobs:
           if [ "$audit" = true ]; then
             add_standards_tools node python aqua:open-policy-agent/conftest pipx:check-jsonschema
           fi
+          if [ "$lint_config" = true ]; then
+            add_standards_tools python
+          fi
           if [ "$pr_title" = true ]; then
             add_standards_tools node npm:@commitlint/cli npm:@commitlint/config-conventional
           fi
@@ -162,7 +171,7 @@ jobs:
 
           {
             echo "audit=$audit"
-            echo "lint_format=$lint_format"
+            echo "lint_config=$lint_config"
             echo "pr_title=$pr_title"
             echo "secret_scan=$secret_scan"
             echo "setup_needed=$setup_needed"
@@ -291,11 +300,10 @@ jobs:
           add_shims_to_path: false
           version: ${{ steps.mise_version.outputs.version }}
 
-      # lint-format runs the consumer's own pins through `mise exec` at the
-      # repository root, so install exactly those pins from the consumer config.
-      - name: Install consumer lint tools
+      # Config rendering needs yq and copier, not the consumer lint toolchain.
+      - name: Install consumer config tools
         id: consumer_lint_tools
-        if: steps.applicability.outputs.lint_format == 'true'
+        if: steps.applicability.outputs.lint_config == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -303,14 +311,14 @@ jobs:
           selected="$(jq -r '
             keys[] as $key
             | select(($key | sub("^[^:]+:"; "") | split("/") | last)
-                | IN("node", "yq", "copier", "markdownlint-cli2", "yamllint", "ruff", "biome"))
+                | IN("yq", "copier"))
             | $key' <<<"$listing")"
           if [ -z "$selected" ]; then
-            echo "::notice::the consumer pins none of the lint-format tools; the gate reports them missing"
+            echo "::notice::the consumer pins none of the lint-config rendering tools; the gate reports them missing"
             exit 0
           fi
           mapfile -t tools <<<"$selected"
-          echo "consumer lint tools: ${tools[*]}"
+          echo "consumer config tools: ${tools[*]}"
           # pipx installs require the consumer's selected uv and Python pins,
           # which may differ from the standards-side tools already installed.
           if jq -e 'has("uv")' <<<"$listing" >/dev/null; then
@@ -339,7 +347,7 @@ jobs:
           STANDARDS_MISE_OUTCOME: ${{ steps.standards_mise.outcome }}
           AUDIT_NEEDED: ${{ steps.applicability.outputs.audit }}
           STANDARDS_AUDIT_TOOLS_OUTCOME: ${{ steps.standards_audit_tools.outcome }}
-          CONSUMER_LINT_NEEDED: ${{ steps.applicability.outputs.lint_format }}
+          CONSUMER_LINT_NEEDED: ${{ steps.applicability.outputs.lint_config }}
           CONSUMER_LINT_OUTCOME: ${{ steps.consumer_lint_tools.outcome }}
         shell: bash
         run: |
@@ -412,13 +420,13 @@ jobs:
           fi
           bash "$STANDARDS_ROOT/ci/gate-audit.sh"
 
-      - name: lint-format
-        id: gate_lint_format
+      - name: lint-config
+        id: gate_lint_config
         if: always()
         continue-on-error: true
         env:
-          SELECTED: ${{ steps.selection.outputs.lint_format }}
-          APPLICABLE: ${{ steps.applicability.outputs.lint_format }}
+          SELECTED: ${{ steps.selection.outputs.lint_config }}
+          APPLICABLE: ${{ steps.applicability.outputs.lint_config }}
           COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
           STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
@@ -431,14 +439,20 @@ jobs:
             exit 0
           fi
           if [ "$SELECTED" != true ] || [ "$APPLICABLE" != true ]; then
-            echo "::error::lint-format applicability is missing" >&2
+            echo "::error::lint-config applicability is missing" >&2
             exit 1
           fi
           if [ "$COMMON_SETUP_OUTCOME" != success ]; then
-            echo "::error::lint-format cannot run because common setup failed" >&2
+            echo "::error::lint-config cannot run because common setup failed" >&2
             exit 1
           fi
-          bash "$STANDARDS_ROOT/ci/gate-lint-format.sh"
+          # Publication may precede standards channel promotion. Never skip
+          # enforcement because the new content path has not arrived yet.
+          script="$STANDARDS_ROOT/ci/gate-lint-config.sh"
+          if [ ! -f "$script" ]; then
+            script="$STANDARDS_ROOT/ci/gate-lint-format.sh"
+          fi
+          bash "$script"
 
       - name: Gate — PR title
         id: gate_pr_title
@@ -513,8 +527,8 @@ jobs:
           COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
           AUDIT_OUTCOME: ${{ steps.gate_audit.outcome }}
           AUDIT_VERDICT: ${{ steps.gate_audit.outputs.verdict }}
-          LINT_OUTCOME: ${{ steps.gate_lint_format.outcome }}
-          LINT_VERDICT: ${{ steps.gate_lint_format.outputs.verdict }}
+          LINT_OUTCOME: ${{ steps.gate_lint_config.outcome }}
+          LINT_VERDICT: ${{ steps.gate_lint_config.outputs.verdict }}
           TITLE_OUTCOME: ${{ steps.gate_pr_title.outcome }}
           TITLE_VERDICT: ${{ steps.gate_pr_title.outputs.verdict }}
           SECRET_OUTCOME: ${{ steps.gate_secret_scan.outcome }}
@@ -547,7 +561,7 @@ jobs:
             fail=1
           fi
           report_gate audit "$AUDIT_VERDICT" "$AUDIT_OUTCOME"
-          report_gate lint-format "$LINT_VERDICT" "$LINT_OUTCOME"
+          report_gate lint-config "$LINT_VERDICT" "$LINT_OUTCOME"
           report_gate pr-title "$TITLE_VERDICT" "$TITLE_OUTCOME"
           report_gate secret-scan "$SECRET_VERDICT" "$SECRET_OUTCOME"
 

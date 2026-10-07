@@ -148,6 +148,11 @@ class EnforcementPolicyTests(unittest.TestCase):
         self.assertNotIn("ENFORCE_FORK_HOOKS:", WORKFLOW_TEXT)
         self.assertNotIn("::warning", extract_run_block(FORK_STEP))
 
+    def test_rewrite_guard_follows_both_execution_paths(self) -> None:
+        for step in (ALL_FILES_STEP, FORK_STEP):
+            self.assertLess(WORKFLOW_TEXT.index(f"- name: {step}"),
+                            WORKFLOW_TEXT.index(f"- name: {REWRITE_STEP}"))
+
     def test_rewrite_guard_runs_for_forks(self) -> None:
         lines = WORKFLOW_TEXT.splitlines()
         start = next(

@@ -16,7 +16,7 @@ def consumer_lint_step() -> str:
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = next(
         i for i, line in enumerate(lines)
-        if line.strip() == "- name: Install consumer lint tools"
+        if line.strip() == "- name: Install consumer config tools"
     )
     run = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |")
     indent = len(lines[run]) - len(lines[run].lstrip())
@@ -116,20 +116,37 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
 
     def test_consumer_pipx_tools_wait_for_configured_uv_and_python(self) -> None:
         result, calls = self.run_step({
-            "pipx:ruff": [{"version": "0.16.5"}],
+            "pipx:copier": [{"version": "9.18.1"}],
             "uv": [{"version": "0.12.15"}],
             "python": [{"version": "3.14.6"}],
             "node": [{"version": "22.12.0"}],
         })
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["install uv", "install python", "install node pipx:ruff"])
+        self.assertEqual(calls, ["install uv", "install python", "install pipx:copier"])
+
+    def test_linters_are_never_installed_by_config_gate(self) -> None:
+        result, calls = self.run_step({
+            "pipx:ruff": [], "npm:@biomejs/biome": [],
+            "npm:markdownlint-cli2": [], "pipx:yamllint": [], "node": [],
+        })
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_producer_and_verdict_consumer_use_the_new_name(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertIn("id: gate_lint_config", text)
+        self.assertIn("steps.gate_lint_config.outputs.verdict", text)
+        self.assertIn('report_gate lint-config', text)
+        self.assertNotIn('steps.gate_lint_format', text)
+        self.assertIn('property_value gate-lint-format', text)
+        self.assertIn('ci/gate-lint-format.sh', text)
 
     def test_prerequisites_are_only_installed_if_selected_by_consumer(self) -> None:
-        result, calls = self.run_step({"pipx:ruff": [{"version": "0.16.5"}]})
+        result, calls = self.run_step({"pipx:copier": [{"version": "9.18.1"}]})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["install pipx:ruff"])
+        self.assertEqual(calls, ["install pipx:copier"])
 
-    def test_missing_lint_pins_preserve_gate_missing_tool_behavior(self) -> None:
+    def test_missing_config_pins_preserve_gate_missing_tool_behavior(self) -> None:
         result, calls = self.run_step({
             "uv": [{"version": "0.12.15"}],
             "python": [{"version": "3.14.6"}],
