@@ -137,7 +137,7 @@ class ForkFileListTests(unittest.TestCase):
     def test_list_is_piped_to_lefthook_files_from_stdin(self) -> None:
         body = strip_comments(extract_run_block(FORK_STEP))
         self.assertIn(
-            'lefthook run pre-commit --files-from-stdin < "$files"',
+            'lefthook run pre-commit --no-stage-fixed --files-from-stdin < "$files"',
             body,
         )
 
@@ -175,7 +175,7 @@ class EnforcementPolicyTests(unittest.TestCase):
             i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("- name:")
         )
         block = "\n".join(lines[start:end])
-        self.assertIn("--all-files", block)
+        self.assertIn("--all-files --no-stage-fixed", block)
         self.assertNotIn("ENFORCE_FORK_HOOKS", block)
         self.assertNotIn("::warning", block)
 
