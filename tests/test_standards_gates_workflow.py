@@ -138,8 +138,10 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
         self.assertIn("steps.gate_lint_config.outputs.verdict", text)
         self.assertIn('report_gate lint-config', text)
         self.assertNotIn('steps.gate_lint_format', text)
-        self.assertIn('property_value gate-lint-format', text)
-        self.assertIn('ci/gate-lint-format.sh', text)
+        # The rename bridge is retired (standards#623): no legacy selector or
+        # forwarder remains for the published workflow to depend on.
+        self.assertNotIn('gate-lint-format', text)
+        self.assertIn('ci/gate-lint-config.sh', text)
 
     def test_prerequisites_are_only_installed_if_selected_by_consumer(self) -> None:
         result, calls = self.run_step({"pipx:copier": [{"version": "9.18.1"}]})
