@@ -27,14 +27,13 @@ name: lint-hooks
 # Delivery: the `gate-lint-hooks` org ruleset injects this file as a Required
 # Governance Workflow (published at `gates/wf-v1`) into every repository whose
 # `gate-lint-hooks` property is true, on `pull_request` and `merge_group`. A
-# repository cannot edit or skip it. `workflow_call` remains only for consumers
-# still carrying the retired rendered thin-caller until their next re-render
-# (standards#627); remove it once none remain. On PRs against `.github` itself
+# repository cannot edit or skip it (standards#627). It is no longer callable
+# via `workflow_call`; any remaining rendered caller pins an older SHA and
+# drops on its next re-render (standards#642). On PRs against `.github` itself
 # the pull_request path is a no-op — enforced by the job-level `if:` guards
 # below, since the `.github` repo doesn't ship a `.mise.toml` or `lefthook.yml`
 # and would fail the `mise exec -- lefthook` invocation otherwise.
 "on":
-  workflow_call:
   pull_request:
   merge_group:
 permissions:
@@ -150,8 +149,8 @@ jobs:
   lint-hooks:
     needs: detect
     # Skip when running as the `pull_request` no-op on the `.github` repo
-    # itself. Consumer thin-callers invoke via `workflow_call`, where
-    # `github.event_name` is `workflow_call` and this guard passes.
+    # itself. Injected runs in consumer repositories (pull_request /
+    # merge_group) pass this guard.
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
@@ -383,7 +382,7 @@ jobs:
           # it also removes git's path-quoting of names with spaces or non-ASCII
           # bytes, which the newline form would have mangled anyway.
           if git rev-parse --verify --quiet HEAD^1 >/dev/null && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
-            # GitHub checks out pull_request workflow_call jobs at a synthetic
+            # GitHub checks out pull_request runs at a synthetic
             # merge commit. Diff the merge result against the base parent; this
             # needs only fetch-depth: 2 and avoids an unfetched merge base.
             git diff -z --name-only --diff-filter=ACMR HEAD^1 HEAD > "$files"
