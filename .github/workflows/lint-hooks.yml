@@ -1,4 +1,4 @@
-name: lint hooks (reusable)
+name: lint-hooks
 # CI gate that runs the consumer's lefthook commands. Normal repos check all
 # files; forks check the PR's changed files so inherited upstream debt stays
 # outside the PR. Both paths fail when a hook fails or rewrites a tracked file.
@@ -24,16 +24,19 @@ name: lint hooks (reusable)
 # A capability-routed repo's declared class is ignored: a resource tier cannot
 # satisfy a runtime or platform requirement it does not provide.
 #
-# Consumer thin-callers invoke this via `uses:`. The `pull_request:` trigger is
-# required so GitHub's org-ruleset `required_workflows` validator accepts the
-# workflow (422 otherwise — same precedent as standards-gates.yml). On PRs against
-# `.github` itself the pull_request path is a no-op (this is a reusable, not a
-# project workflow) — enforced by the job-level `if:` guards below, since the
-# `.github` repo doesn't ship a `.mise.toml` or `lefthook.yml` and would fail
-# the `mise exec -- lefthook` invocation otherwise.
+# Delivery: the `gate-lint-hooks` org ruleset injects this file as a Required
+# Governance Workflow (published at `gates/wf-v1`) into every repository whose
+# `gate-lint-hooks` property is true, on `pull_request` and `merge_group`. A
+# repository cannot edit or skip it. `workflow_call` remains only for consumers
+# still carrying the retired rendered thin-caller until their next re-render
+# (standards#627); remove it once none remain. On PRs against `.github` itself
+# the pull_request path is a no-op — enforced by the job-level `if:` guards
+# below, since the `.github` repo doesn't ship a `.mise.toml` or `lefthook.yml`
+# and would fail the `mise exec -- lefthook` invocation otherwise.
 "on":
   workflow_call:
   pull_request:
+  merge_group:
 permissions:
   contents: read
 # Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds

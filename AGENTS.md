@@ -63,12 +63,17 @@ and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
 `test-gate.yml`, `copilot-setup-steps.yml`, `workflow-validation.yml`, and
 `plumbing-ref-publish.yml` (this repo's own ops, not reusables).
 
+**`lint-hooks.yml`** — `lefthook run pre-commit --all-files` + a commit-msg smoke test, the
+sole CI executor of the standards Fixers and Checkers. It is an injected Required Governance
+Workflow (the `gate-lint-hooks` org ruleset, published at `gates/wf-v1`, standards#627), not a
+thin-called reusable: consumers cannot edit or skip it. It keeps a `workflow_call` trigger only
+until no consumer still renders the retired thin-caller job.
+
 **Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
 consumer's rendered `standards.yml` (or a release workflow):
 
 | Workflow | What it does | Pin |
 |---|---|---|
-| `lint-hooks.yml` | `lefthook run pre-commit --all-files` + a commit-msg smoke test — the sole CI executor of the standards lint/format tools; **stays rendered in `standards.yml`** | — |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-time gitleaks scan runs in `standards-gates.yml` | — |
 | `e2e.yml` | Playwright harness; accepts apex `scripts.e2e` or repo-owned `mise run e2e` for nested roots, requires nonempty JUnit, and supports optional `scripts.e2e:setup` or mise setup. Does **not** start a dev server (see its header) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
@@ -136,7 +141,7 @@ coexist, and they move differently.
    release-please owns neither this tag nor its publisher. Backward movement is
    reserved for last-resort direct owner recovery. Full runbook:
    [`docs/plumbing-ref-publication.md`](docs/plumbing-ref-publication.md).
-3. **Thin-called reusables (`lint-hooks`, `e2e`, `bump-brew`) still ride the
+3. **Thin-called reusables (`e2e`, `bump-brew`) still ride the
    `.github` release + floating `v1`.** Consumers pin them by SHA with a trailing
    `# v1`; Renovate bumps that SHA when the floating `v1` moves. Releases are
    automated by **release-please** (`release-please.yml`, `release-type: simple`,

@@ -7,6 +7,7 @@ formatter rewrites; a required status cannot report warnings as success.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -214,3 +215,18 @@ class ForkStepBehaviorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InjectionContractTests(unittest.TestCase):
+    """lint-hooks is an injected Required Governance Workflow (standards#627)."""
+
+    def test_triggers_cover_pull_requests_and_merge_queues(self) -> None:
+        on_block = WORKFLOW_TEXT.split('"on":', 1)[1].split("permissions:", 1)[0]
+        for trigger in ("pull_request:", "merge_group:"):
+            self.assertIn(f"  {trigger}", on_block)
+
+    def test_published_with_the_gate_families(self) -> None:
+        manifest = json.loads(
+            (ROOT / ".github" / "plumbing-ref" / "gate-family-workflows.json").read_text()
+        )
+        self.assertEqual(manifest.get("gate-lint-hooks"), ".github/workflows/lint-hooks.yml")
