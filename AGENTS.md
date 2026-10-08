@@ -66,8 +66,8 @@ and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
 **`lint-hooks.yml`** — `lefthook run pre-commit --all-files` + a commit-msg smoke test, the
 sole CI executor of the standards Fixers and Checkers. It is an injected Required Governance
 Workflow (the `gate-lint-hooks` org ruleset, published at `gates/wf-v1`, standards#627), not a
-thin-called reusable: consumers cannot edit or skip it. It keeps a `workflow_call` trigger only
-until no consumer still renders the retired thin-caller job.
+thin-called reusable: consumers cannot edit or skip it, and it has no `workflow_call` trigger
+(standards#642).
 
 **Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
 consumer's rendered `standards.yml` (or a release workflow):

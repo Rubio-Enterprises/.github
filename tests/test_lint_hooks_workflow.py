@@ -224,6 +224,8 @@ class InjectionContractTests(unittest.TestCase):
         on_block = WORKFLOW_TEXT.split('"on":', 1)[1].split("permissions:", 1)[0]
         for trigger in ("pull_request:", "merge_group:"):
             self.assertIn(f"  {trigger}", on_block)
+        # Not a reusable any more: only the injected path may run it.
+        self.assertNotIn("workflow_call", on_block)
 
     def test_published_with_the_gate_families(self) -> None:
         manifest = json.loads(
