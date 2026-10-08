@@ -1,8 +1,8 @@
 {
-  "expected_current_sha": "9d647d450b2a4ae617df1ba4d06e2af464533622",
-  "target_sha": "16ce8d8c9d5f72acddea5f31c7bbe7ecb9a79dc3",
-  "reason": "Publish lint-hooks with --no-stage-fixed on both hook runs (.github#350). Since the treefmt switch, fork-mode runs fail staging on lefthook 2.1.12's trailing-NUL bug (git add exit 128) for every fork without a local stage_fixed override. CI never needs to stage; the rewrite guard compares worktree and index against HEAD. The annotated MISE_VERSION pin is unchanged, so no runner preflight is required.",
+  "expected_current_sha": "16ce8d8c9d5f72acddea5f31c7bbe7ecb9a79dc3",
+  "target_sha": "e30f1043d88b1a736c5c33c4b2de8497e1631f15",
+  "reason": "Publish lint-hooks without its workflow_call trigger (.github#352, standards#642): it is only ever run through the gate-lint-hooks ruleset injection. Remaining rendered callers are on dormant or archived repositories and pin older SHAs. The annotated MISE_VERSION pin is unchanged, so no runner preflight is required.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/350"
+    "https://github.com/Rubio-Enterprises/.github/pull/352"
   ]
 }
