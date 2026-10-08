@@ -1,9 +1,9 @@
 {
-  "expected_current_sha": "45453d8a540ccbc25e1a7a6a178e3740e1508485",
-  "target_sha": "9634081f9a3a599f936d1fc7aadb558e856187fd",
-  "reason": "Publish the v4.2.1 Gate Family workflows after the workload class cleanup in .github PR #333. The temporary glue and glue-heavy workload class acceptance is no longer needed following the standards migration. The annotated MISE_VERSION pin is unchanged.",
+  "expected_current_sha": "9634081f9a3a599f936d1fc7aadb558e856187fd",
+  "target_sha": "9d647d450b2a4ae617df1ba4d06e2af464533622",
+  "reason": "Publish lint-hooks as an injected Gate Family workflow (merge_group trigger, manifest entry; .github#346, standards#627) and retire the lint-format selector and script fallbacks from standards-gates (.github#345, standards#623). Both standards channels carry ci/gate-lint-config.sh, and every repository has gate-lint-config set. The annotated MISE_VERSION pin is unchanged, so no runner preflight is required.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/333",
-    "https://github.com/Rubio-Enterprises/.github/pull/337"
+    "https://github.com/Rubio-Enterprises/.github/pull/345",
+    "https://github.com/Rubio-Enterprises/.github/pull/346"
   ]
 }
