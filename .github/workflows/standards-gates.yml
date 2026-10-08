@@ -45,12 +45,6 @@ jobs:
           ring="$(property_value ring)"
           audit="$(property_value gate-audit)"
           lint_config="$(property_value gate-lint-config)"
-          # The old selector stays enforced until the Terraform bridge lands.
-          # Both are projected from the same declaration during the cutover.
-          legacy_lint_config="$(property_value gate-lint-format)"
-          if [ "$legacy_lint_config" = true ]; then
-            lint_config=true
-          fi
           pr_title="$(property_value gate-pr-title)"
           secret_scan="$(property_value gate-secret-scan)"
 
@@ -69,7 +63,7 @@ jobs:
               ;;
           esac
 
-          for value in "$audit" "$lint_config" "$legacy_lint_config" "$pr_title" "$secret_scan"; do
+          for value in "$audit" "$lint_config" "$pr_title" "$secret_scan"; do
             if [ "$value" != "true" ] && [ "$value" != "false" ]; then
               echo "::error::gate selector values must be boolean true or false" >&2
               exit 1
@@ -446,13 +440,7 @@ jobs:
             echo "::error::lint-config cannot run because common setup failed" >&2
             exit 1
           fi
-          # Publication may precede standards channel promotion. Never skip
-          # enforcement because the new content path has not arrived yet.
-          script="$STANDARDS_ROOT/ci/gate-lint-config.sh"
-          if [ ! -f "$script" ]; then
-            script="$STANDARDS_ROOT/ci/gate-lint-format.sh"
-          fi
-          bash "$script"
+          bash "$STANDARDS_ROOT/ci/gate-lint-config.sh"
 
       - name: Gate — PR title
         id: gate_pr_title
