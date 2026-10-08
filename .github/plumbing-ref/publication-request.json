@@ -1,9 +1,8 @@
 {
-  "expected_current_sha": "9634081f9a3a599f936d1fc7aadb558e856187fd",
-  "target_sha": "9d647d450b2a4ae617df1ba4d06e2af464533622",
-  "reason": "Publish lint-hooks as an injected Gate Family workflow (merge_group trigger, manifest entry; .github#346, standards#627) and retire the lint-format selector and script fallbacks from standards-gates (.github#345, standards#623). Both standards channels carry ci/gate-lint-config.sh, and every repository has gate-lint-config set. The annotated MISE_VERSION pin is unchanged, so no runner preflight is required.",
+  "expected_current_sha": "9d647d450b2a4ae617df1ba4d06e2af464533622",
+  "target_sha": "16ce8d8c9d5f72acddea5f31c7bbe7ecb9a79dc3",
+  "reason": "Publish lint-hooks with --no-stage-fixed on both hook runs (.github#350). Since the treefmt switch, fork-mode runs fail staging on lefthook 2.1.12's trailing-NUL bug (git add exit 128) for every fork without a local stage_fixed override. CI never needs to stage; the rewrite guard compares worktree and index against HEAD. The annotated MISE_VERSION pin is unchanged, so no runner preflight is required.",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/345",
-    "https://github.com/Rubio-Enterprises/.github/pull/346"
+    "https://github.com/Rubio-Enterprises/.github/pull/350"
   ]
 }
