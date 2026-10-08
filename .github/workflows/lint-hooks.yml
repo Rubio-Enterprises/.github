@@ -354,9 +354,13 @@ jobs:
         # MISE_ENV=ci is forwarded so any mise env-conditional config behaves
         # the same as the audit job. `--all-files` walks the repo tree rather
         # than the empty staged-diff set CI checkouts present.
+        # `--no-stage-fixed`: CI never stages. The rewrite guard below compares
+        # the worktree AND index against HEAD, so staging adds nothing, and
+        # lefthook 2.1.12 fails staging for a NUL-terminated stdin list (the
+        # fork path) with `git add` exit 128.
         env:
           MISE_ENV: ci
-        run: mise exec -- lefthook run pre-commit --all-files
+        run: mise exec -- lefthook run pre-commit --all-files --no-stage-fixed
       - name: Run lefthook pre-commit on changed fork files
         if: needs.detect.outputs.is_fork == 'true'
         env:
@@ -410,7 +414,10 @@ jobs:
           echo "Fork-mode lefthook file list:"
           tr '\0' '\n' < "$files" | sed 's/^/  /'
 
-          if ! mise exec -- lefthook run pre-commit --files-from-stdin < "$files"; then
+          # --no-stage-fixed: see the all-files step. With staging on, lefthook
+          # 2.1.12 passes the empty entry after the list's final NUL to
+          # `git add` and fails every changed-file run (exit 128).
+          if ! mise exec -- lefthook run pre-commit --no-stage-fixed --files-from-stdin < "$files"; then
             echo "::error::fork-mode lefthook hooks failed" >&2
             exit 1
           fi
