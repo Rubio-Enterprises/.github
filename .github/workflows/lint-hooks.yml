@@ -178,7 +178,7 @@ jobs:
       # intentionally absent from rendered mise because glue cannot ruby-build.
       - name: Install Ruby and locked bundle
         if: needs.detect.outputs.has_ruby == 'true'
-        uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
+        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
           bundler-cache: true
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
@@ -186,10 +186,10 @@ jobs:
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
       # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
       - name: Install uv (routes mise pipx installs through uvx)
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          version: "0.12.22"
       # Fingerprint the uv-resolved python into the mise cache key (standards#331).
       # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
       # at the uv-MANAGED python under ~/.local/share/uv/python — OUTSIDE the
