@@ -84,7 +84,7 @@ jobs:
         id: mise-version
         env:
           # renovate: datasource=github-releases depName=jdx/mise
-          MISE_VERSION: "2026.9.11"
+          MISE_VERSION: "2026.10.0"
         shell: bash
         run: |
           set -euo pipefail
