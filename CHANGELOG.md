@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.3.0](https://github.com/Rubio-Enterprises/.github/compare/v4.2.1...v4.3.0) (2026-10-10)
+
+
+### Features
+
+* **ci:** publish lint-hooks as an injected gate family workflow ([#346](https://github.com/Rubio-Enterprises/.github/issues/346)) ([9d647d4](https://github.com/Rubio-Enterprises/.github/commit/9d647d450b2a4ae617df1ba4d06e2af464533622))
+
+
+### Bug Fixes
+
+* **ci:** never stage fixes in lint-hooks ([#350](https://github.com/Rubio-Enterprises/.github/issues/350)) ([16ce8d8](https://github.com/Rubio-Enterprises/.github/commit/16ce8d8c9d5f72acddea5f31c7bbe7ecb9a79dc3))
+
 ## [4.2.1](https://github.com/Rubio-Enterprises/.github/compare/v4.2.0...v4.2.1) (2026-10-07)
 
 
