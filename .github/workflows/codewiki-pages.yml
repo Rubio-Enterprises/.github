@@ -1,0 +1,121 @@
+name: codewiki-pages (reusable)
+# Publishes a repository's committed CodeWiki (docs/codewiki/ by default) to
+# GitHub Pages. Thin-called from a consumer's rendered standards.yml on pushes
+# to the default branch when the repository declares `has_codewiki` (standards
+# template). Contract: docs/reusable-workflows/codewiki-pages.md.
+#
+# OWNERSHIP BOUNDARY
+# ------------------
+# This workflow only stages and deploys already-generated, already-committed
+# CodeWiki output. It does not run CodeWiki (generation is local, via the
+# consumer's `mise run codewiki`), and it does not enable Pages or choose the
+# site's visibility: the GitHub Settings Plane (.github-private Terraform,
+# `codewiki_pages`) enables Pages with build_type=workflow and mirrors the
+# repository's visibility. A repository whose Pages site is not enabled fails
+# at the deploy step, which is the correct, loud outcome.
+#
+# CALLER PERMISSIONS
+# ------------------
+# A reusable workflow can only narrow the GITHUB_TOKEN, never widen it, so the
+# calling job must grant `contents: read`, `pages: write`, and
+# `id-token: write`. Each job below takes only what it needs.
+"on":
+  workflow_call:
+    inputs:
+      path:
+        description: >-
+          Repository-relative CodeWiki output directory. Must contain the
+          `--github-pages` viewer (index.html). Its top-level temp/ state
+          directory is never published.
+        type: string
+        default: docs/codewiki
+      timeout-minutes:
+        description: Per-job timeout. Staging and deployment are seconds of work.
+        type: number
+        default: 15
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Stage CodeWiki site
+    permissions:
+      contents: read
+    # Small, Docker-free work: the light route. Public callers cannot read the
+    # private RUNNERS map and fall back to hosted ubuntu-slim.
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Check out caller revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ${{ inputs.path }}
+
+      - name: Stage CodeWiki site
+        id: stage
+        env:
+          CODEWIKI_PATH: ${{ inputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="${CODEWIKI_PATH%/}"
+          case "$src" in
+            ''|/*|..|../*|*/..|*/../*)
+              echo "::error::codewiki-pages: path must be a repository-relative directory (got '$CODEWIKI_PATH')" >&2
+              exit 1 ;;
+          esac
+          if [ ! -d "$src" ]; then
+            echo "::error::codewiki-pages: '$src' does not exist; generate and commit the CodeWiki first (mise run codewiki)" >&2
+            exit 1
+          fi
+          if [ ! -f "$src/index.html" ]; then
+            echo "::error::codewiki-pages: '$src/index.html' is missing; regenerate with 'codewiki generate --github-pages' (mise run codewiki) and commit the viewer" >&2
+            exit 1
+          fi
+          stage="$RUNNER_TEMP/codewiki-pages"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp -R "$src/." "$stage/"
+          # temp/ is CodeWiki's state directory (dependency graphs, artifact
+          # index — megabytes). It stays committed for --update runs but is
+          # never part of the published site.
+          rm -rf "$stage/temp"
+          # upload-pages-artifact archives with `tar --dereference`, so a
+          # committed symlink would publish whatever it points at, including
+          # files outside the CodeWiki directory. Refuse instead.
+          links="$(find "$stage" -type l -print)"
+          if [ -n "$links" ]; then
+            echo "::error::codewiki-pages: symlinks are not publishable:" >&2
+            printf '%s\n' "${links//$stage\//$src/}" >&2
+            exit 1
+          fi
+          printf 'dir=%s\n' "$stage" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ steps.stage.outputs.dir }}
+
+  deploy:
+    name: Deploy CodeWiki to Pages
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # One deployment per repository at a time, never cancelling one already in
+    # flight (GitHub's Pages starter pattern). The group is a literal, NOT
+    # `github.workflow`: in a workflow_call that resolves to the CALLER's name,
+    # and a consumer's standards.yml holds `<workflow>-<ref>` while waiting on
+    # this job — reusing it would deadlock (see secret-scan.yml).
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
