@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.4.0](https://github.com/Rubio-Enterprises/.github/compare/v4.3.0...v4.4.0) (2026-10-11)
+
+
+### Features
+
+* **codewiki-pages:** add reusable CodeWiki GitHub Pages workflow ([#356](https://github.com/Rubio-Enterprises/.github/issues/356)) ([15cc5db](https://github.com/Rubio-Enterprises/.github/commit/15cc5dbf971bf3a9e16c888417a5a25d911147af))
+
 ## [4.3.0](https://github.com/Rubio-Enterprises/.github/compare/v4.2.1...v4.3.0) (2026-10-11)
 
 
