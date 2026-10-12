@@ -232,3 +232,53 @@ class InjectionContractTests(unittest.TestCase):
             (ROOT / ".github" / "plumbing-ref" / "gate-family-workflows.json").read_text()
         )
         self.assertEqual(manifest.get("gate-lint-hooks"), ".github/workflows/lint-hooks.yml")
+
+
+KNOWLEDGEBASE_DETECT_STEP = "Detect the Knowledgebase Framework remote"
+FRAMEWORK_REMOTE = "https://github.com/Rubio-Enterprises/knowledgebase-framework.git"
+
+
+class KnowledgebaseRemoteTests(unittest.TestCase):
+    """has_knowledgebase repos fetch a second PRIVATE remote; route it, scoped."""
+
+    def detect(self, lefthook: str | None) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            if lefthook is not None:
+                (repo / "lefthook.yml").write_text(lefthook, encoding="utf-8")
+            output = repo / "github_output"
+            output.write_text("", encoding="utf-8")
+            subprocess.run(
+                ["bash", "-c", extract_run_block(KNOWLEDGEBASE_DETECT_STEP)],
+                cwd=repo,
+                check=True,
+                env={"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(output)},
+            )
+            return output.read_text(encoding="utf-8")
+
+    def test_stub_naming_the_framework_remote_is_detected(self) -> None:
+        stub = f"remotes:\n  - git_url: {FRAMEWORK_REMOTE}\n    ref: v2\n"
+        self.assertEqual(self.detect(stub), "present=true\n")
+
+    def test_other_repositories_mint_no_framework_token(self) -> None:
+        stub = "remotes:\n  - git_url: https://github.com/Rubio-Enterprises/standards.git\n"
+        self.assertEqual(self.detect(stub), "present=false\n")
+        self.assertEqual(self.detect(None), "present=false\n")
+
+    def test_mint_and_route_are_gated_and_scoped_to_the_framework(self) -> None:
+        mint = WORKFLOW_TEXT.split(
+            "- name: Mint knowledgebase-framework read token", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: steps.knowledgebase-remote.outputs.present == 'true'", mint)
+        self.assertIn("repositories: knowledgebase-framework\n", mint)
+        self.assertIn("permission-contents: read", mint)
+        route = WORKFLOW_TEXT.split(
+            "- name: Route the Knowledgebase Framework remote through the App token", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: steps.knowledgebase-remote.outputs.present == 'true'", route)
+        self.assertIn('"https://github.com/${OWNER}/knowledgebase-framework"', route)
+        # The mint precedes every lefthook run, which is where the fetch happens.
+        self.assertLess(
+            WORKFLOW_TEXT.index("- name: Mint knowledgebase-framework read token"),
+            WORKFLOW_TEXT.index(f"- name: {ALL_FILES_STEP}"),
+        )
