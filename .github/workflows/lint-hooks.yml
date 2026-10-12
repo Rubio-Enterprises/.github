@@ -307,6 +307,43 @@ jobs:
           git config --global \
             url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
             "https://github.com/${OWNER}/standards"
+      # A repository declaring has_knowledgebase carries a second remote: the
+      # PRIVATE knowledgebase-framework repo's Hooks. lefthook skips a remote it
+      # can't fetch, and the stub's fail-closed knowledgebase-hooks-fetched
+      # command then fails the run, so route that clone through the same reader
+      # App. Scoped to repositories whose stub names the remote, so the App's
+      # installation on knowledgebase-framework can't break anyone else's mint.
+      - name: Detect the Knowledgebase Framework remote
+        id: knowledgebase-remote
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f lefthook.yml ] && grep -qF 'github.com/Rubio-Enterprises/knowledgebase-framework.git' lefthook.yml; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mint knowledgebase-framework read token (lefthook remotes fetch)
+        if: steps.knowledgebase-remote.outputs.present == 'true'
+        id: knowledgebase-remote-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: knowledgebase-framework
+          permission-contents: read
+      - name: Route the Knowledgebase Framework remote through the App token
+        if: steps.knowledgebase-remote.outputs.present == 'true'
+        env:
+          TOKEN: ${{ steps.knowledgebase-remote-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global \
+            url."https://x-access-token:${TOKEN}@github.com/${OWNER}/knowledgebase-framework".insteadOf \
+            "https://github.com/${OWNER}/knowledgebase-framework"
       - name: Install pnpm (for lefthook.local.yml hooks invoking pnpm)
         # Mirrors the pattern in e2e.yml — gated on pnpm-lock.yaml presence
         # so python/swift consumers (no Node) get a free no-op. Reads
