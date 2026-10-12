@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.4.1](https://github.com/Rubio-Enterprises/.github/compare/v4.4.0...v4.4.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **secret-scan:** download trufflehog without the rate-limited tag lookup ([#359](https://github.com/Rubio-Enterprises/.github/issues/359)) ([4b2e722](https://github.com/Rubio-Enterprises/.github/commit/4b2e722e359fdef7d8b7df38032f55a6876482bb))
+
 ## [4.4.0](https://github.com/Rubio-Enterprises/.github/compare/v4.3.0...v4.4.0) (2026-10-11)
 
 
