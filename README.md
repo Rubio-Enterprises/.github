@@ -178,4 +178,4 @@ thin-called reusables use the release stream described above.
 
 ## License
 
-No license has been granted. All rights reserved.
+[MIT](LICENSE) © 2026 Rubio Enterprises.
