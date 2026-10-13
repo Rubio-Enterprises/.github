@@ -29,7 +29,6 @@ GATE_WORKFLOWS = {
     "standards-gates": ".github/workflows/standards-gates.yml",
     "gate-lint-format": ".github/workflows/lint-format.yml",
     "gate-secret-scan": ".github/workflows/secret-scan.yml",
-    "gate-pr-title": ".github/workflows/pr-title.yml",
     "gate-typescript": ".github/workflows/typecheck-ts.yml",
 }
 REQUEST_PATH = Path(".github/plumbing-ref/publication-request.json")
@@ -389,8 +388,8 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
-            missing_path = GATE_WORKFLOWS["gate-pr-title"]
-            target = fixture.commit({missing_path: None}, "remove required Python gate")
+            missing_path = GATE_WORKFLOWS["gate-typescript"]
+            target = fixture.commit({missing_path: None}, "remove required TypeScript gate")
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
             fixture.push_main()
@@ -658,8 +657,8 @@ class ForwardPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
             expected = fixture.create_floor()
-            missing_path = GATE_WORKFLOWS["gate-pr-title"]
-            target = fixture.commit({missing_path: None}, "remove Python gate")
+            missing_path = GATE_WORKFLOWS["gate-typescript"]
+            target = fixture.commit({missing_path: None}, "remove TypeScript gate")
             before = fixture.write_request(expected, expected, "Bootstrap publisher")
             after = fixture.write_request(expected, target)
             fixture.push_main()

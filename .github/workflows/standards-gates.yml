@@ -15,6 +15,11 @@ concurrency:
 
 jobs:
   standards-gates:
+    permissions:
+      contents: read
+      # Danger manages one PR comment; the owner accepted this whole-job
+      # write token (standards ADR-0027).
+      pull-requests: write
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     env:
@@ -45,7 +50,7 @@ jobs:
           ring="$(property_value ring)"
           audit="$(property_value gate-audit)"
           lint_config="$(property_value gate-lint-config)"
-          pr_title="$(property_value gate-pr-title)"
+          pr_conventions="$(property_value gate-pr-conventions)"
           secret_scan="$(property_value gate-secret-scan)"
 
           # This unpublished source workflow must not make an ordinary .github
@@ -57,13 +62,13 @@ jobs:
               if [ "$GITHUB_REPOSITORY" = "Rubio-Enterprises/.github" ]; then
                 audit=false
                 lint_config=false
-                pr_title=false
+                pr_conventions=false
                 secret_scan=false
               fi
               ;;
           esac
 
-          for value in "$audit" "$lint_config" "$pr_title" "$secret_scan"; do
+          for value in "$audit" "$lint_config" "$pr_conventions" "$secret_scan"; do
             if [ "$value" != "true" ] && [ "$value" != "false" ]; then
               echo "::error::gate selector values must be boolean true or false" >&2
               exit 1
@@ -78,19 +83,19 @@ jobs:
 
           any_selected=false
           if [ "$audit" = true ] || [ "$lint_config" = true ] || \
-            [ "$pr_title" = true ] || [ "$secret_scan" = true ]; then
+            [ "$pr_conventions" = true ] || [ "$secret_scan" = true ]; then
             any_selected=true
           fi
 
           {
             echo "audit=$audit"
             echo "lint_config=$lint_config"
-            echo "pr_title=$pr_title"
+            echo "pr_conventions=$pr_conventions"
             echo "secret_scan=$secret_scan"
             echo "any_selected=$any_selected"
             echo "channel=$channel"
           } >> "$GITHUB_OUTPUT"
-          echo "::notice::standards channel '$channel' (ring='${ring:-<unset>}'); selected: audit=$audit lint-config=$lint_config pr-title=$pr_title secret-scan=$secret_scan"
+          echo "::notice::standards channel '$channel' (ring='${ring:-<unset>}'); selected: audit=$audit lint-config=$lint_config pr-conventions=$pr_conventions secret-scan=$secret_scan"
 
       - name: Check out the consumer repository
         id: consumer_checkout
@@ -109,18 +114,18 @@ jobs:
         env:
           AUDIT_SELECTED: ${{ steps.selection.outputs.audit }}
           LINT_SELECTED: ${{ steps.selection.outputs.lint_config }}
-          TITLE_SELECTED: ${{ steps.selection.outputs.pr_title }}
+          PR_CONVENTIONS_SELECTED: ${{ steps.selection.outputs.pr_conventions }}
           SECRET_SELECTED: ${{ steps.selection.outputs.secret_scan }}
         shell: bash
         run: |
           set -euo pipefail
           audit="$AUDIT_SELECTED"
           lint_config="$LINT_SELECTED"
-          pr_title="$TITLE_SELECTED"
+          pr_conventions="$PR_CONVENTIONS_SELECTED"
           secret_scan="$SECRET_SELECTED"
 
           if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
-            pr_title=false
+            pr_conventions=false
           fi
 
           if [ "$lint_config" = true ]; then
@@ -135,7 +140,7 @@ jobs:
 
           setup_needed=false
           if [ "$audit" = true ] || [ "$lint_config" = true ] || \
-            [ "$pr_title" = true ] || [ "$secret_scan" = true ]; then
+            [ "$pr_conventions" = true ] || [ "$secret_scan" = true ]; then
             setup_needed=true
           fi
 
@@ -156,8 +161,8 @@ jobs:
           if [ "$lint_config" = true ]; then
             add_standards_tools python
           fi
-          if [ "$pr_title" = true ]; then
-            add_standards_tools node npm:@commitlint/cli npm:@commitlint/config-conventional
+          if [ "$pr_conventions" = true ]; then
+            add_standards_tools node
           fi
           if [ "$secret_scan" = true ]; then
             add_standards_tools aqua:gitleaks/gitleaks
@@ -166,7 +171,7 @@ jobs:
           {
             echo "audit=$audit"
             echo "lint_config=$lint_config"
-            echo "pr_title=$pr_title"
+            echo "pr_conventions=$pr_conventions"
             echo "secret_scan=$secret_scan"
             echo "setup_needed=$setup_needed"
             echo "standards_tools=$standards_tools"
@@ -442,20 +447,21 @@ jobs:
           fi
           bash "$STANDARDS_ROOT/ci/gate-lint-config.sh"
 
-      - name: Gate — PR title
-        id: gate_pr_title
+      - name: Gate — PR conventions
+        id: gate_pr_conventions
         if: always()
         continue-on-error: true
         env:
-          SELECTED: ${{ steps.selection.outputs.pr_title }}
-          APPLICABLE: ${{ steps.applicability.outputs.pr_title }}
+          SELECTED: ${{ steps.selection.outputs.pr_conventions }}
+          APPLICABLE: ${{ steps.applicability.outputs.pr_conventions }}
           COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
           STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
           STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
-          # Resolve commitlint from .standards alone, never from the consumer
-          # checkout's mise config.
+          # The script must use `mise exec node -- ...` from .standards
+          # (including node/), never the consumer's mise config.
           MISE_CEILING_PATHS: ${{ github.workspace }}
+          GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -464,14 +470,14 @@ jobs:
             exit 0
           fi
           if [ "$SELECTED" != true ] || [ "$APPLICABLE" != true ]; then
-            echo "::error::PR-title applicability is missing" >&2
+            echo "::error::PR-conventions applicability is missing" >&2
             exit 1
           fi
           if [ "$COMMON_SETUP_OUTCOME" != success ]; then
-            echo "::error::PR-title cannot run because common setup failed" >&2
+            echo "::error::PR-conventions cannot run because common setup failed" >&2
             exit 1
           fi
-          bash "$STANDARDS_ROOT/ci/gate-pr-title.sh"
+          bash "$STANDARDS_ROOT/ci/gate-pr-conventions.sh"
 
       - name: Gate — secret scan
         id: gate_secret_scan
@@ -517,8 +523,8 @@ jobs:
           AUDIT_VERDICT: ${{ steps.gate_audit.outputs.verdict }}
           LINT_OUTCOME: ${{ steps.gate_lint_config.outcome }}
           LINT_VERDICT: ${{ steps.gate_lint_config.outputs.verdict }}
-          TITLE_OUTCOME: ${{ steps.gate_pr_title.outcome }}
-          TITLE_VERDICT: ${{ steps.gate_pr_title.outputs.verdict }}
+          PR_CONVENTIONS_OUTCOME: ${{ steps.gate_pr_conventions.outcome }}
+          PR_CONVENTIONS_VERDICT: ${{ steps.gate_pr_conventions.outputs.verdict }}
           SECRET_OUTCOME: ${{ steps.gate_secret_scan.outcome }}
           SECRET_VERDICT: ${{ steps.gate_secret_scan.outputs.verdict }}
         shell: bash
@@ -550,7 +556,7 @@ jobs:
           fi
           report_gate audit "$AUDIT_VERDICT" "$AUDIT_OUTCOME"
           report_gate lint-config "$LINT_VERDICT" "$LINT_OUTCOME"
-          report_gate pr-title "$TITLE_VERDICT" "$TITLE_OUTCOME"
+          report_gate pr-conventions "$PR_CONVENTIONS_VERDICT" "$PR_CONVENTIONS_OUTCOME"
           report_gate secret-scan "$SECRET_VERDICT" "$SECRET_OUTCOME"
 
           if [ "$fail" -ne 0 ]; then
