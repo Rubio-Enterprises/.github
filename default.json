@@ -206,6 +206,26 @@
       "enabled": false
     },
     {
+      "description": "First-party fast lane for org-published OCI artifacts. The global 7-day minimumReleaseAge is a supply-chain soak for just-published THIRD-PARTY versions; an artifact the org itself publishes to ghcr.io/rubio-enterprises (Dev Container features, container images) was already gated by review and CI on the PR that released it, so there is nothing to vet. null, not \"0 days\": a Dev Container feature's OCI manifest carries no creation timestamp, and Renovate's default minimumReleaseAgeBehaviour (timestamp-required) never treats an untimestamped release as stable, so any age requirement at all would hold these updates forever. Scoped to the docker datasource and the ghcr.io/rubio-enterprises/ prefix because GHCR enforces org ownership of that namespace; the bare `rubio-enterprises/` docker name is deliberately NOT matched — it resolves to Docker Hub, whose namespaces are first-come and not provably the org's. Approval and automerge are untouched: majors still need dashboard approval.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/^ghcr\\.io\\/rubio-enterprises\\//i"],
+      "minimumReleaseAge": null
+    },
+    {
+      "description": "First-party fast lane for org-owned GitHub sources: reusable workflows and actions, GitHub releases/tags/digests, git tags/refs and Go modules under github.com/Rubio-Enterprises. Same rationale as the GHCR rule above: these releases are cut by the org's own reviewed merges, so the third-party soak protects nothing. Matched only on datasources whose package name is a GitHub owner path, because GitHub enforces that the Rubio-Enterprises owner is the org; never on publisher-declared metadata such as sourceUrl (any third-party npm/PyPI package can claim a github.com/Rubio-Enterprises repository URL) or on bare package names in public registries (dependency confusion). The trailing slash anchors the owner exactly, so look-alike owners such as Rubio-Enterprises-x do not match. Approval and automerge are untouched.",
+      "matchDatasources": [
+        "github-tags",
+        "github-releases",
+        "github-digest",
+        "github-release-attachments",
+        "git-tags",
+        "git-refs",
+        "go"
+      ],
+      "matchPackageNames": ["/^(https:\\/\\/)?(github\\.com\\/)?Rubio-Enterprises\\//i"],
+      "minimumReleaseAge": null
+    },
+    {
       "description": "Exception to the disable above: the Rubio-Enterprises/.github reusable-workflow `uses:` digests in the rendered workflows ARE meant to advance via Renovate -- that is the `# vN` SHA-pin contract (helpers:pinGitHubActionDigests owns and forward-moves the SHA; this is path C of the standards propagation model). Re-enable + automerge just that dep so a `.github` release still reaches consumers hands-off. minimumReleaseAge:0 exempts this FIRST-PARTY reusable from the global 7-day supply-chain soak: that soak guards against just-published THIRD-PARTY versions, but the org publishes its own `.github` releases deliberately (release-please), so there is nothing to vet -- without this, every `# vN` digest bump sits on `renovate/stability-days` for 7 days before automerging, stalling path C across onboarded consumers. Must come AFTER the disable rule (later rules win). groupName isolates this dep in its OWN branch: without it, consumer-side github-actions grouping bundles the first-party digest with third-party bumps, and the GROUP then waits on the third parties' 7-day stability — observed on vibetunnel#128, where the urgent lint-hooks credential-fix pin sat behind renovate/stability-days during the v1.55.2 wave. cloud-setup-smoke.yml must be listed here for the same reason standards.yml is: without it the rendered caller's first-party digest falls through to the general github-actions group and waits out the 7-day soak it is explicitly exempt from, which is the whole point of path C being hands-off.",
       "matchManagers": ["github-actions"],
       "matchFileNames": [
