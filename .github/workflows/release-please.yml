@@ -34,7 +34,7 @@ jobs:
     steps:
       # App token so the release PR triggers workflows. PRs created with the
       # default GITHUB_TOKEN fire NO events (Actions loop-prevention) — the
-      # ruleset-injected gates (pr-title, secret-scan) never ran on release
+      # ruleset-injected metadata and secret-scan gates never ran on release
       # PRs, leaving every one BLOCKED until a human close/reopened it
       # (needed for both 1.8.1 and 2.0.0 on 2026-07-07/08).
       # SHA-pinned like every other step in this file: the job holds

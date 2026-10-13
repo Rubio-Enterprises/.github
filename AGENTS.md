@@ -33,7 +33,7 @@ Two delivery mechanisms live here now.
 **Gate workflows — the two property-targeted Required Governance Workflows.**
 `gate-typescript` runs where a repo carries `gate-typescript`; `standards-gates`
 runs on every `standards-onboarded` repo and reads its `gate-audit`,
-`gate-lint-config`, `gate-pr-title`, and `gate-secret-scan` properties to pick
+`gate-lint-config`, `gate-pr-conventions`, and `gate-secret-scan` properties to pick
 its checks (all set in `.github-private` Terraform). The org gate rulesets
 **inject** them into the consumer's PR checks. They are **not** thin-called
 from `standards.yml`. The content-bearing gate resolves its `standards` content
@@ -45,8 +45,8 @@ Terraform owns the consuming rulesets and ref name. The *content* floats on the
 channel.
 
 | Gate workflow | Gate Family | What it does | Standards content |
-|---|---|---|---|
-| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-title` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR-title commitlint, and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | channel (`canary`/`stable`), runtime-resolved |
+| --- | --- | --- | --- |
+| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | channel (`canary`/`stable`), runtime-resolved |
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
@@ -73,7 +73,7 @@ thin-called reusable: consumers cannot edit or skip it, and it has no `workflow_
 consumer's rendered `standards.yml` (or a release workflow):
 
 | Workflow | What it does | Pin |
-|---|---|---|
+| --- | --- | --- |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-time gitleaks scan runs in `standards-gates.yml` | — |
 | `e2e.yml` | Playwright harness; accepts apex `scripts.e2e` or repo-owned `mise run e2e` for nested roots, requires nonempty JUnit, and supports optional `scripts.e2e:setup` or mise setup. Does **not** start a dev server (see its header) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
@@ -220,7 +220,7 @@ reread contract in the runbook.
   for light work. Route by actual capability:
 
   | Key | Self-hosted | Hosted fallback | Work |
-  |---|---|---|---|
+  | --- | --- | --- | --- |
   | `light` | `glue-x64` | `ubuntu-slim` | small work without Docker |
   | `heavy` | `linux-x64` | `ubuntu-latest` | multi-GiB work without Docker |
   | `docker` | `linux-x64` | `ubuntu-latest` | x64 Docker/Compose/builds |
