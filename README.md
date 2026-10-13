@@ -108,7 +108,8 @@ See
 ## Standards dependency
 
 `standards-gates.yml` checks out `Rubio-Enterprises/standards` and runs its
-`ci/gate-*.sh` checks (audit, lint-config, PR title, gitleaks) there. Each run
+`ci/gate-*.sh` checks (audit, lint-config, PR conventions via Danger JS,
+gitleaks) there. Each run
 **resolves the ref at runtime for the calling repository** rather than using a
 fixed tag: `canary` for Canary Ring consumers and `stable` for others.
 
