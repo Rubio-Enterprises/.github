@@ -1,11 +1,58 @@
-# rubio-dotgithub
+# .github
 
-Organization GitHub Actions workflows for `Rubio-Enterprises`: two Gate Family workflows (`standards-gates.yml`, `typecheck-ts.yml`) injected by organization rulesets, plus the smaller set of reusables that consumers thin-call directly.
+Org community files and shared workflows
+
+Organization GitHub Actions workflows for `Rubio-Enterprises`: two Gate Family
+workflows (`standards-gates.yml`, `typecheck-ts.yml`) injected by organization
+rulesets, plus the smaller set of reusables that consumers thin-call directly.
+In this workspace, the repository is checked out as `Governance/dot-github`;
+its GitHub repository name remains `.github`.
+
+## Table of Contents
+
+- [Install](#install)
+- [Usage](#usage)
+- [Reusable workflows](#reusable-workflows)
+- [Runner routes and dependency updates](#runner-routes-and-dependency-updates)
+- [Standards dependency](#standards-dependency)
+- [scripts/](#scripts)
+- [Release history](#release-history)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Install
+
+This repository distributes workflow files and Renovate presets, not an
+installable application. Clone it to inspect or maintain the shared files:
+
+```bash
+git clone https://github.com/Rubio-Enterprises/.github.git dot-github
+cd dot-github
+```
+
+Consumer repositories adopt standards through Copier (`/onboard-repo`), which
+renders their workflow callers. Organization rulesets inject the Gate workflows;
+there is no `workflow-templates/` picker installation.
+
+## Usage
+
+Use the shared Renovate preset in a consumer's `renovate.json`:
+
+```json
+{
+  "extends": ["github>Rubio-Enterprises/.github"]
+}
+```
+
+The Renovate runner must have access to the consumer repository. Consumers with
+bespoke Renovate policy can extend `github>Rubio-Enterprises/.github:copier`
+without inheriting the whole preset. See the workflow contracts below before
+adding a reusable caller.
 
 ## Reusable workflows
 
 | Workflow | Purpose |
-|---|---|
+| --- | --- |
 | [`e2e.yml`](./.github/workflows/e2e.yml) | Playwright end-to-end harness; runs an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages for repos declaring `has_codewiki`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
@@ -27,7 +74,7 @@ Workflows select capabilities from the private org `RUNNERS` JSON map. Each
 route has its own hosted fallback for public callers:
 
 | Route | Self-hosted | Hosted fallback |
-|---|---|---|
+| --- | --- | --- |
 | `light` | `glue-x64` | `ubuntu-slim` |
 | `heavy`, `docker`, `kvm` | `linux-x64` | `ubuntu-latest` |
 | `arm` | `linux-arm64` | `ubuntu-24.04-arm` |
@@ -60,20 +107,75 @@ See
 
 ## Standards dependency
 
-`standards-gates.yml` checks out `Rubio-Enterprises/standards` and runs its `ci/gate-*.sh` checks (audit, lint-config, PR title, gitleaks) there. Each run **resolves the ref at runtime for the calling repository** rather than using a fixed tag, so the gate tracks `standards` as it advances:
+`standards-gates.yml` checks out `Rubio-Enterprises/standards` and runs its
+`ci/gate-*.sh` checks (audit, lint-config, PR title, gitleaks) there. Each run
+**resolves the ref at runtime for the calling repository** rather than using a
+fixed tag: `canary` for Canary Ring consumers and `stable` for others.
 
-- Audit-side changes (`standards/scripts/`, `standards/schemas/`, `standards/policy/`, `standards/data/`, or audit-side `.mise.toml`) reach consumers through that resolved ref.
-- Template-side changes in `standards/template/` and `standards/copier.yml` reach consumers via `copier update`, not via `.github`, and **do not require a `.github` release**.
+- Audit-side changes (`standards/scripts/`, `standards/schemas/`,
+  `standards/policy/`, `standards/data/`, or audit-side `.mise.toml`) reach
+  consumers through that resolved ref.
+- Template-side changes in `standards/template/` and `standards/copier.yml`
+  reach consumers via `copier update`, not via `.github`, and
+  **do not require a `.github` release**.
 
-See [`standards/RELEASES.md`](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md) for the full model.
+See
+[`standards/RELEASES.md`](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md)
+for the full model.
 
-Because the ref is resolved per run, new audit-rule **content** reaches consumers as soon as `standards` advances — **no `.github` release needed**. A Gate workflow file change is evaluated at an exact candidate commit and then published through the guarded `gates/wf-v1` path. A thin-called reusable change instead rides a `.github` release (`vX.Y.Z` + release-please moves `v1`), after which Renovate bumps consumer-side SHA pins.
+Because the ref is resolved per run, new audit-rule **content** reaches
+consumers as their standards channel advances — **no `.github` release needed**.
+A Gate workflow file change is evaluated at an exact candidate commit and then
+published through the guarded `gates/wf-v1` path. A thin-called reusable change
+instead rides a `.github` release (`vX.Y.Z` + release-please moves `v1`), after
+which Renovate bumps consumer-side SHA pins.
 
 ## scripts/
 
-(Empty.) The previous `rotate-sops-recipients.sh` SOPS-recipient rotation helper was removed alongside [`standards#51`](https://github.com/Rubio-Enterprises/standards/pull/51) (the org-wide SOPS walk-back). No Org set repositories carry encrypted secrets, so the rotation primitive has no callers; the replacement guidance for CI secrets lives in [`standards/docs/secrets.md`](https://github.com/Rubio-Enterprises/standards/blob/main/docs/secrets.md) (GitHub Environment secrets with required reviewers).
+There is no root `scripts/` directory. The previous
+`rotate-sops-recipients.sh` SOPS-recipient rotation helper was removed alongside
+[`standards#51`](https://github.com/Rubio-Enterprises/standards/pull/51)
+(the org-wide SOPS walk-back). Replacement guidance for CI secrets lives in
+[`standards/docs/secrets.md`](https://github.com/Rubio-Enterprises/standards/blob/main/docs/secrets.md)
+(GitHub Environment secrets with required reviewers). Workflow implementation
+helpers still live under `.github/scripts/`.
 
 ## Release history
 
-- 2026-05-21 — `v1.1.20`: `copier-sync.yml` now reads `_rubio_template_version` (introduced by [`standards/template/v1.24.0`](https://github.com/Rubio-Enterprises/standards/releases/tag/template/v1.24.0)) with `_commit` fallback. Backward-compatible — consumers on older standards templates continue working via fallback. Task #15 phase 2.
-- 2026-05-20 — Reconciled `v1` floating tag off its collision with `v1.1.19` (`89a811f`). One-time backfill of the floating-tag floor-advance ritual mandated by [`standards#12`](https://github.com/Rubio-Enterprises/standards/pull/12).
+- 2026-05-21 — `v1.1.20`: `copier-sync.yml` began reading
+  `_rubio_template_version` (introduced by
+  [`standards/template/v1.24.0`](https://github.com/Rubio-Enterprises/standards/releases/tag/template/v1.24.0))
+  with `_commit` fallback. Backward-compatible for older standards templates.
+  Task #15 phase 2. That workflow has since been retired.
+- 2026-05-20 — Reconciled `v1` floating tag off its collision with `v1.1.19`
+  (`89a811f`). One-time backfill of the floating-tag floor-advance ritual
+  mandated by
+  [`standards#12`](https://github.com/Rubio-Enterprises/standards/pull/12).
+
+## Contributing
+
+Organization maintainers should raise questions in this repository's GitHub
+issues and submit changes through pull requests following
+[.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
+Use a Conventional Commits title, link the work item, and fill in What?, Why?,
+How? and Testing? (with feedback, dependencies and screenshots when relevant).
+Keep the body within 400 words. See also [CONTRIBUTING.md](CONTRIBUTING.md),
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md).
+
+This repository has no mise tasks or local lefthook configuration; the consumer
+setup commands in `CONTRIBUTING.md` do not apply here. With actionlint and Python
+installed, check workflow syntax and the standard-library contract tests:
+
+```bash
+actionlint
+python3 -m unittest discover -s tests
+```
+
+CI runs workflow validation and the repository-local `test-gate`.
+Changes to Gate files require the candidate validation and publication process
+in [the publication runbook](docs/plumbing-ref-publication.md); changes to
+thin-called reusables use the release stream described above.
+
+## License
+
+No license has been granted. All rights reserved.
