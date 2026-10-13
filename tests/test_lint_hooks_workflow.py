@@ -282,3 +282,62 @@ class KnowledgebaseRemoteTests(unittest.TestCase):
             WORKFLOW_TEXT.index("- name: Mint knowledgebase-framework read token"),
             WORKFLOW_TEXT.index(f"- name: {ALL_FILES_STEP}"),
         )
+
+
+RUST_CACHE_STEP = "Keep a mise-pinned rust toolchain inside the mise cache"
+MISE_INSTALL_STEP = "Install consumer-repo runtimes (lefthook + pinned hook tools)"
+
+
+class RustToolchainCacheTests(unittest.TestCase):
+    """A mise-pinned rust toolchain must live where mise-action caches."""
+
+    def run_step(self, files: dict[str, str]) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            for name, content in files.items():
+                (repo / name).write_text(content, encoding="utf-8")
+            output = repo / "github_output"
+            env_file = repo / "github_env"
+            output.write_text("", encoding="utf-8")
+            env_file.write_text("", encoding="utf-8")
+            subprocess.run(
+                ["bash", "-c", extract_run_block(RUST_CACHE_STEP)],
+                cwd=repo,
+                check=True,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "HOME": "/home/runner",
+                    "GITHUB_OUTPUT": str(output),
+                    "GITHUB_ENV": str(env_file),
+                },
+            )
+            return output.read_text(encoding="utf-8"), env_file.read_text(encoding="utf-8")
+
+    def test_rust_pin_homes_rustup_and_cargo_in_the_mise_data_dir(self) -> None:
+        pin = '[tools]\n"rust" = { version = "1.95.0", components = "clippy,rustfmt" }\n'
+        output, env = self.run_step({".mise.toml": pin})
+        self.assertEqual(output, "cache_suffix=-rust\n")
+        self.assertEqual(
+            env,
+            "RUSTUP_HOME=/home/runner/.local/share/mise/rustup\n"
+            "CARGO_HOME=/home/runner/.local/share/mise/cargo\n",
+        )
+
+    def test_local_override_pin_counts(self) -> None:
+        output, _ = self.run_step({".mise.toml": "[tools]\n", ".mise.local.toml": 'rust = "1.95.0"\n'})
+        self.assertEqual(output, "cache_suffix=-rust\n")
+
+    def test_repos_without_rust_keep_their_cache_key_and_homes(self) -> None:
+        tools = '[tools]\n"aqua:EmbarkStudios/cargo-deny" = "0.20.2"\nrustfmt_check = "x"\n'
+        output, env = self.run_step({".mise.toml": tools})
+        self.assertEqual(output, "cache_suffix=\n")
+        self.assertEqual(env, "")
+        self.assertEqual(self.run_step({})[0], "cache_suffix=\n")
+
+    def test_step_precedes_the_install_and_keys_its_cache(self) -> None:
+        self.assertLess(
+            WORKFLOW_TEXT.index(f"- name: {RUST_CACHE_STEP}"),
+            WORKFLOW_TEXT.index(f"- name: {MISE_INSTALL_STEP}"),
+        )
+        install = WORKFLOW_TEXT.split(f"- name: {MISE_INSTALL_STEP}", 1)[1].split("- name:", 1)[0]
+        self.assertIn("${{ steps.rust-toolchain.outputs.cache_suffix }}", install)
