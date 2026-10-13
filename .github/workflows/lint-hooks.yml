@@ -15,8 +15,9 @@ name: lint-hooks
 # `has_swift` / `has_homebrew_formulae` go to macOS because swiftformat/
 # swiftlint need sourcekitd and `brew style` needs Homebrew, none of which the
 # Linux glue runner has — there they die with `swiftformat_linux: not found` /
-# `Loading libsourcekitdInProc.so failed`. Run these short lint passes on
-# hosted Intel macOS rather than the scarce self-hosted Xcode build pool.
+# `Loading libsourcekitdInProc.so failed`. Run these lint passes through
+# RUNNERS.macos to avoid hosted macOS cost; macos-15 is only the fallback
+# for public consumers and a missing route key.
 #
 # Everything else takes the Linux route, whose tier is the consumer's DECLARED
 # `lint_hooks_workload_class` (standards ADR-0022): `heavy` for memory-heavy
@@ -44,7 +45,7 @@ permissions:
 jobs:
   detect:
     # Resolve the runner from the consumer's answers: has_ruby needs hosted
-    # x64 Linux; has_swift needs hosted Intel macOS (sourcekitd). Everything
+    # x64 Linux; Swift/Homebrew needs RUNNERS.macos. Everything
     # else takes the Linux tier its declared lint_hooks_workload_class names.
     # Reading .copier-answers.yml tracks the authoritative declaration.
     if: >-
@@ -66,7 +67,7 @@ jobs:
         id: pick
         env:
           RUBY_RUNNER: '["ubuntu-24.04"]'
-          MACOS_RUNNER: '["macos-15-intel"]'
+          MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-15"]')) }}
           LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
           # Heavy work must not degrade to the undersized light route.
           # Public consumers cannot read private org variables; hosted
@@ -86,8 +87,8 @@ jobs:
           printf 'has_ruby=%s\n' "$has_ruby" >> "$GITHUB_OUTPUT"
 
           # has_swift routes to the macOS runner (swiftlint needs sourcekitd),
-          # as does has_homebrew_formulae (`brew style` needs Homebrew, which
-          # the hosted macOS images ship). The archetype grep is the fallback
+          # as does has_homebrew_formulae (`brew style` needs Homebrew).
+          # The archetype grep is the fallback
           # for answers files that predate the facet questions; re-rendered
           # repos no longer carry archetype. This platform requirement outranks
           # Ruby's Linux route in a mixed-language repository.
@@ -172,6 +173,38 @@ jobs:
           # history to merge-base against the base ref) to compute changed
           # files. Non-fork all-files mode is unaffected by the extra commit.
           fetch-depth: 2
+      - name: Prepare macOS hook tools
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Tart's non-login shell does not inherit Homebrew's PATH
+          for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+            if [ -x "$b" ]; then eval "$("$b" shellenv)"; break; fi
+          done
+          if ! command -v brew >/dev/null 2>&1; then
+            echo "::error::Homebrew is required for macOS hooks" >&2
+            exit 1
+          fi
+          printf '%s\n' "$(brew --prefix)/bin" "$(brew --prefix)/sbin" >> "$GITHUB_PATH"
+          brew --version
+          if grep -qE '^has_swift:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
+            grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
+            # SwiftLint needs the selected Xcode toolchain's sourcekitd
+            xcodebuild -version
+            xcrun --find swift
+          fi
+      - name: Prepare macOS Ruby dependencies and tool cache
+        if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install openssl@3 libyaml gmp
+          # setup-ruby's Darwin prebuilds embed this path, not RUNNER_TOOL_CACHE
+          if [ ! -w /Users/runner/hostedtoolcache ]; then
+            sudo mkdir -p /Users/runner/hostedtoolcache
+            sudo chown "$(id -u):$(id -g)" /Users/runner/hostedtoolcache
+          fi
       # ruby/setup-ruby reads the consumer-owned `.ruby-version` by default.
       # bundler-cache installs the exact Gemfile.lock dependency set before
       # lefthook can invoke any Ruby hook. Do not add ruby-version here: Ruby is
