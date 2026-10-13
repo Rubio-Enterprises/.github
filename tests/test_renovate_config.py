@@ -98,8 +98,10 @@ def _selector_matches(selectors: list[str], value: str) -> bool:
     negative = [selector[1:] for selector in selectors if selector.startswith("!")]
 
     def matches(selector: str) -> bool:
-        if selector.startswith("/") and selector.endswith("/"):
-            return re.search(selector[1:-1], value) is not None
+        regex = re.fullmatch(r"/(.*)/(i?)", selector)
+        if regex is not None:
+            flags = re.IGNORECASE if regex.group(2) else 0
+            return re.search(regex.group(1), value, flags) is not None
         return selector == value
 
     return not any(map(matches, negative)) and (
@@ -1288,6 +1290,80 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertGreater(sandbox, standing)
         self.assertFalse(rules[sandbox]["automerge"])
         self.assertFalse(rules[sandbox]["platformAutomerge"])
+
+
+class FirstPartyReleaseFastLaneTests(unittest.TestCase):
+    """Org-published releases skip the third-party soak; look-alikes do not."""
+
+    BASELINE = {
+        "manager": "devcontainer",
+        "datasource": "docker",
+        "depName": "ghcr.io/rubio-enterprises/devcontainer-features/baseline",
+        "packageName": "ghcr.io/rubio-enterprises/devcontainer-features/baseline",
+        "fileName": ".devcontainer/devcontainer.json",
+        "depType": "feature",
+        "repository": "Rubio-Enterprises/todoist-classify",
+    }
+
+    def test_own_devcontainer_feature_major_skips_soak_but_keeps_approval(self) -> None:
+        resolved = _resolve_dependency(
+            {**self.BASELINE, "updateType": "major", "currentVersion": "2.0.0"}
+        )
+        self.assertIsNone(resolved["minimumReleaseAge"])
+        self.assertTrue(resolved["dependencyDashboardApproval"])
+        self.assertFalse(resolved["automerge"])
+
+    def test_own_devcontainer_feature_patch_skips_soak(self) -> None:
+        resolved = _resolve_dependency(
+            {**self.BASELINE, "updateType": "patch", "currentVersion": "3.0.0"}
+        )
+        self.assertIsNone(resolved["minimumReleaseAge"])
+
+    def test_owned_github_sources_skip_soak(self) -> None:
+        for datasource, package in (
+            ("github-tags", "Rubio-Enterprises/some-action"),
+            ("github-releases", "Rubio-Enterprises/rubio-cli-kit"),
+            ("git-tags", "https://github.com/Rubio-Enterprises/rubio-cli-kit"),
+            ("go", "github.com/Rubio-Enterprises/scaleset"),
+        ):
+            with self.subTest(datasource=datasource, package=package):
+                resolved = _resolve_dependency(
+                    {
+                        "manager": "custom.regex",
+                        "datasource": datasource,
+                        "depName": package,
+                        "packageName": package,
+                        "updateType": "minor",
+                        "currentVersion": "1.2.3",
+                    }
+                )
+                self.assertIsNone(resolved["minimumReleaseAge"])
+
+    def test_look_alikes_and_unowned_namespaces_keep_the_soak(self) -> None:
+        for datasource, package in (
+            # Docker Hub namespace: first-come, not provably the org's.
+            ("docker", "rubio-enterprises/devcontainer-features/baseline"),
+            ("docker", "docker.io/rubio-enterprises/image"),
+            # Another registry, and a look-alike GHCR owner.
+            ("docker", "ghcr.io/rubio-enterprises-x/image"),
+            ("docker", "quay.io/rubio-enterprises/image"),
+            # Look-alike GitHub owner, and an owned path on the wrong datasource.
+            ("github-tags", "Rubio-Enterprises-x/action"),
+            ("npm", "Rubio-Enterprises/thing"),
+            ("pypi", "rubio-enterprises"),
+        ):
+            with self.subTest(datasource=datasource, package=package):
+                resolved = _resolve_dependency(
+                    {
+                        "manager": "custom.regex",
+                        "datasource": datasource,
+                        "depName": package,
+                        "packageName": package,
+                        "updateType": "minor",
+                        "currentVersion": "1.2.3",
+                    }
+                )
+                self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
 
 class MiseOwnedToolTests(unittest.TestCase):
