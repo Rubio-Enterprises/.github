@@ -1,8 +1,10 @@
 {
-  "expected_current_sha": "e30f1043d88b1a736c5c33c4b2de8497e1631f15",
-  "target_sha": "a04b1e6c830abd97809653046c5ec4700814a77d",
-  "reason": "Publish lint-hooks that fetches the private Knowledgebase Framework remote for has_knowledgebase repositories (.github#361): a token scoped to knowledgebase-framework is minted and routed only when the consumer's lefthook.yml names that remote, so every other consumer's run is unchanged. The annotated MISE_VERSION pin is unchanged, so no runner preflight is required.",
+  "expected_current_sha": "a04b1e6c830abd97809653046c5ec4700814a77d",
+  "target_sha": "3edee39bbdcf0e844566a2bcb316af33ae0d1c77",
+  "reason": "Publish the PR Conventions sub-gate in standards-gates (.github#367): the PR-title step becomes a Danger JS step reading the gate-pr-conventions selector, and the job gains pull-requests: write for Danger's single comment (standards ADR-0027). The selector is live for every onboarded repository (.github-private#399) and the gate script is on both standards channels (standards#665, promoted as template/v1.55.133).",
   "references": [
-    "https://github.com/Rubio-Enterprises/.github/pull/361"
+    "https://github.com/Rubio-Enterprises/.github/pull/367",
+    "https://github.com/Rubio-Enterprises/.github-private/pull/399",
+    "https://github.com/Rubio-Enterprises/standards/pull/665"
   ]
 }
