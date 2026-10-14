@@ -47,6 +47,15 @@ proportional to its blast radius. The normal pattern is a temporary
 `evaluate`-mode duplicate organization ruleset targeting the exact candidate
 commit while the enforced rule remains on `gates/wf-v1`.
 
+The `integrations/github` provider's ruleset workflow `ref` field accepts a
+branch or tag, not a raw commit SHA (verified with v6.13.0). A plan can succeed
+with a raw SHA while GitHub rejects it at apply. Use a single-use candidate tag
+pointing to the reviewed exact commit, and verify its remote SHA before and
+after evaluation; do not substitute a moving branch. After publication or
+abandonment, remove the trial through a Terraform PR and verify its apply before
+retiring the candidate tag. This never authorizes direct movement of
+`gates/wf-v1`.
+
 Candidate Validation is rollout guidance, not a mechanical publisher input.
 Evidence links can be recorded in `reason` and `references`, but the publisher
 does not dereference or judge them. Its responsibility is the deterministic
@@ -271,7 +280,9 @@ environment, Terraform wrapper, concurrency mechanism, or workflow dispatch.
        if record[0] != "+":
            errors.append(f"porcelain update status was {record[0]!r}, not '+'")
        if len(record) < 3 or record[1] != f"{target}:{live_ref}":
-           errors.append("porcelain update record did not target the exact live ref")
+           errors.append(
+               "porcelain update record did not target the exact live ref"
+           )
        if len(record) < 3 or "(forced update)" not in record[2]:
            errors.append("porcelain update record did not report a forced update")
    if final_read_status != 0:
