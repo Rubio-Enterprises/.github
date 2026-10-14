@@ -1,11 +1,11 @@
 {
-	"expected_current_sha": "3edee39bbdcf0e844566a2bcb316af33ae0d1c77",
-	"target_sha": "8a0fec1de0f1c61759555969842fba76c2bab09d",
-	"reason": "Publish the owner-reviewed macOS lint-hooks routing change (.github#374). The protected-main target has identical lint-hooks workflow content to proven candidate 529b4953af1a7c475d5580e6180568917b7c13de. SaneBar run 38502669731 succeeded on macos-tart under the temporary evaluate ruleset 25046829 applied by .github-private#411. The only Gate Family workflow change from the live ref is lint-hooks.yml; its macOS route uses RUNNERS.macos with hosted macos-15 fallback and prepares Homebrew for non-login shells. After publication, prove private and public production routes, then remove the trial through Terraform.",
+	"expected_current_sha": "8a0fec1de0f1c61759555969842fba76c2bab09d",
+	"target_sha": "df5c9df2b2b326ed8378038c240afdb196348940",
+	"reason": "Publish reviewed stable Homebrew provisioning from .github#381. Only lint-hooks.yml changes in the Gate Family: literal Homebrew-formula consumers update Homebrew to upstream stable before hooks, without package upgrades or guard changes. Source PR checks passed. Standards#684 hosted ARM64 job 116117225055 passed all five existing real Homebrew controls without skips after native style-gem preparation. Verify the complete injected homebrew-tap#221 job after guarded publication.",
 	"references": [
-		"https://github.com/Rubio-Enterprises/.github/pull/374",
-		"https://github.com/Rubio-Enterprises/.github-private/pull/411",
-		"https://github.com/Rubio-Enterprises/.github-private/actions/runs/38502496091",
-		"https://github.com/Rubio-Enterprises/SaneBar/actions/runs/38502669731"
+		"https://github.com/Rubio-Enterprises/.github/pull/381",
+		"https://github.com/Rubio-Enterprises/standards/pull/684",
+		"https://github.com/Rubio-Enterprises/standards/actions/runs/38641313528/job/116117225055",
+		"https://github.com/Rubio-Enterprises/homebrew-tap/pull/221"
 	]
 }
