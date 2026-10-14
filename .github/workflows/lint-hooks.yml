@@ -187,6 +187,9 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$(brew --prefix)/bin" "$(brew --prefix)/sbin" >> "$GITHUB_PATH"
+          if grep -qE '^has_homebrew_formulae:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            HOMEBREW_UPDATE_TO_TAG=1 brew update
+          fi
           brew --version
           if grep -qE '^has_swift:[[:space:]]*true' .copier-answers.yml 2>/dev/null ||
             grep -qE '^archetype:[[:space:]]*swift' .copier-answers.yml 2>/dev/null; then
