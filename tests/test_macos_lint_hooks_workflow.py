@@ -57,16 +57,27 @@ class MacOSRoutingTests(unittest.TestCase):
         self.assertLess(LINT_TEXT.index(RUBY_STEP), LINT_TEXT.index("uses: ruby/setup-ruby@"))
         self.assertLess(LINT_TEXT.index(PREPARE_STEP), LINT_TEXT.index("uses: jdx/mise-action@"))
         self.assertIn("steps.uv-python.outputs.version", LINT_TEXT)
+        for hook in (
+            "Run lefthook pre-commit across all files",
+            "Run lefthook pre-commit on changed fork files",
+            "Validate commit-msg hook accepts a conventional commit",
+        ):
+            self.assertLess(LINT_TEXT.index(PREPARE_STEP), LINT_TEXT.index(hook))
+        prepare = extract_step(LINT_TEXT, PREPARE_STEP)
+        self.assertNotIn("continue-on-error:", prepare)
+        self.assertNotIn("always()", prepare)
 
 
 class MacOSSetupTests(unittest.TestCase):
     def run_prepare(
         self, *, arm: bool = True, brew_present: bool = True,
-        answers: str = "has_swift: true\n", xcode_exit: int = 0,
+        answers: str | None = "has_swift: true\n", xcode_exit: int = 0,
+        update_exit: int = 0,
     ) -> tuple[subprocess.CompletedProcess[str], str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / ".copier-answers.yml").write_text(answers)
+            if answers is not None:
+                (repo / ".copier-answers.yml").write_text(answers)
             path_file = repo / "github-path"
             path_file.touch()
             log = repo / "log"
@@ -81,7 +92,15 @@ class MacOSSetupTests(unittest.TestCase):
                     'case "$1" in\n'
                     f'  shellenv) printf \'export PATH="{prefix}/bin:$PATH"\\n\' ;;\n'
                     f'  --prefix) printf \'{prefix}\\n\' ;;\n'
-                    '  --version) echo Homebrew ;;\n'
+                    '  update)\n'
+                    '    echo "brew $* tag=${HOMEBREW_UPDATE_TO_TAG:-}" >> "$LOG"\n'
+                    f'    [ {update_exit} -eq 0 ] || exit {update_exit}\n'
+                    '    touch "$UPDATED" ;;\n'
+                    '  --version)\n'
+                    '    echo "brew --version" >> "$LOG"\n'
+                    '    if [ -e "$UPDATED" ]; then echo "Homebrew 7.0.0"; '
+                    'else echo "Homebrew 6.0.22"; fi ;;\n'
+                    '  *) exit 99 ;;\n'
                     'esac\n'
                 )
                 brew.chmod(0o755)
@@ -97,7 +116,8 @@ class MacOSSetupTests(unittest.TestCase):
             result = subprocess.run(
                 ["/bin/bash", "-c", script], cwd=repo, capture_output=True, text=True,
                 env={"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_PATH": str(path_file),
-                     "LOG": str(log)},
+                     "LOG": str(log), "UPDATED": str(repo / "updated"),
+                     "HOMEBREW_UPDATE_TO_TAG": "0"},
             )
             return result, path_file.read_text(), log.read_text() if log.exists() else ""
 
@@ -115,6 +135,49 @@ class MacOSSetupTests(unittest.TestCase):
     def test_formula_only_does_not_require_xcode(self) -> None:
         result, _, log = self.run_prepare(answers="has_homebrew_formulae: true\n")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(log.splitlines(), ["brew update tag=1", "brew --version"])
+
+    def test_formula_update_uses_stable_tag_before_reporting_version(self) -> None:
+        for arm in (True, False):
+            for extra_facet in ("", "has_swift: true\n", "has_ruby: true\n"):
+                with self.subTest(arm=arm, extra_facet=extra_facet):
+                    result, paths, log = self.run_prepare(
+                        arm=arm, answers="has_homebrew_formulae: true\n" + extra_facet,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        log.splitlines()[:2], ["brew update tag=1", "brew --version"]
+                    )
+                    self.assertIn("Homebrew 7.0.0", result.stdout)
+                    self.assertEqual(len(paths.splitlines()), 2)
+
+    def test_only_declared_literal_true_updates_homebrew(self) -> None:
+        for answers in (
+            None, "", "has_swift: true\n", "archetype: swift\n", "has_ruby: true\n",
+            "has_homebrew_formulae: false\n", "has_homebrew_formulae: 'true'\n",
+            "has_homebrew_formulae: trueish\n", "# has_homebrew_formulae: true\n",
+        ):
+            with self.subTest(answers=answers):
+                result, _, log = self.run_prepare(answers=answers)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("brew update", log)
+                self.assertIn("Homebrew 6.0.22", result.stdout)
+        result, _, log = self.run_prepare(answers="has_homebrew_formulae:\ttrue  \n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("brew update tag=1", log)
+
+    def test_failed_formula_update_stops_preparation(self) -> None:
+        result, _, log = self.run_prepare(
+            answers="has_homebrew_formulae: true\nhas_swift: true\n", update_exit=17,
+        )
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(log.splitlines(), ["brew update tag=1"])
+        self.assertNotIn("Homebrew", result.stdout)
+        result, _, log = self.run_prepare(
+            answers="has_homebrew_formulae: true\n", brew_present=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Homebrew is required", result.stderr)
         self.assertEqual(log, "")
 
     def test_legacy_swift_facet_checks_xcode(self) -> None:
