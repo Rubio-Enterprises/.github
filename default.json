@@ -344,6 +344,16 @@
       "commitMessageTopic": "uv CLI",
       "automerge": false,
       "platformAutomerge": false
+    },
+    {
+      "description": "Renovate's devcontainer manager bumps images and features in .devcontainer/devcontainer.json but has no artifact updater for devcontainer-lock.json, so a feature bump would leave the lockfile pinning the old version and digest. Regenerate it once per branch with the Dev Container CLI, which .github-private's Renovate container provisions and allowlists as exactly this command, and commit only the lockfile. Scoped to the root workspace file: standards' template seed lives elsewhere and has no lockfile.",
+      "matchManagers": ["devcontainer"],
+      "matchFileNames": [".devcontainer/devcontainer.json"],
+      "postUpgradeTasks": {
+        "commands": ["devcontainer upgrade --workspace-folder ."],
+        "fileFilters": [".devcontainer/devcontainer-lock.json"],
+        "executionMode": "branch"
+      }
     }
   ],
   "customManagers": [

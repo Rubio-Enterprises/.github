@@ -1394,3 +1394,35 @@ class MiseOwnedToolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DevcontainerLockfileTests(unittest.TestCase):
+    """Feature bumps refresh devcontainer-lock.json through one allowlisted command."""
+
+    # Must equal the anchored entry in .github-private renovate/config.js
+    # allowedCommands; Renovate rejects any other command string.
+    ALLOWED_COMMAND = re.compile(r"^devcontainer upgrade --workspace-folder \.$")
+
+    def _rules(self) -> list[dict[str, Any]]:
+        return [rule for rule in CONFIG["packageRules"] if "postUpgradeTasks" in rule]
+
+    def test_one_rule_runs_the_allowlisted_command_on_the_root_workspace_file(self) -> None:
+        rules = self._rules()
+        self.assertEqual(len(rules), 1)
+        rule = rules[0]
+        task = rule["postUpgradeTasks"]
+        self.assertEqual(rule["matchManagers"], ["devcontainer"])
+        self.assertEqual(task["executionMode"], "branch")
+        self.assertEqual(task["fileFilters"], [".devcontainer/devcontainer-lock.json"])
+        self.assertEqual(len(task["commands"]), 1)
+        self.assertRegex(task["commands"][0], self.ALLOWED_COMMAND)
+
+    def test_only_the_root_workspace_file_triggers_the_refresh(self) -> None:
+        rule = self._rules()[0]
+        base = {"manager": "devcontainer", "datasource": "docker", "depName": "x"}
+        self.assertTrue(
+            _rule_matches(rule, {**base, "fileName": ".devcontainer/devcontainer.json"}, {})
+        )
+        for other in ("template/.devcontainer/devcontainer.json", ".devcontainer.json"):
+            self.assertFalse(_rule_matches(rule, {**base, "fileName": other}, {}))
+

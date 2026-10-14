@@ -286,7 +286,12 @@ reread contract in the runbook.
   and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
   them; human-merge-only for `go.mod` directive raises and, after approval, for TestFlight and the
   `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
-  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. Four
+  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. One rule
+  runs a post-upgrade task: on a branch that bumps the root `.devcontainer/devcontainer.json`,
+  it runs `devcontainer upgrade --workspace-folder .` and commits only
+  `.devcontainer/devcontainer-lock.json`, which Renovate's devcontainer manager cannot update.
+  The command must match the anchored `allowedCommands` entry in `.github-private`'s
+  `renovate/config.js`, whose container provisions the Dev Container CLI. Four
   `customManager`s remain. The first two track the
   `# renovate: … jdx/mise` workflow `MISE_VERSION:` cold fallback and
   `# renovate: … astral-sh/uv` workflow `version:` marker, respectively.
