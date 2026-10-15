@@ -1,5 +1,22 @@
 # Changelog
 
+## [4.5.0](https://github.com/Rubio-Enterprises/.github/compare/v4.4.1...v4.5.0) (2026-10-15)
+
+
+### Features
+
+* **gates:** replace the PR title gate with PR conventions ([#367](https://github.com/Rubio-Enterprises/.github/issues/367)) ([3edee39](https://github.com/Rubio-Enterprises/.github/commit/3edee39bbdcf0e844566a2bcb316af33ae0d1c77))
+* **renovate:** refresh devcontainer-lock.json on Dev Container bumps ([#383](https://github.com/Rubio-Enterprises/.github/issues/383)) ([622ca83](https://github.com/Rubio-Enterprises/.github/commit/622ca831fe08f3b6282a8058a982f8e24f4fbb7b))
+* **renovate:** skip the release soak for org-published releases ([#373](https://github.com/Rubio-Enterprises/.github/issues/373)) ([3bcc8fa](https://github.com/Rubio-Enterprises/.github/commit/3bcc8fa14743df681bc2cc4c16c7979d77d6e48c))
+
+
+### Bug Fixes
+
+* **ci:** route macOS lint hooks through the org runner map ([#374](https://github.com/Rubio-Enterprises/.github/issues/374)) ([8a0fec1](https://github.com/Rubio-Enterprises/.github/commit/8a0fec1de0f1c61759555969842fba76c2bab09d))
+* **ci:** update homebrew to stable before formula hooks ([#381](https://github.com/Rubio-Enterprises/.github/issues/381)) ([df5c9df](https://github.com/Rubio-Enterprises/.github/commit/df5c9df2b2b326ed8378038c240afdb196348940))
+* **codewiki-pages:** skip publishing while the codewiki is not built yet ([#389](https://github.com/Rubio-Enterprises/.github/issues/389)) ([73e7d57](https://github.com/Rubio-Enterprises/.github/commit/73e7d5746dcdc354467bc547c8e700ad816b0d97))
+* **lint-hooks:** fetch the private Knowledgebase Framework remote ([#361](https://github.com/Rubio-Enterprises/.github/issues/361)) ([a04b1e6](https://github.com/Rubio-Enterprises/.github/commit/a04b1e6c830abd97809653046c5ec4700814a77d))
+
 ## [4.4.1](https://github.com/Rubio-Enterprises/.github/compare/v4.4.0...v4.4.1) (2026-10-12)
 
 
