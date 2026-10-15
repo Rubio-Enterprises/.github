@@ -155,10 +155,24 @@ class StageScriptTests(unittest.TestCase):
         self.assertIn("--github-pages", out)
         self.assertFalse(output.exists())
 
-    def test_missing_directory_fails_clearly(self) -> None:
-        code, out, _, _ = self.stage({"README.md": "x"})
-        self.assertEqual(code, 1)
-        self.assertIn("'docs/codewiki' does not exist", out)
+    def test_missing_directory_skips_publishing(self) -> None:
+        code, out, stage, _ = self.stage({"README.md": "x"})
+        self.assertEqual(code, 0, out)
+        self.assertIn("::notice::codewiki-pages: 'docs/codewiki' does not exist yet", out)
+        self.assertIn("publish=false\n", out)
+        self.assertNotIn("dir=", out)
+        self.assertFalse(stage.exists())
+
+    def test_staged_site_is_marked_for_publishing(self) -> None:
+        code, out, _, _ = self.stage({"docs/codewiki/index.html": "x"})
+        self.assertEqual(code, 0, out)
+        self.assertIn("publish=true\n", out)
+
+    def test_upload_and_deploy_are_gated_on_publish(self) -> None:
+        build = job_block("build")
+        self.assertIn("      publish: ${{ steps.stage.outputs.publish }}\n", build)
+        self.assertIn("        if: steps.stage.outputs.publish == 'true'\n", build)
+        self.assertIn("    if: needs.build.outputs.publish == 'true'\n", job_block("deploy"))
 
     def test_custom_path_and_trailing_slash(self) -> None:
         code, out, stage, _ = self.stage({"site/wiki/index.html": "x"}, path="site/wiki/")

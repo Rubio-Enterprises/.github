@@ -32,21 +32,27 @@ and for testing, not as a per-repository setting.
 1. **`build` job** (`contents: read`):
    1. Checks out the caller revision, sparse to `path`, without persisting
       credentials.
-   2. Fails if `path` is absolute or contains a `..` segment, if `path` does
-      not exist, or if `path/index.html` is missing. `index.html` is the viewer
-      CodeWiki writes under `--github-pages`; without it the site has no entry
-      point, so the job fails with a message naming the fix.
-   3. Copies `path` into a staging directory under `RUNNER_TEMP` and removes
+   2. Fails if `path` is absolute or contains a `..` segment, or if
+      `path/index.html` is missing. `index.html` is the viewer CodeWiki writes
+      under `--github-pages`; without it the site has no entry point, so the
+      job fails with a message naming the fix.
+   3. If `path` does not exist, emits a notice and stops with nothing to
+      publish: the build job sets output `publish=false`, skips the upload,
+      and the `deploy` job is skipped. A repository may declare `has_codewiki`
+      before its first build is committed (the central controller generates
+      it on dispatch), so this is a pending CodeWiki, not an error.
+   4. Copies `path` into a staging directory under `RUNNER_TEMP` and removes
       the top-level `temp/` directory. `temp/` is CodeWiki's state directory
       (dependency graphs and the artifact index, megabytes). It stays committed
       for later `--update` runs but is never published.
-   4. Fails if the staged site contains a symlink.
+   5. Fails if the staged site contains a symlink.
       `actions/upload-pages-artifact` archives with `tar --dereference`, so a
       committed symlink would publish its target, which may sit outside the
       CodeWiki directory.
-   5. Uploads the staging directory with `actions/upload-pages-artifact`.
+   6. Uploads the staging directory with `actions/upload-pages-artifact`.
       Hidden files are excluded by that action's default.
-2. **`deploy` job** (`pages: write`, `id-token: write`; needs `build`):
+2. **`deploy` job** (`pages: write`, `id-token: write`; needs `build`; runs
+   only when `build` set `publish=true`):
    - Runs in the `github-pages` environment, with the environment URL set to
      the deployed `page_url`.
    - Deploys with `actions/deploy-pages`.
