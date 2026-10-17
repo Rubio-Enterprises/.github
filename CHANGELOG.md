@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.5.1](https://github.com/Rubio-Enterprises/.github/compare/v4.5.0...v4.5.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **ci:** allow Danger to read PR issue metadata ([0a0ae77](https://github.com/Rubio-Enterprises/.github/commit/0a0ae77fbc247e739b8e07ba2b0d8b1c874e5f47))
+
 ## [4.5.0](https://github.com/Rubio-Enterprises/.github/compare/v4.4.1...v4.5.0) (2026-10-15)
 
 
