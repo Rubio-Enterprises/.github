@@ -17,6 +17,7 @@ jobs:
   standards-gates:
     permissions:
       contents: read
+      issues: read
       # Danger manages one PR comment; the owner accepted this whole-job
       # write token (standards ADR-0027).
       pull-requests: write

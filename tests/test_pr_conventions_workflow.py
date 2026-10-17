@@ -128,6 +128,7 @@ class PrConventionsTests(unittest.TestCase):
 
     def test_token_and_mise_contract_are_explicit(self):
         text = WORKFLOW.read_text()
+        self.assertIn("      issues: read", text)
         self.assertIn("      pull-requests: write", text)
         self.assertIn("standards ADR-0027", text)
         gate = step("Gate — PR conventions")
