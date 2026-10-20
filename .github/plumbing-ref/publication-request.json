@@ -1,11 +1,19 @@
 {
-	"expected_current_sha": "8a0fec1de0f1c61759555969842fba76c2bab09d",
-	"target_sha": "df5c9df2b2b326ed8378038c240afdb196348940",
-	"reason": "Publish reviewed stable Homebrew provisioning from .github#381. Only lint-hooks.yml changes in the Gate Family: literal Homebrew-formula consumers update Homebrew to upstream stable before hooks, without package upgrades or guard changes. Source PR checks passed. Standards#684 hosted ARM64 job 116117225055 passed all five existing real Homebrew controls without skips after native style-gem preparation. Verify the complete injected homebrew-tap#221 job after guarded publication.",
+	"expected_current_sha": "df5c9df2b2b326ed8378038c240afdb196348940",
+	"target_sha": "8b9f6c5c8be5ed4b1b0842e3a361405c51cededb",
+	"reason": "Publish the reviewed Gate Family union of .github#398 (pnpm cacheDir), #397 (hook MISE_GITHUB_TOKEN), and 0a0ae77 (Danger issues:read), for x64 CI capacity plan step 1.5 agreed 2026-10-20. The evaluate-only Karakeep trial from .github-private#454 passed candidate standards, lint and typecheck checks. Paired installs measured 24.25s cold versus 6.89s warm; warm lint installed in 36.4s versus the 53.8s baseline. Metadata cache saves and exact-key hits, hook token forwarding and Danger issue access were verified. Trial removal #462 applied successfully before the immutable candidate tag was retired. Keep .github-private#273 open for workspace-install opt-out.",
 	"references": [
-		"https://github.com/Rubio-Enterprises/.github/pull/381",
-		"https://github.com/Rubio-Enterprises/standards/pull/684",
-		"https://github.com/Rubio-Enterprises/standards/actions/runs/38641313528/job/116117225055",
-		"https://github.com/Rubio-Enterprises/homebrew-tap/pull/221"
+		"https://github.com/Rubio-Enterprises/.github/pull/398",
+		"https://github.com/Rubio-Enterprises/.github/pull/397",
+		"https://github.com/Rubio-Enterprises/.github/commit/0a0ae77",
+		"https://github.com/Rubio-Enterprises/.github-private/pull/454",
+		"https://github.com/Rubio-Enterprises/.github-private/actions/runs/39439296689",
+		"https://github.com/Rubio-Enterprises/karakeep/pull/544#issuecomment-6294463750",
+		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39444683529",
+		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39446104966",
+		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39440592582/attempts/2",
+		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39443168679",
+		"https://github.com/Rubio-Enterprises/.github-private/pull/462",
+		"https://github.com/Rubio-Enterprises/.github-private/actions/runs/39448359940"
 	]
 }
