@@ -191,7 +191,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(CONFIG["prHourlyLimit"], 1)
         self.assertEqual(CONFIG["prConcurrentLimit"], 5)
         self.assertEqual(CONFIG["branchConcurrentLimit"], 5)
-        self.assertEqual(CONFIG["rebaseWhen"], "automerging")
+        self.assertEqual(CONFIG["rebaseWhen"], "conflicted")
         self.assertEqual(CONFIG["minimumReleaseAge"], "7 days")
 
     def test_copier_native_automerge_does_not_widen_other_rules(self) -> None:

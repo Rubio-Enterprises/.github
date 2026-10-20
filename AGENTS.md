@@ -402,10 +402,18 @@ reread contract in the runbook.
   applicable* rather than merely undone: there are no canonical tests, and the template renders no
   `test-gate.yml` (the context is repo-owned, per standards ADR-0020).
 
-  **`rebaseWhen: "automerging"` is the exact org-wide posture.** A branch Renovate is configured to
-  auto-merge may be rebased while GitHub is holding that merge; manual branches are not churned
-  merely for falling behind the base. Keep this at top level because the posture is
-  manager-agnostic; `copier.json`'s contract remains copier-scoped configuration only.
+  **`rebaseWhen: "conflicted"` is the exact org-wide posture.** Falling behind
+  `main` alone does not trigger a rebase, even for automerge PRs. Org rulesets set
+  `strict_required_status_checks_policy = false` (`.github-private`'s
+  `governance.tf` and `main.tf`), so merging does not require an up-to-date branch.
+  In the 2026-10-13–16 wave, 773 of 849 Renovate linux-x64 jobs ran on
+  later-superseded commits, costing about eight slot-hours per day. The accepted
+  trade-off is that a PR can merge after being tested against an older `main`.
+  Keep this manager-agnostic setting at top level; `copier.json` remains
+  copier-scoped. Consumers using untagged `github>Rubio-Enterprises/.github`
+  resolve `default.json` from the default branch (`main`), so this policy takes
+  effect on their next Renovate run after merge, without a release or
+  floating-major tag update.
 
   **The per-repository admission limits are `commitHourlyLimit: 1`, `prHourlyLimit: 1`,
   `prConcurrentLimit: 5`, and `branchConcurrentLimit: 5`.** The hourly commit limit is the direct
