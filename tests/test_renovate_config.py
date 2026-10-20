@@ -8,6 +8,7 @@ import unittest
 from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
 from typing import Any
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "default.json").read_text(encoding="utf-8"))
@@ -746,9 +747,28 @@ class RenovateConfigContractTests(unittest.TestCase):
         for filename, count in expected.items():
             text = (workflows / filename).read_text(encoding="utf-8")
             matches = matcher.findall(text)
-            self.assertEqual(matches, ["2026.9.11"] * count, filename)
+            pins = re.findall(r'MISE_VERSION: "([0-9]{4}\.[0-9]+\.[0-9]+)"', text)
+            self.assertEqual(len(pins), count, filename)
+            self.assertEqual(matches, pins, filename)
             self.assertEqual(text.count('MISE_VERSION: "'), count, filename)
             self.assertIn("version: ${{ steps.mise", text)
+            updated = text.replace(f'MISE_VERSION: "{pins[0]}"', 'MISE_VERSION: "2099.1.2"')
+            self.assertEqual(matcher.findall(updated), ["2099.1.2"] * count, filename)
+
+    def test_source_repo_cloud_smoke_actions_are_not_template_owned(self) -> None:
+        local = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
+        dependency = {
+            "manager": "github-actions",
+            "depName": "ruby/setup-ruby",
+            "packageName": "ruby/setup-ruby",
+            "fileName": ".github/workflows/cloud-setup-smoke.yml",
+            "currentVersion": "1.328.0",
+            "updateType": "minor",
+        }
+        self.assertFalse(_resolve_dependency(dependency)["enabled"])
+        with patch.dict(CONFIG, {"packageRules": CONFIG["packageRules"] + local.get("packageRules", [])}):
+            self.assertTrue(_resolve_dependency(dependency)["enabled"])
+            self.assertFalse(_resolve_dependency({**dependency, "fileName": ".github/workflows/standards.yml"})["enabled"])
 
     def test_mise_cli_override_is_manager_independent(self) -> None:
         mise_update = {

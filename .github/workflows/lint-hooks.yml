@@ -432,11 +432,13 @@ jobs:
         # fork path) with `git add` exit 128.
         env:
           MISE_ENV: ci
+          MISE_GITHUB_TOKEN: ${{ github.token }}
         run: mise exec -- lefthook run pre-commit --all-files --no-stage-fixed
       - name: Run lefthook pre-commit on changed fork files
         if: needs.detect.outputs.is_fork == 'true'
         env:
           MISE_ENV: ci
+          MISE_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           files=/tmp/lefthook-changed-files.txt

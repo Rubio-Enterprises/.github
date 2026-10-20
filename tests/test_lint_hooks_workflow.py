@@ -142,6 +142,16 @@ class ForkFileListTests(unittest.TestCase):
         )
 
 
+class HookToolDownloadTests(unittest.TestCase):
+    def test_on_demand_hook_tools_receive_the_repo_token(self) -> None:
+        for step in (ALL_FILES_STEP, FORK_STEP):
+            with self.subTest(step=step):
+                start = WORKFLOW_TEXT.index(f"- name: {step}")
+                end = WORKFLOW_TEXT.find("\n      - name:", start)
+                block = WORKFLOW_TEXT[start:end if end != -1 else None]
+                self.assertIn("MISE_GITHUB_TOKEN: ${{ github.token }}", block)
+
+
 class EnforcementPolicyTests(unittest.TestCase):
     """Required hook status must not hide a fork failure."""
 
