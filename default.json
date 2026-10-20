@@ -16,7 +16,7 @@
   "branchConcurrentLimit": 5,
   "rangeStrategy": "bump",
   "minimumReleaseAge": "7 days",
-  "rebaseWhen": "automerging",
+  "rebaseWhen": "conflicted",
   "labels": ["dependencies"],
   "flux": {
     "description": "Widen the flux manager past its gotk-only default. Renovate ships flux with managerFilePatterns of just `/(?:^|/)gotk-components\\.ya?ml$/`, which finds the Flux distribution itself and nothing a consumer writes — so a `GitRepository.spec.ref.tag` (github-tags) or a Flux `Kustomization.spec.images` entry (docker) in a repo's own manifests is invisible until the pattern is widened. Keep the upstream pattern in the list: managerFilePatterns REPLACES the default rather than extending it, so dropping it would stop tracking gotk-components across onboarded consumers. Widening to `infrastructure/**` is safe against false positives because Renovate's flux schema validates apiVersion prefixes (`kustomize.toolkit.fluxcd.io/`, `source.toolkit.fluxcd.io/`, `helm.toolkit.fluxcd.io/`): a plain kustomize `kustomization.yaml` is `kustomize.config.k8s.io/v1beta1` and is skipped, so ordinary Kubernetes YAML under infrastructure/ yields no deps.",
