@@ -387,6 +387,52 @@ jobs:
         # the corepack keyring drift documented in e2e.yml's adjacent block.
         if: hashFiles('pnpm-lock.yaml') != ''
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      # pnpm keeps registry metadata and lockfile-verification memos outside its store.
+      # Both gates read the same cache; only typecheck's default-branch seeder writes it.
+      - name: Locate the pnpm cacheDir
+        id: pnpm-cache-dir
+        if: hashFiles('pnpm-lock.yaml') != ''
+        shell: bash
+        run: |
+          set -uo pipefail
+          if ! cache_dir="$(pnpm config get cacheDir 2>/dev/null)"; then
+            echo "::notice::could not resolve pnpm cacheDir — skipping the metadata cache"
+            printf 'ok=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$cache_dir" in
+            ""|undefined|null)
+              if [ -n "${XDG_CACHE_HOME:-}" ]; then
+                cache_dir="$XDG_CACHE_HOME/pnpm"
+              elif [ "$RUNNER_OS" = macOS ]; then
+                cache_dir="$HOME/Library/Caches/pnpm"
+              elif [ "$RUNNER_OS" = Linux ]; then
+                cache_dir="$HOME/.cache/pnpm"
+              else
+                printf 'ok=false\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              ;;
+          esac
+          case "$cache_dir" in
+            *$'\n'*|*$'\r'*)
+              printf 'ok=false\n' >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            \~/*) cache_dir="$HOME/${cache_dir#\~/}" ;;
+            /*) ;;
+            *) cache_dir="$PWD/$cache_dir" ;;
+          esac
+          printf 'ok=true\npath=%s\n' "$cache_dir" >> "$GITHUB_OUTPUT"
+      - name: Restore the pnpm cacheDir
+        if: steps.pnpm-cache-dir.outputs.ok == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.pnpm-cache-dir.outputs.path }}
+          key: pnpm-cache-dir-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-cache-dir-v1-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install JS deps (so lefthook.local.yml pnpm hooks resolve workspace packages)
         # pnpm/action-setup@v4 installs the pnpm binary but does NOT populate
         # node_modules. Consumer lefthook.local.yml hooks like `pnpm exec sherif`
