@@ -15,7 +15,7 @@ jobs:
   readiness:
     permissions:
       contents: read
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       version: ${{ steps.observe.outputs.version }}

@@ -20,8 +20,8 @@ name: lint-hooks
 # for public consumers and a missing route key.
 #
 # Everything else takes the Linux route, whose tier is the consumer's DECLARED
-# `lint_hooks_workload_class` (standards ADR-0022): `heavy` for memory-heavy
-# work, `light` by default.
+# `lint_hooks_workload_class` (standards ADR-0030): `medium` for memory-heavy
+# work, `small` by default. Legacy answers remain valid during rollout.
 # A capability-routed repo's declared class is ignored: a resource tier cannot
 # satisfy a runtime or platform requirement it does not provide.
 #
@@ -51,7 +51,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
@@ -68,11 +68,11 @@ jobs:
         env:
           RUBY_RUNNER: '["ubuntu-24.04"]'
           MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-15"]')) }}
-          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
+          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
           # Heavy work must not degrade to the undersized light route.
           # Public consumers cannot read private org variables; hosted
           # ubuntu-latest provides the required memory when RUNNERS is absent.
-          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
+          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').medium || fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
         shell: bash
         run: |
           # Only an explicit true enables the facet, so transitional answers
@@ -122,10 +122,10 @@ jobs:
           # a measured declaration.
           #
           # Anchored, quote-tolerant, case-insensitive: only a declared
-          # `heavy` answer selects the heavy route. Absent answers default to
-          # light. Capability routes above still take precedence.
+          # medium/heavy/glue-heavy answers select the larger route. Absent
+          # answers use small/light. Capability routes above take precedence.
           elif grep -qiE \
-            "^lint_hooks_workload_class:[[:space:]]*[\"']?heavy[\"']?[[:space:]]*\$" \
+            "^lint_hooks_workload_class:[[:space:]]*[\"']?(medium|heavy|glue-heavy)[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
             runner="$HEAVY_RUNNER"
           else

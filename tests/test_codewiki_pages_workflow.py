@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/codewiki-pages.yml"
 TEXT = WORKFLOW.read_text(encoding="utf-8")
-LIGHT_ROUTE = "${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('[\"ubuntu-slim\"]') }}"
+LIGHT_ROUTE = "${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('[\"ubuntu-slim\"]') }}"
 
 
 def job_block(job: str) -> str:

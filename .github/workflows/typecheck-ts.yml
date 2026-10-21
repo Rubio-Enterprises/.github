@@ -69,7 +69,7 @@ jobs:
     # typecheck job cannot read the answers file to choose its own runner.
     # Named `route`, not `detect`, because the typecheck job below already has a
     # `detect` STEP that resolves the mise task.
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
@@ -82,17 +82,16 @@ jobs:
       - name: Pick the runner from the declared Workload Class
         id: pick
         env:
-          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
+          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
           # A heavy declaration cannot degrade onto the undersized light
           # route. Public consumers use hosted ubuntu-latest when RUNNERS is
           # unavailable, satisfying the measured memory floor.
-          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
+          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').medium || fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
         shell: bash
         run: |
-          # Anchored and quote-tolerant: only a declared `heavy` answer
-          # selects the heavy route. Absent answers default to light.
+          # Legacy heavy/glue-heavy answers retain their size during rollout
           if grep -qiE \
-            "^typecheck_workload_class:[[:space:]]*[\"']?heavy[\"']?[[:space:]]*\$" \
+            "^typecheck_workload_class:[[:space:]]*[\"']?(medium|heavy|glue-heavy)[\"']?[[:space:]]*\$" \
             .copier-answers.yml 2>/dev/null; then
             runner="$HEAVY_RUNNER"
           else
