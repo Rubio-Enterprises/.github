@@ -225,8 +225,8 @@ reread contract in the runbook.
   | `heavy` | `linux-x64` | `ubuntu-latest` | multi-GiB work without Docker |
   | `docker` | `linux-x64` | `ubuntu-latest` | x64 Docker/Compose/builds |
   | `kvm` | `linux-x64` | `ubuntu-latest` | nested x86 virtualization |
-  | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VM workloads and Playwright suites |
-  | `e2e` (legacy) | `linux-arm64` | `ubuntu-latest` | Pending retirement; use `arm` |
+  | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
+  | `e2e` (legacy) | `linux-arm64` | `ubuntu-latest` | Retiring; use `arm` |
   | `vrt` | `linux-x64` | `linux-x64` (self-only) | pinned visual rendering |
   | `macos` | `macos-tart` | `macos-15` | Xcode and signing |
 
