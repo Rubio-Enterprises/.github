@@ -284,17 +284,19 @@ jobs:
       # GO_PRIVATE_MODULE_REPOS (comma-separated, e.g. "scaleset").
       # golangci-lint's typecheck loads the full package graph, so `go` must
       # be able to fetch those modules; GITHUB_TOKEN is repo-scoped and can't.
-      # Mint a short-lived read-only token via the org standards-audit App
-      # (installation covers all repos) — the same pattern standards-gates.yml uses for
-      # the private standards checkout. Both steps are no-ops when the
-      # variable is unset.
+      # Mint a short-lived read-only token via the org private-modules-reader
+      # App, which is installed only on the private module repos and whose
+      # secrets are visible only to their consumers. Never the standards-reader
+      # App: every PR job can reach its key, so it stays installed on standards
+      # + knowledgebase-framework only (.github-private ADR 0003). Both steps
+      # are no-ops when the variable is unset.
       - name: Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)
         if: vars.GO_PRIVATE_MODULE_REPOS != ''
         id: go-private-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
-          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.PRIVATE_MODULES_READER_APP_ID }}
+          private-key: ${{ secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ vars.GO_PRIVATE_MODULE_REPOS }}
           permission-contents: read

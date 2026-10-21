@@ -292,3 +292,36 @@ class KnowledgebaseRemoteTests(unittest.TestCase):
             WORKFLOW_TEXT.index("- name: Mint knowledgebase-framework read token"),
             WORKFLOW_TEXT.index(f"- name: {ALL_FILES_STEP}"),
         )
+
+
+class PrivateGoModuleTokenTests(unittest.TestCase):
+    """Go-module reads use the private-modules App, never the standards reader.
+
+    Every PR job can reach the standards-reader key, so its installation stays
+    standards + knowledgebase-framework (.github-private ADR 0003); a Go-module
+    mint from it would fail once the installation no longer covers the module.
+    """
+
+    def mint(self) -> str:
+        return WORKFLOW_TEXT.split(
+            "- name: Mint private-Go-module token", 1
+        )[1].split("- name:", 1)[0]
+
+    def test_go_module_mint_uses_the_private_modules_app(self) -> None:
+        mint = self.mint()
+        self.assertIn("app-id: ${{ secrets.PRIVATE_MODULES_READER_APP_ID }}", mint)
+        self.assertIn(
+            "private-key: ${{ secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY }}", mint
+        )
+        self.assertNotIn("STANDARDS_READER", mint)
+        self.assertIn("repositories: ${{ vars.GO_PRIVATE_MODULE_REPOS }}", mint)
+        self.assertIn("permission-contents: read", mint)
+
+    def test_standards_reader_mints_only_the_two_framework_repos(self) -> None:
+        steps = WORKFLOW_TEXT.split("- name: ")[1:]
+        scopes = sorted(
+            step.split("repositories:", 1)[1].split("\n", 1)[0].strip()
+            for step in steps
+            if "secrets.STANDARDS_READER_APP_ID" in step
+        )
+        self.assertEqual(scopes, ["knowledgebase-framework", "standards"])
