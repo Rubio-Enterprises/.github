@@ -16,7 +16,7 @@ name: lint-hooks
 # swiftlint need sourcekitd and `brew style` needs Homebrew, none of which the
 # Linux glue runner has — there they die with `swiftformat_linux: not found` /
 # `Loading libsourcekitdInProc.so failed`. Run these lint passes through
-# RUNNERS.macos to avoid hosted macOS cost; macos-15 is only the fallback
+# RUNNERS.macos to avoid hosted macOS cost; macos-26 is only the fallback
 # for public consumers and a missing route key.
 #
 # Everything else takes the Linux route, whose tier is the consumer's DECLARED
@@ -67,7 +67,7 @@ jobs:
         id: pick
         env:
           RUBY_RUNNER: '["ubuntu-24.04"]'
-          MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-15"]')) }}
+          MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]')) }}
           LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
           # Heavy work must not degrade to the undersized light route.
           # Public consumers cannot read private org variables; hosted

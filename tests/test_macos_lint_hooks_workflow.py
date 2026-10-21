@@ -22,7 +22,7 @@ class MacOSRoutingTests(unittest.TestCase):
     def test_route_uses_org_map_with_hosted_fallback(self) -> None:
         self.assertIn(
             "MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos "
-            "|| fromJSON('[\"macos-15\"]')) }}",
+            "|| fromJSON('[\"macos-26\"]')) }}",
             LINT_TEXT,
         )
         self.assertNotIn("macos-15-intel", LINT_TEXT)
