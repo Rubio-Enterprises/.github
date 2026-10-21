@@ -1,12 +1,10 @@
 {
-	"expected_current_sha": "8b9f6c5c8be5ed4b1b0842e3a361405c51cededb",
-	"target_sha": "e7e1b7fab14c16884951ae832e6024aa3144c2cb",
-	"reason": "Publish .github#400 for .github-private#433 (ADR 0003): lint-hooks mints private Go module tokens from the private-modules-reader App instead of the standards-reader App, so the standards-reader installation can be narrowed to standards and knowledgebase-framework. Only lint-hooks.yml changes in the Gate Family (+8/-6: two secret names and a comment); the MISE_VERSION pin is unchanged. Candidate Validation: a repo-local copy of lint-hooks.yml at 1de2bac (identical apart from one prepended yamllint-disable line) ran on gha-outrunner#278, the only GO_PRIVATE_MODULE_REPOS consumer, minted from PRIVATE_MODULES_READER_APP_* scoped to scaleset, and fork-mode golangci-lint typechecked a scaleset importer with 0 issues. Verify gha-outrunner lint-hooks on a fresh PR after publication.",
+	"expected_current_sha": "e7e1b7fab14c16884951ae832e6024aa3144c2cb",
+	"target_sha": "1fbb52dcc79e73e6798dae3e50f48f2202a92343",
+	"reason": "Publish merged .github#402 and #403 before standards#713 migrates workload answers. Size routes chain small/light and medium/heavy; lint-hooks and typecheck accept medium, heavy and glue-heavy without changing capability precedence. The candidate also includes the ARM e2e replacement. Proportional Candidate Validation at exact target 1fbb52dcc79e73e6798dae3e50f48f2202a92343: actionlint passes and all 173 unit tests pass, including executed routing-shell cases and old-only, dual, new-only and absent-map contracts. The Gate Family diff is limited to compatible route expressions and workload-answer matching; triggers, permissions, action pins and MISE_VERSION are unchanged. No temporary evaluate ruleset was created. Phase B explicitly authorizes this request-only publication; the existing publisher owns CAS and remote readback.",
 	"references": [
-		"https://github.com/Rubio-Enterprises/.github/pull/400",
-		"https://github.com/Rubio-Enterprises/.github/pull/400#issuecomment-6320168691",
-		"https://github.com/Rubio-Enterprises/gha-outrunner/pull/278",
-		"https://github.com/Rubio-Enterprises/gha-outrunner/actions/runs/39628318654",
-		"https://github.com/Rubio-Enterprises/.github-private/issues/433"
+		"https://github.com/Rubio-Enterprises/.github/pull/402",
+		"https://github.com/Rubio-Enterprises/.github/pull/403",
+		"https://github.com/Rubio-Enterprises/standards/pull/713"
 	]
 }
