@@ -1,19 +1,12 @@
 {
-	"expected_current_sha": "df5c9df2b2b326ed8378038c240afdb196348940",
-	"target_sha": "8b9f6c5c8be5ed4b1b0842e3a361405c51cededb",
-	"reason": "Publish the reviewed Gate Family union of .github#398 (pnpm cacheDir), #397 (hook MISE_GITHUB_TOKEN), and 0a0ae77 (Danger issues:read), for x64 CI capacity plan step 1.5 agreed 2026-10-20. The evaluate-only Karakeep trial from .github-private#454 passed candidate standards, lint and typecheck checks. Paired installs measured 24.25s cold versus 6.89s warm; warm lint installed in 36.4s versus the 53.8s baseline. Metadata cache saves and exact-key hits, hook token forwarding and Danger issue access were verified. Trial removal #462 applied successfully before the immutable candidate tag was retired. Keep .github-private#273 open for workspace-install opt-out.",
+	"expected_current_sha": "8b9f6c5c8be5ed4b1b0842e3a361405c51cededb",
+	"target_sha": "e7e1b7fab14c16884951ae832e6024aa3144c2cb",
+	"reason": "Publish .github#400 for .github-private#433 (ADR 0003): lint-hooks mints private Go module tokens from the private-modules-reader App instead of the standards-reader App, so the standards-reader installation can be narrowed to standards and knowledgebase-framework. Only lint-hooks.yml changes in the Gate Family (+8/-6: two secret names and a comment); the MISE_VERSION pin is unchanged. Candidate Validation: a repo-local copy of lint-hooks.yml at 1de2bac (identical apart from one prepended yamllint-disable line) ran on gha-outrunner#278, the only GO_PRIVATE_MODULE_REPOS consumer, minted from PRIVATE_MODULES_READER_APP_* scoped to scaleset, and fork-mode golangci-lint typechecked a scaleset importer with 0 issues. Verify gha-outrunner lint-hooks on a fresh PR after publication.",
 	"references": [
-		"https://github.com/Rubio-Enterprises/.github/pull/398",
-		"https://github.com/Rubio-Enterprises/.github/pull/397",
-		"https://github.com/Rubio-Enterprises/.github/commit/0a0ae77",
-		"https://github.com/Rubio-Enterprises/.github-private/pull/454",
-		"https://github.com/Rubio-Enterprises/.github-private/actions/runs/39439296689",
-		"https://github.com/Rubio-Enterprises/karakeep/pull/544#issuecomment-6294463750",
-		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39444683529",
-		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39446104966",
-		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39440592582/attempts/2",
-		"https://github.com/Rubio-Enterprises/karakeep/actions/runs/39443168679",
-		"https://github.com/Rubio-Enterprises/.github-private/pull/462",
-		"https://github.com/Rubio-Enterprises/.github-private/actions/runs/39448359940"
+		"https://github.com/Rubio-Enterprises/.github/pull/400",
+		"https://github.com/Rubio-Enterprises/.github/pull/400#issuecomment-6320168691",
+		"https://github.com/Rubio-Enterprises/gha-outrunner/pull/278",
+		"https://github.com/Rubio-Enterprises/gha-outrunner/actions/runs/39628318654",
+		"https://github.com/Rubio-Enterprises/.github-private/issues/433"
 	]
 }
