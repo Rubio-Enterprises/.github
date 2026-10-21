@@ -109,7 +109,7 @@ jobs:
         secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY != '' }}
     steps:
       - name: Check out the consumer repo
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # This job executes the checked-out consumer's own shell scripts
           # (`bash "$SHIM"`), so the checkout token must not persist where
@@ -174,7 +174,7 @@ jobs:
         if: >-
           steps.probe.outputs.runnable == 'true' &&
           steps.probe.outputs.has_ruby == 'true'
-        uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
         with:
           bundler-cache: true
 
@@ -187,7 +187,7 @@ jobs:
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.15"
+          version: "0.13.1"
 
       # Fingerprint the uv-resolved python into the mise cache key (standards#331):
       # a uv default-python bump otherwise hands back pipx venvs whose shebang
@@ -233,7 +233,7 @@ jobs:
           echo "mise action version: $version"
       - name: Install the consumer's pinned toolchain
         if: steps.probe.outputs.runnable == 'true'
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         env:
           MISE_GITHUB_TOKEN: ${{ github.token }}
         with:
@@ -245,7 +245,7 @@ jobs:
         if: >-
           steps.probe.outputs.runnable == 'true' &&
           env.HAS_PRIVATE_MODULES_APP == 'true'
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           app-id: ${{ secrets.PRIVATE_MODULES_READER_APP_ID }}
           private-key: ${{ secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY }}

@@ -214,7 +214,7 @@ jobs:
       # intentionally absent from rendered mise because glue cannot ruby-build.
       - name: Install Ruby and locked bundle
         if: needs.detect.outputs.has_ruby == 'true'
-        uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
         with:
           bundler-cache: true
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
@@ -222,10 +222,10 @@ jobs:
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
       # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
       - name: Install uv (routes mise pipx installs through uvx)
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          version: "0.13.1"
       # Fingerprint the uv-resolved python into the mise cache key (standards#331).
       # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
       # at the uv-MANAGED python under ~/.local/share/uv/python — OUTSIDE the
@@ -293,7 +293,7 @@ jobs:
       - name: Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)
         if: vars.GO_PRIVATE_MODULE_REPOS != ''
         id: go-private-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           app-id: ${{ secrets.PRIVATE_MODULES_READER_APP_ID }}
           private-key: ${{ secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY }}
@@ -328,7 +328,7 @@ jobs:
       # simply inert (nothing fetches the URL).
       - name: Mint standards read token (lefthook remotes fetch)
         id: standards-remote-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
@@ -364,7 +364,7 @@ jobs:
       - name: Mint knowledgebase-framework read token (lefthook remotes fetch)
         if: steps.knowledgebase-remote.outputs.present == 'true'
         id: knowledgebase-remote-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
