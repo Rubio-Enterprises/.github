@@ -1,5 +1,25 @@
 # Changelog
 
+## [4.6.0](https://github.com/Rubio-Enterprises/.github/compare/v4.5.0...v4.6.0) (2026-10-21)
+
+
+### Features
+
+* **ci:** bridge size routes and legacy workload answers ([#402](https://github.com/Rubio-Enterprises/.github/issues/402)) ([dd352d1](https://github.com/Rubio-Enterprises/.github/commit/dd352d167ebd23b21111be9486dfff2ee67e0024))
+
+
+### Bug Fixes
+
+* **ci:** allow Danger to read PR issue metadata ([0a0ae77](https://github.com/Rubio-Enterprises/.github/commit/0a0ae77fbc247e739b8e07ba2b0d8b1c874e5f47))
+* **ci:** remove independent renovate update blockers ([#397](https://github.com/Rubio-Enterprises/.github/issues/397)) ([b839e6f](https://github.com/Rubio-Enterprises/.github/commit/b839e6f3fa20efc3d4e33feadb435b7b61199aa5))
+* **lint-hooks:** mint private go modules from the private-modules app ([#400](https://github.com/Rubio-Enterprises/.github/issues/400)) ([e7e1b7f](https://github.com/Rubio-Enterprises/.github/commit/e7e1b7fab14c16884951ae832e6024aa3144c2cb))
+* **renovate:** rebase only conflicted branches ([#396](https://github.com/Rubio-Enterprises/.github/issues/396)) ([268643a](https://github.com/Rubio-Enterprises/.github/commit/268643ab26a77996fa9394a903c0b02a36e55552))
+
+
+### Performance Improvements
+
+* **ci:** cache pnpm metadata in injected gates ([#398](https://github.com/Rubio-Enterprises/.github/issues/398)) ([8b9f6c5](https://github.com/Rubio-Enterprises/.github/commit/8b9f6c5c8be5ed4b1b0842e3a361405c51cededb))
+
 ## [4.5.0](https://github.com/Rubio-Enterprises/.github/compare/v4.4.1...v4.5.0) (2026-10-15)
 
 
