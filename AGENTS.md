@@ -256,8 +256,11 @@ reread contract in the runbook.
   separate-variable aliasing guards are unnecessary with one JSON route map.
 - **Private Go modules in `lint-hooks`.** A consumer that needs private Go module
   forks sets `GO_PRIVATE_MODULE_REPOS` to their comma-separated repository names.
-  The reusable reads that caller-side variable and mints a read-only App token;
-  the steps are inert when it is unset.
+  The reusable reads that caller-side variable and mints a read-only token from
+  the private-modules-reader App (`PRIVATE_MODULES_READER_APP_*`, visible only to
+  the repos that need it); the steps are inert when it is unset. Never mint
+  these reads from the standards-reader App: its installation stays
+  `standards` + `knowledgebase-framework` (`.github-private` ADR 0003).
 - **Fork hook checks are fail-closed.** `lint-hooks` checks only PR-changed files
   in forks and all files in non-forks. Both paths fail on a hook error or a
   tracked formatter rewrite. The consumer's SHA pin must advance to deliver
