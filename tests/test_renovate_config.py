@@ -413,7 +413,6 @@ class RenovateConfigContractTests(unittest.TestCase):
             "Rubio-Enterprises/standards",
             "Rubio-Enterprises/.github",
             "Rubio-Enterprises/.github-private",
-            "Rubio-Enterprises/agent-workspaces",
         ):
             with self.subTest(repository=repository):
                 resolved = _resolve_dependency({**dependency, "repository": repository})
@@ -1179,63 +1178,32 @@ class RenovateConfigContractTests(unittest.TestCase):
         # regex so the pattern tracks upstream.
         self.assertIn("customManagers:dockerfileVersions", CONFIG["extends"])
 
-    def test_deb_datasource_carries_a_registry_or_it_resolves_nothing(self) -> None:
-        # Renovate's deb datasource has no default registry: a `datasource=deb`
-        # marker with no registryUrl looks up null and the pin silently never
-        # advances. The suite must track the consumer's Debian base image.
-        rule = next(
-            rule
-            for rule in CONFIG["packageRules"]
-            if rule.get("matchDatasources") == ["deb"]
-        )
-        self.assertEqual(rule["matchPackageNames"], ["tailscale"])
-        self.assertEqual(
-            rule["registryUrls"],
-            [
-                "https://pkgs.tailscale.com/stable/debian"
-                "?suite=trixie&components=main&binaryArch=amd64"
-            ],
-        )
-        self.assertNotIn("automerge", rule)
-        # A trixie-specific registry must never be inherited on package identity
-        # alone — a `deb`/`tailscale` dep reached by any other manager keeps
-        # Renovate's default of no registry rather than the wrong suite.
-        self.assertEqual(rule["matchManagers"], ["custom.regex"])
-        self.assertTrue(_selects_file(rule, "image/Dockerfile"))
-        self.assertFalse(_selects_file(rule, "infrastructure/cluster/apps.yaml"))
-
-    def test_scoped_rules_cannot_match_on_package_identity_alone(self) -> None:
-        # Both rules configure image-specific behavior, so both must be pinned to
+    def test_claude_code_rule_cannot_match_on_package_identity_alone(self) -> None:
+        # The rule configures image-specific behavior, so it must be pinned to
         # the custom.regex manager AND to Dockerfile-shaped files.
-        deb_rule = next(
-            rule
-            for rule in CONFIG["packageRules"]
-            if rule.get("matchDatasources") == ["deb"]
+        rule = next(
+            candidate
+            for candidate in CONFIG["packageRules"]
+            if candidate.get("matchPackageNames") == [CLAUDE_CODE_DEP]
         )
-        claude_rule = next(
-            rule
-            for rule in CONFIG["packageRules"]
-            if rule.get("matchPackageNames") == [CLAUDE_CODE_DEP]
-        )
-        for rule in (deb_rule, claude_rule):
-            self.assertEqual(rule["matchManagers"], ["custom.regex"])
-            # Positive: Dockerfile-shaped files at any depth, root included.
-            for path in (
-                "image/Dockerfile",
-                "Dockerfile",
-                "a/b/c/Dockerfile",
-                "Dockerfile.ci",
-                "build.Dockerfile",
-            ):
-                self.assertTrue(_selects_file(rule, path), path)
-            # Negative: an ordinary npm dependency of the same name, or any
-            # non-Dockerfile file, must fall outside the rule.
-            for path in ("package.json", "app/package.json", "pyproject.toml"):
-                self.assertFalse(_selects_file(rule, path), path)
-            # The manager selector is the second, independent guard: even a
-            # Dockerfile reached by a built-in manager must not inherit these.
-            self.assertNotIn("npm", rule["matchManagers"])
-            self.assertNotIn("dockerfile", rule["matchManagers"])
+        self.assertEqual(rule["matchManagers"], ["custom.regex"])
+        # Positive: Dockerfile-shaped files at any depth, root included.
+        for path in (
+            "image/Dockerfile",
+            "Dockerfile",
+            "a/b/c/Dockerfile",
+            "Dockerfile.ci",
+            "build.Dockerfile",
+        ):
+            self.assertTrue(_selects_file(rule, path), path)
+        # Negative: an ordinary npm dependency of the same name, or any
+        # non-Dockerfile file, must fall outside the rule.
+        for path in ("package.json", "app/package.json", "pyproject.toml"):
+            self.assertFalse(_selects_file(rule, path), path)
+        # The manager selector is the second, independent guard: even a
+        # Dockerfile reached by a built-in manager must not inherit it.
+        self.assertNotIn("npm", rule["matchManagers"])
+        self.assertNotIn("dockerfile", rule["matchManagers"])
 
     def test_claude_code_manager_reads_the_run_line_not_an_assignment(self) -> None:
         managers = [
