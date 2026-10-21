@@ -332,11 +332,10 @@ reread contract in the runbook.
   - **The `deb` datasource has no default registry.** A `datasource=deb` marker carrying no
     `registryUrl` looks up `null` and the pin silently never advances — verified against renovate
     43.288.0, the major `renovatebot/github-action@v46.1.14` defaults to and therefore what
-    `.github-private`'s runner executes. A `matchDatasources: ["deb"]` rule supplies Tailscale's
-    apt repo. Its `suite=` is **coupled to the consumer's Debian base image**; a consumer on a
-    different suite would be offered versions its own apt repo does not serve and needs a
-    path-scoped override. The durable fix is a `registryUrl=` field on the consumer's own
-    `# renovate:` comment line, which keeps the suite beside the `FROM` that determines it.
+    `.github-private`'s runner executes. The preset supplies no `deb` registry: a registry's
+    `suite=` is **coupled to the consumer's Debian base image**, so a consumer that adds a `deb`
+    marker puts a `registryUrl=` field on its own `# renovate:` comment line, which keeps the
+    suite beside the `FROM` that determines it.
   - **The stable-version guard is `!/^v?0/`, not `!/^0/`.** Renovate evaluates
     `matchCurrentVersion` against the raw `currentValue`, so the shorter predicate classifies
     `v0.5.5` as stable. The standing safe rule and every stable npm, Cargo, and pin group use
