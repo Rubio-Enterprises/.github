@@ -82,8 +82,10 @@ route has its own hosted fallback for public callers:
 | `vrt` | `linux-x64` | self-only `linux-x64` |
 | `macos` | `macos-tart` | `macos-15` |
 
-The `e2e.yml` call site retains its previous `ubuntu-24.04` fallback when the
-private map is unavailable; the table lists the org-wide hosted route value.
+The `e2e.yml` reusable uses `arm`, including the `ubuntu-24.04-arm` fallback
+when the private map is unavailable. The legacy `e2e` key remains in the live
+map only during retirement; new workflows should use `arm` instead
+([standards ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md)).
 
 The shared Renovate preset in `default.json` schedules ordinary updates on
 weekends in `America/Chicago`; vulnerability alerts remain immediate. Existing

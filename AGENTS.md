@@ -225,14 +225,15 @@ reread contract in the runbook.
   | `heavy` | `linux-x64` | `ubuntu-latest` | multi-GiB work without Docker |
   | `docker` | `linux-x64` | `ubuntu-latest` | x64 Docker/Compose/builds |
   | `kvm` | `linux-x64` | `ubuntu-latest` | nested x86 virtualization |
-  | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds and VM workloads |
-  | `e2e` | `linux-arm64` | `ubuntu-latest` | multi-GiB Playwright suites |
+  | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
+  | `e2e` (legacy) | `linux-arm64` | `ubuntu-latest` | Retiring; use `arm` |
   | `vrt` | `linux-x64` | `linux-x64` (self-only) | pinned visual rendering |
   | `macos` | `macos-tart` | `macos-15` | Xcode and signing |
 
-  This repo's `e2e.yml` uses the `e2e` route but retains its existing
-  `ubuntu-24.04` call-site fallback; the table describes the org-wide hosted
-  route value. `bump-brew` uses `arm` and its Ruby preflight can install
+  This repo's `e2e.yml` uses `arm` with the `ubuntu-24.04-arm` fallback,
+  keeping self-hosted and hosted execution on ARM64 per standards
+  [ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md).
+  `bump-brew` uses `arm` and its Ruby preflight can install
   through passwordless sudo on Tart Ubuntu. `lint-hooks` keeps
   Swift/Homebrew lint on `RUNNERS.macos` with the `macos-15` hosted fallback,
   Ruby-only lint on hosted x64 `ubuntu-24.04`, and other lint on its declared tier.

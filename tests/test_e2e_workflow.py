@@ -49,6 +49,18 @@ def run_detector(*, tasks: list[str], package: dict | None = None) -> tuple[int,
         return result.returncode, output.read_text(encoding="utf-8") if output.exists() else ""
 
 
+class E2ERouteTests(unittest.TestCase):
+    def test_arm_route_has_matching_hosted_fallback(self) -> None:
+        routes = [
+            line.strip() for line in WORKFLOW.read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith("runs-on:")
+        ]
+        self.assertEqual(routes, [
+            "runs-on: ${{ fromJSON(vars.RUNNERS || '{}').arm "
+            "|| fromJSON('[\"ubuntu-24.04-arm\"]') }}",
+        ])
+
+
 class E2EDetectorTests(unittest.TestCase):
     def test_nested_repo_with_real_mise_task_needs_no_apex_package(self) -> None:
         code, output = run_detector(tasks=["e2e"])
