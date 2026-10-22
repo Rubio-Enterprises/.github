@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unittest
-from fnmatch import fnmatch
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -35,49 +34,11 @@ description = "A following table that no match may consume"
 version = "1.0.0"
 """
 
-DOCKERFILE_FIXTURE = """\
-FROM node:22-trixie-slim@sha256:db8a96a
-# renovate: datasource=deb depName=tailscale packageName=tailscale versioning=deb
-ARG TAILSCALE_VERSION=1.102.2
-USER dev
-ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-# renovate: datasource=npm depName=@anthropic-ai/claude-code
-RUN npm install -g @anthropic-ai/claude-code@2.1.226 \\
-    && npm cache clean --force
-"""
-
-# An unannotated global install, and a ${VAR} indirection, must both stay unmatched.
-DOCKERFILE_DECOYS = """\
-RUN npm install -g @anthropic-ai/claude-code@9.9.9
-# renovate: datasource=npm depName=@anthropic-ai/claude-code
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-"""
-
 AGENT_SANDBOX_DEPS = [
     "kubernetes-sigs/agent-sandbox",
     "registry.k8s.io/agent-sandbox/agent-sandbox-controller",
 ]
 CLAUDE_CODE_DEP = "@anthropic-ai/claude-code"
-# Renovate ships flux scoped to the Flux distribution's own manifest, and
-# managerFilePatterns REPLACES that default rather than extending it.
-FLUX_DEFAULT_PATTERN = "/(?:^|/)gotk-components\\.ya?ml$/"
-
-
-def _selects_file(rule: dict[str, Any], path: str) -> bool:
-    """Mirror matchFileNames for the `**/<basename>` globs this preset uses.
-
-    Every glob here is anchored as `**/<basename-pattern>`, and minimatch's `**/`
-    matches zero or more leading segments — so the decision reduces exactly to a
-    basename match at any depth, root included. Renovate's own engine is the
-    authority; this keeps the contract honest without reimplementing minimatch.
-    """
-    basenames = []
-    for glob in rule["matchFileNames"]:
-        assert glob.startswith("**/"), f"unexpected glob shape: {glob}"
-        basenames.append(glob.removeprefix("**/"))
-    return any(fnmatch(PurePosixPath(path).name, pattern) for pattern in basenames)
-
-
 def _python_regex(pattern: str) -> re.Pattern[str]:
     """Compile a Renovate RE2 pattern with Python's named-group spelling."""
     return re.compile(pattern.replace("(?<", "(?P<"))
@@ -1002,7 +963,6 @@ class RenovateConfigContractTests(unittest.TestCase):
             "pre-1.0 cargo dependencies",
             "pre-1.0 dependency pins",
             "testflight release workflow",
-            "agent-sandbox",
             "mise-cli",
             "uv-cli",
         }
@@ -1178,106 +1138,25 @@ class RenovateConfigContractTests(unittest.TestCase):
         # regex so the pattern tracks upstream.
         self.assertIn("customManagers:dockerfileVersions", CONFIG["extends"])
 
-    def test_claude_code_rule_cannot_match_on_package_identity_alone(self) -> None:
-        # The rule configures image-specific behavior, so it must be pinned to
-        # the custom.regex manager AND to Dockerfile-shaped files.
-        rule = next(
-            candidate
-            for candidate in CONFIG["packageRules"]
-            if candidate.get("matchPackageNames") == [CLAUDE_CODE_DEP]
-        )
-        self.assertEqual(rule["matchManagers"], ["custom.regex"])
-        # Positive: Dockerfile-shaped files at any depth, root included.
-        for path in (
-            "image/Dockerfile",
-            "Dockerfile",
-            "a/b/c/Dockerfile",
-            "Dockerfile.ci",
-            "build.Dockerfile",
-        ):
-            self.assertTrue(_selects_file(rule, path), path)
-        # Negative: an ordinary npm dependency of the same name, or any
-        # non-Dockerfile file, must fall outside the rule.
-        for path in ("package.json", "app/package.json", "pyproject.toml"):
-            self.assertFalse(_selects_file(rule, path), path)
-        # The manager selector is the second, independent guard: even a
-        # Dockerfile reached by a built-in manager must not inherit it.
-        self.assertNotIn("npm", rule["matchManagers"])
-        self.assertNotIn("dockerfile", rule["matchManagers"])
+    def test_flux_uses_upstream_file_patterns(self) -> None:
+        self.assertNotIn("flux", CONFIG)
 
-    def test_claude_code_manager_reads_the_run_line_not_an_assignment(self) -> None:
-        managers = [
-            manager
+    def test_retired_image_has_no_custom_claude_manager_or_rule(self) -> None:
+        self.assertFalse(any(
+            manager.get("depNameTemplate") == CLAUDE_CODE_DEP
             for manager in CONFIG["customManagers"]
-            if manager.get("depNameTemplate") == CLAUDE_CODE_DEP
-        ]
-        self.assertEqual(len(managers), 1)
-        manager = managers[0]
-        self.assertEqual(manager["datasourceTemplate"], "npm")
-
-        regex = _python_regex(manager["matchStrings"][0])
-        self.assertEqual(
-            [m.group("currentValue") for m in regex.finditer(DOCKERFILE_FIXTURE)],
-            ["2.1.226"],
-        )
-        # An unannotated global install must not be claimed, and a ${VAR} form
-        # belongs to the dockerfileVersions preset's ARG match, not to this one.
-        self.assertEqual(list(regex.finditer(DOCKERFILE_DECOYS)), [])
-
-    def test_claude_code_follows_the_stable_dist_tag(self) -> None:
-        # followTag skips Renovate's normal major/minor/patch logic and the
-        # stability-days check, so matchUpdateTypes cannot gate this dep and
-        # automerge is all-or-nothing. It is ON: `stable` is the vendor's soak.
-        rule = next(
-            rule
+        ))
+        self.assertFalse(any(
+            CLAUDE_CODE_DEP in rule.get("matchPackageNames", [])
             for rule in CONFIG["packageRules"]
-            if rule.get("matchPackageNames") == [CLAUDE_CODE_DEP]
-        )
-        self.assertEqual(rule["followTag"], "stable")
-        self.assertTrue(rule["automerge"])
-        self.assertEqual(rule["schedule"], ["before 6am on monday"])
-        self.assertEqual(rule["commitMessageTopic"], "Claude Code")
-        # These are image decisions, not opinions about the npm package, so a
-        # plain package.json dependency of the same name must not inherit them.
-        self.assertEqual(rule["matchManagers"], ["custom.regex"])
-        self.assertFalse(_selects_file(rule, "package.json"))
+        ))
 
-    def test_flux_widening_keeps_the_upstream_gotk_pattern(self) -> None:
-        # managerFilePatterns REPLACES the manager default rather than extending
-        # it, so dropping the gotk pattern would silently stop tracking the Flux
-        # distribution across every repo that has one.
-        patterns = CONFIG["flux"]["managerFilePatterns"]
-        self.assertIn(FLUX_DEFAULT_PATTERN, patterns)
-        self.assertIn("/(^|/)infrastructure/.+\\.ya?ml$/", patterns)
-
-    def test_agent_sandbox_git_ref_and_image_move_in_one_pr(self) -> None:
-        # A split bump briefly runs new CRDs against an old controller
-        # (kubernetes-sigs/agent-sandbox#844), so both deps share a branch.
-        rule = _rule_with_group("agent-sandbox")
-        self.assertEqual(rule["matchPackageNames"], AGENT_SANDBOX_DEPS)
-        # groupName alone still lets Renovate open a branch carrying just one of
-        # the two. minimumGroupSize holds branch creation until both have an
-        # update, so the CRDs can never land without the controller.
-        self.assertEqual(rule["minimumGroupSize"], len(AGENT_SANDBOX_DEPS))
-
-    def test_agent_sandbox_stays_explicitly_manual(self) -> None:
-        # The stable-version matcher now excludes plain and v-prefixed 0.x
-        # versions. Keep the later explicit override as defense in depth for
-        # this coupled, migration-sensitive dependency.
-        rules = CONFIG["packageRules"]
-        standing = next(
-            index
-            for index, rule in enumerate(rules)
-            if rule.get("description", "").startswith("Standing automerge")
-        )
-        sandbox = next(
-            index
-            for index, rule in enumerate(rules)
-            if rule.get("groupName") == "agent-sandbox"
-        )
-        self.assertGreater(sandbox, standing)
-        self.assertFalse(rules[sandbox]["automerge"])
-        self.assertFalse(rules[sandbox]["platformAutomerge"])
+    def test_agent_sandbox_has_no_package_specific_group(self) -> None:
+        self.assertFalse(any(
+            rule.get("groupName") == "agent-sandbox"
+            or set(rule.get("matchPackageNames", [])) & set(AGENT_SANDBOX_DEPS)
+            for rule in CONFIG["packageRules"]
+        ))
 
 
 class FirstPartyReleaseFastLaneTests(unittest.TestCase):
