@@ -12,12 +12,6 @@
         "repo": "anthropics/claude-plugins-official"
       }
     },
-    "claude-workflows": {
-      "source": {
-        "source": "github",
-        "repo": "Rubio-Enterprises/claude-workflows"
-      }
-    },
     "playwright-skills": {
       "source": {
         "source": "github",
@@ -44,7 +38,6 @@
     "bin-scripts@tools-skills": true,
     "claude-code-setup@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
-    "claude-workflows@claude-workflows": true,
     "code-modernization@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
     "cue-lsp@claude-lsps": true,
