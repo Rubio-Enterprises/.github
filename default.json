@@ -18,13 +18,6 @@
   "minimumReleaseAge": "7 days",
   "rebaseWhen": "conflicted",
   "labels": ["dependencies"],
-  "flux": {
-    "description": "Widen the flux manager past its gotk-only default. Renovate ships flux with managerFilePatterns of just `/(?:^|/)gotk-components\\.ya?ml$/`, which finds the Flux distribution itself and nothing a consumer writes — so a `GitRepository.spec.ref.tag` (github-tags) or a Flux `Kustomization.spec.images` entry (docker) in a repo's own manifests is invisible until the pattern is widened. Keep the upstream pattern in the list: managerFilePatterns REPLACES the default rather than extending it, so dropping it would stop tracking gotk-components across onboarded consumers. Widening to `infrastructure/**` is safe against false positives because Renovate's flux schema validates apiVersion prefixes (`kustomize.toolkit.fluxcd.io/`, `source.toolkit.fluxcd.io/`, `helm.toolkit.fluxcd.io/`): a plain kustomize `kustomization.yaml` is `kustomize.config.k8s.io/v1beta1` and is skipped, so ordinary Kubernetes YAML under infrastructure/ yields no deps.",
-    "managerFilePatterns": [
-      "/(?:^|/)gotk-components\\.ya?ml$/",
-      "/(^|/)infrastructure/.+\\.ya?ml$/"
-    ]
-  },
   "packageRules": [
     {
       "description": "Biome is owned only by the standards mise floor. Freeze npm manifest copies (including upstream fork pins) without disabling custom.regex floor/schema bumps in standards.",
@@ -295,28 +288,6 @@
       "minimumReleaseAge": "0 days"
     },
     {
-      "description": "Claude Code tracks the npm `stable` dist-tag rather than `latest`. followTag pins the package to whatever that tag points at (observed 2026-08-17: stable=2.1.226 while latest=2.1.234, i.e. `latest` runs several releases ahead of what Anthropic marks stable), which is the posture we want for an image thousands of agent hours run inside. Two consequences are deliberate. (1) Renovate's docs state that a followTag pin skips the normal major/minor/patch upgrade logic and the stability-days check, so matchUpdateTypes-based gating — including the standing automerge rule above and the global 7-day minimumReleaseAge — cannot be relied on to hold it back. Automerge is therefore all-or-nothing for this package, and we choose ON: the `stable` tag IS the vendor's own soak, so re-soaking it here would only mean running a knowingly older agent. (2) The weekly schedule collapses roughly three stable bumps into a single PR instead of opening one per release; combined with commitMessageTopic it keeps the image's update stream legible in the changelog. Scoped to the custom.regex manager and Dockerfile-shaped files: `@anthropic-ai/claude-code` is an ordinary npm package, so without these selectors any repo that took it as a normal package.json dependency would silently inherit the stable-tag pin, the weekly schedule and the automerge posture — all of which are image-specific decisions, not opinions about the package.",
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": ["**/Dockerfile", "**/Dockerfile.*", "**/*.Dockerfile"],
-      "matchPackageNames": ["@anthropic-ai/claude-code"],
-      "followTag": "stable",
-      "automerge": true,
-      "schedule": ["before 6am on monday"],
-      "commitMessageTopic": "Claude Code"
-    },
-    {
-      "description": "agent-sandbox is consumed as TWO deps that must move as ONE: the Flux GitRepository tag carries the CRDs and manifests (github-tags), and the Flux Kustomization spec.images entry pins the controller image (docker). Renovate would otherwise open a PR per dep, and a split bump briefly runs new CRDs against an old controller — the crash mode reported upstream as kubernetes-sigs/agent-sandbox#844 — so groupName forces one branch carrying both. Human-merge only: agent-sandbox is pre-1.0 and its CRDs are applied by Flux rather than Helm-upgraded, so a bump can carry a hand-driven v1beta1 -> v1 migration and the release notes have to be read first. The standing safe rule now excludes both plain and v-prefixed 0.x values with `!/^v?0/`; this later explicit override remains as defense in depth for the coupled migration-sensitive class. minimumGroupSize:2 holds the branch back until BOTH deps have an update, so a lone sibling can never open a singleton PR that lands the CRDs without the controller (verified wired at renovate 43.288.0: getMinimumGroupSize in updates/generate.js takes the max across a branch's upgrades, and update/branch/index.js returns `minimum-group-size-not-met` when upgrades.length is short — it skips only branch CREATION, so an existing branch is never retro-cancelled and a Dependency Dashboard tick still forces one through).",
-      "matchPackageNames": [
-        "kubernetes-sigs/agent-sandbox",
-        "registry.k8s.io/agent-sandbox/agent-sandbox-controller"
-      ],
-      "groupName": "agent-sandbox",
-      "minimumGroupSize": 2,
-      "groupSlug": "agent-sandbox",
-      "automerge": false,
-      "platformAutomerge": false
-    },
-    {
       "description": "mise CLI pin on each workflow's MISE_VERSION fallback environment entry. The action receives the observed runner version instead, avoiding self-update on warm runners. Renovate updates the approved cold fallback (human merge only), with image convergence and a warm-glue receipt required before gate publication.",
       "matchDepNames": ["jdx/mise"],
       "groupName": "mise-cli",
@@ -380,16 +351,6 @@
       "datasourceTemplate": "github-tags",
       "versioningTemplate": "loose",
       "autoReplaceStringTemplate": "{{{indentation}}}version = \"{{{newDigest}}}\"  # {{{newValue}}}"
-    },
-    {
-      "description": "Claude Code installed straight into a Dockerfile `RUN npm install -g` line, under the conventional `# renovate:` annotation. The `customManagers:dockerfileVersions` preset in extends only reads `ENV`/`ARG <NAME>_VERSION` assignments, so it cannot see a version embedded in the install command itself; agent-workspaces moved this install under `USER dev` with an NPM_CONFIG_PREFIX, dropping the ARG indirection, which is what makes this manager necessary. Anchoring on the annotation (rather than on `npm install -g` alone) keeps the manager inert on every unannotated global install across onboarded consumers, and requiring currentValue to start with a digit keeps it from capturing a `${VAR}` substitution if a consumer ever reintroduces one — in which case the ARG form is matched by the preset instead, so the two can never both claim the same line. The `stable` dist-tag posture for this dep is the packageRule above.",
-      "customType": "regex",
-      "fileMatch": ["(^|/)Dockerfile[^/]*$"],
-      "matchStrings": [
-        "# renovate: datasource=npm depName=@anthropic-ai/claude-code\\s+RUN\\s+npm install -g\\s+[\"']?@anthropic-ai/claude-code@(?<currentValue>[0-9][^\\s\"'\\\\]*)"
-      ],
-      "depNameTemplate": "@anthropic-ai/claude-code",
-      "datasourceTemplate": "npm"
     }
   ]
 }

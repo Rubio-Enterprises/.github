@@ -295,8 +295,8 @@ reread contract in the runbook.
   it runs `devcontainer upgrade --workspace-folder .` and commits only
   `.devcontainer/devcontainer-lock.json`, which Renovate's devcontainer manager cannot update.
   The command must match the anchored `allowedCommands` entry in `.github-private`'s
-  `renovate/config.js`, whose container provisions the Dev Container CLI. Four
-  `customManager`s remain. The first two track the
+  `renovate/config.js`, whose container provisions the Dev Container CLI. The first two
+  `customManager`s track the
   `# renovate: … jdx/mise` workflow `MISE_VERSION:` cold fallback and
   `# renovate: … astral-sh/uv` workflow `version:` marker, respectively.
   The mise tags are v-prefixed and need `extractVersionTemplate`; uv tags
@@ -305,29 +305,13 @@ reread contract in the runbook.
   repo, then replaces only that table's `version` line. A narrow package rule owns
   `pinDigests: true` (the field is not valid inside a custom manager), bootstrapping tag-only
   entries before update classification; the explicit replacement always writes
-  `version = "<sha>"  # <tag>`. The fourth reads a Claude Code version out of a Dockerfile
-  `RUN npm install -g @anthropic-ai/claude-code@…` line sitting under the conventional
-  `# renovate:` annotation.
+  `version = "<sha>"  # <tag>`.
 
   **Dockerfile `ARG`/`ENV` `…_VERSION` pins** ride the shipped `customManagers:dockerfileVersions`
   preset (in `extends`) rather than a hand-rolled regex, because the built-in `dockerfile` manager
-  reads only `FROM` lines. That preset matches an *assignment*, which is why a version embedded
-  directly in a `RUN` command needs the separate custom manager above; the two can never both
-  claim the same line.
+  reads only `FROM` lines.
 
-  **The `flux` manager is widened past its gotk-only default.** Renovate ships flux with
-  `managerFilePatterns` of just `/(?:^|/)gotk-components\.ya?ml$/` — the Flux distribution itself
-  and nothing a consumer writes. The preset adds `/(^|/)infrastructure/.+\.ya?ml$/` so a
-  `GitRepository.spec.ref.tag` (github-tags) and a Flux `Kustomization.spec.images` entry (docker)
-  are seen. **`managerFilePatterns` replaces the default rather than extending it**, so the
-  upstream gotk pattern is repeated in the list on purpose — dropping it would stop tracking
-  `gotk-components.yaml` across onboarded consumers. Widening is safe against false positives: Renovate's flux
-  schema validates apiVersion prefixes (`kustomize.toolkit.fluxcd.io/`, `source.toolkit.fluxcd.io/`,
-  `helm.toolkit.fluxcd.io/`), so a plain kustomize `kustomization.yaml`
-  (`kustomize.config.k8s.io/v1beta1`) and ordinary Kubernetes YAML under `infrastructure/` yield
-  no deps.
-
-  Four consumer-driven rules are worth knowing before editing this file:
+  The following consumer-driven rules are worth knowing before editing this file:
 
   - **The `deb` datasource has no default registry.** A `datasource=deb` marker carrying no
     `registryUrl` looks up `null` and the pin silently never advances — verified against renovate
@@ -339,23 +323,14 @@ reread contract in the runbook.
   - **The stable-version guard is `!/^v?0/`, not `!/^0/`.** Renovate evaluates
     `matchCurrentVersion` against the raw `currentValue`, so the shorter predicate classifies
     `v0.5.5` as stable. The standing safe rule and every stable npm, Cargo, and pin group use
-    `!/^v?0/`; their manual pre-1.0 counterparts use the complementary `/^v?0/`. Keep the
-    explicit `agent-sandbox` manual override as defense in depth: its GitRepository tag
-    (CRDs/manifests) and controller image must move in one reviewed PR because a split bump briefly
-    runs new CRDs against an old controller (kubernetes-sigs/agent-sandbox#844).
+    `!/^v?0/`; their manual pre-1.0 counterparts use the complementary `/^v?0/`.
   - **Stable and pre-1.0 grouping is deliberately disjoint.** npm and Cargo minor/patch updates,
     plus Renovate's general pin-update branch, have distinct current-version predicates, names,
     and slugs. Stable members inherit the standing safe automerge rule and seven-day soak; pre-1.0
     members are explicitly unarmed. The broad grouping rules apply only when no earlier rule has
     already assigned `groupName`, preserving `config:best-practices`' narrower monorepo groups.
-    Later local groups (GitHub Actions, tool runtime dependencies, first-party tool pins,
-    TestFlight, and agent-sandbox) set both name and slug so their safer coupled-update boundaries
-    remain authoritative.
-  - **`@anthropic-ai/claude-code` follows the npm `stable` dist-tag, not `latest`.** `followTag`
-    skips Renovate's normal major/minor/patch logic and the stability-days check, so
-    `matchUpdateTypes` gating cannot hold it back and automerge is all-or-nothing; it is ON
-    because the `stable` tag *is* the vendor's own soak. A weekly `schedule` collapses roughly
-    three stable bumps into one PR.
+    Later local groups (GitHub Actions, tool runtime dependencies, first-party tool pins and
+    TestFlight) set both name and slug so their safer coupled-update boundaries remain authoritative.
 
   The tool dependency policy is split deliberately. A semantic-only rule maps runtime updates to
   `rubio-cli-kit` or `typer` to `fix(deps)` so release-please cuts a tool release even when the
