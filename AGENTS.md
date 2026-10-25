@@ -74,6 +74,7 @@ consumer's rendered `standards.yml` (or a release workflow):
 
 | Workflow | What it does | Pin |
 | --- | --- | --- |
+| `devcontainer-image.yml` | Native amd64/arm64 Dev Container prebuilds, GHCR multi-arch publication and untagged pruning; read [`docs/reusable-workflows/devcontainer-image.md`](docs/reusable-workflows/devcontainer-image.md) before editing its publication or retention contract | — |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-time gitleaks scan runs in `standards-gates.yml` | — |
 | `e2e.yml` | Playwright harness; accepts apex `scripts.e2e` or repo-owned `mise run e2e` for nested roots, requires nonempty JUnit, and supports optional `scripts.e2e:setup` or mise setup. Does **not** start a dev server (see its header) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
