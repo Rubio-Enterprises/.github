@@ -289,7 +289,15 @@ class ShellTests(unittest.TestCase):
                 self.assertIn(field, template)
             for field in (".Match", ".Code", ".Content", ".Text"):
                 self.assertNotIn(field, template)
-            self.assertEqual((self.root / "trivy-secret.yaml").read_text(), "skip-patterns: []\n")
+            policy = (self.root / "trivy-secret.yaml").read_text()
+            paths = [line.strip()[2:] for line in policy.splitlines() if line.startswith("  - ")]
+            self.assertEqual(len(paths), 41)
+            for path in paths:
+                self.assertRegex(path, r"^mnt/devcontainer-cache/pnpm-store/v11/files/[0-9a-f]{2}/[0-9a-f]{126}$")
+            self.assertIn("exclude-block:", policy)
+            self.assertNotIn("disable-rules", policy)
+            self.assertNotIn("node_modules", policy)
+            self.assertNotIn(".venv", policy)
             self.assertNotIn("--skip-dirs", args)
             self.assertNotIn("--skip-files", args)
 
@@ -345,6 +353,75 @@ class ShellTests(unittest.TestCase):
         self.assertIn(f"{image}:sha-{sha}-amd64 {image}:sha-{sha}-arm64", calls[0])
         for arch, call in zip(("amd64", "arm64"), calls[1:3]):
             self.assertIn(f"--prefer-index=false --tag {image}:main-{arch} {image}:sha-{sha}-{arch}", call)
+
+
+@unittest.skipUnless(os.environ.get("TRIVY_TEST_BINARY"), "set TRIVY_TEST_BINARY to a verified Trivy 0.76.1 binary")
+class RealTrivyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.fixture = self.root / "image"
+        self.fixture.mkdir()
+        body = script("Scan the local image for secrets")
+        self.policy = body.split("<<'TRIVY'\n", 1)[1].split("\nTRIVY", 1)[0] + "\n"
+        self.config = self.root / "policy.yaml"
+        self.config.write_text(self.policy)
+        self.template = next(line[len("template='"):-1] for line in body.splitlines() if line.startswith("template='"))
+        self.token = "ghp_" + "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7cF0hJ3lM6"
+
+    def scan(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([
+            os.environ["TRIVY_TEST_BINARY"], "fs", "--scanners", "secret", "--exit-code", "1",
+            "--config", "", "--ignorefile", "", "--secret-config", str(self.config),
+            "--cache-dir", str(self.root / "cache"), "--disable-telemetry", "--skip-version-check",
+            "--format", "template", "--template", self.template, str(self.fixture),
+        ], capture_output=True, text=True, check=False)
+
+    def put(self, name: str, content: str) -> None:
+        path = self.fixture / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def test_source_and_dependency_credentials_fail_without_leaking(self) -> None:
+        names = ("app/credentials.env", "node_modules/pkg/credentials.env", ".venv/lib/pkg/credentials.env")
+        for name in names:
+            self.put(name, "TOKEN=" + self.token + "\n")
+        result = self.scan()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        for name in names:
+            self.assertIn(name, result.stdout)
+        self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    def test_only_exact_sdk_prose_is_excluded_not_other_credentials(self) -> None:
+        name = "root/.cache/uv/archive-v0/random/anthropic/resources/beta/agents/agents.py"
+        prose = '\n'.join((
+            'sending `{"type": "service_account"}` stores the default.',
+            'send null or `{"type": "service_account"}` to restore the default.',
+            'Always present; `{"type": "service_account"}` when runs carry no customer-named',
+        ))
+        self.put(name, prose)
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.put(name, prose + '\n{"type": "service_account"}\nTOKEN=' + self.token)
+        result = self.scan()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("gcp-service-account", result.stdout)
+        self.assertIn("github-pat", result.stdout)
+        self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    def test_only_listed_pnpm_object_paths_are_excluded(self) -> None:
+        paths = [line.strip()[2:] for line in self.policy.splitlines() if line.startswith("  - ")]
+        for path in paths:
+            self.put(path, "TOKEN=" + self.token)
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        neighbor = "mnt/devcontainer-cache/pnpm-store/v11/files/ff/" + "0" * 126
+        self.put(neighbor, "TOKEN=" + self.token)
+        result = self.scan()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(neighbor, result.stdout)
+        self.assertNotIn(self.token, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
