@@ -224,6 +224,10 @@ class ArtifactBuildTests(unittest.TestCase):
         self.assertIn("no 'build' mise task", result.stderr)
         self.assertEqual(self.run_task_check(has_task=True).returncode, 0)
 
+    def test_the_task_check_sees_the_build_steps_mise_environment(self) -> None:
+        for name in (TASK_STEP, "Build the release artifact (mise run build)"):
+            self.assertIn("MISE_ENV: ci", extract_step(TEXT, name), name)
+
     def test_build_runs_the_repository_task_after_the_native_bootstrap(self) -> None:
         # The standards-bootstrap action removes its token route before it
         # returns, so the repository's task never runs with the route.
