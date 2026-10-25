@@ -68,6 +68,10 @@ clones the private `standards` repo through the standards-reader token route.
   (`typecheck-ts` in cache-seed mode, `e2e`, `cloud-setup-smoke`) declare
   `STANDARDS_READER_APP_ID` and `STANDARDS_READER_APP_PRIVATE_KEY` as optional. A native
   caller that does not forward them fails with a clear error.
+- `standards-gates` never bootstraps. Its lint-config tool install links the selected channel
+  checkout (`.standards`) as `.standards-config` while mise resolves the consumer's pins. It
+  installs only `yq` and `lefthook` and removes the link afterwards. The job sets
+  `MISE_EXEC_AUTO_INSTALL=false`, so the gate's `mise exec` cannot install them itself.
 
 Any other answer keeps the rendered model's `mise install`; an unknown value fails. The
 `config_model` answer is transitional and goes away when the rendered model is retired.

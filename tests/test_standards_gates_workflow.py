@@ -81,13 +81,29 @@ class MiseVersionResolutionTests(unittest.TestCase):
 
 
 class ConsumerLintBootstrapTests(unittest.TestCase):
-    def run_step(self, listing: dict) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    def run_step(
+        self, listing: dict, answers: str | None = None, existing: str | None = None,
+    ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            mise = root / "mise"
+            consumer = root / "consumer"
+            standards = consumer / ".standards"
+            (standards / "config/mise").mkdir(parents=True)
+            if answers is not None:
+                (consumer / ".copier-answers.yml").write_text(answers, encoding="utf-8")
+            if existing == "directory":
+                (consumer / ".standards-config").mkdir()
+            elif existing == "symlink":
+                (consumer / ".standards-config").symlink_to(root)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            mise = bin_dir / "mise"
             mise.write_text(
                 '#!/bin/bash\n'
                 'if [[ "$1 $2 $3" == "ls --current --json" ]]; then\n'
+                '  if [ -L .standards-config ]; then\n'
+                '    printf "ls with link to %s\\n" "$(readlink .standards-config)" >> "$INSTALL_LOG"\n'
+                '  fi\n'
                 '  printf "%s\\n" "$LISTING"\n'
                 'elif [[ "$1" == "install" ]]; then\n'
                 '  printf "%s\\n" "$*" >> "$INSTALL_LOG"\n'
@@ -100,18 +116,23 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
             log = root / "installs"
             env = {
                 **os.environ,
-                "PATH": f"{root}:{os.environ['PATH']}",
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
                 "LISTING": json.dumps(listing),
                 "INSTALL_LOG": str(log),
+                "STANDARDS_ROOT": str(standards),
             }
             result = subprocess.run(
                 ["bash", "-c", consumer_lint_step()],
                 capture_output=True,
                 text=True,
                 env=env,
+                cwd=consumer,
                 check=False,
             )
             calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+            calls = [call.replace(str(standards), "<standards>") for call in calls]
+            self.link_after = (consumer / ".standards-config").is_symlink()
+            self.directory_after = (consumer / ".standards-config").is_dir()
             return result, calls
 
     def test_consumer_pipx_tools_wait_for_configured_uv_and_python(self) -> None:
@@ -156,6 +177,52 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
         self.assertIn("the gate reports them missing", result.stdout)
+
+
+    # A native repository's Shared Config pins resolve only through
+    # .standards-config, which the gate job never bootstraps.
+    NATIVE_LISTING = {
+        "uv": [{"version": "0.12.15"}],
+        "python": [{"version": "3.14.6"}],
+        "aqua:evilmartians/lefthook": [{"version": "2.1.12"}],
+        "aqua:mikefarah/yq": [{"version": "4.53.6"}],
+        "pipx:copier": [{"version": "9.18.1"}],
+        "pipx:ruff": [{"version": "0.15.0"}],
+    }
+
+    def test_native_pins_resolve_through_the_channel_checkout(self) -> None:
+        result, calls = self.run_step(self.NATIVE_LISTING, answers="config_model: native\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [
+            "ls with link to <standards>",
+            "install aqua:evilmartians/lefthook aqua:mikefarah/yq",
+        ])
+        self.assertFalse(self.link_after, "the stand-in link must not outlive the step")
+
+    def test_quoted_native_answer_selects_the_native_tools(self) -> None:
+        result, calls = self.run_step(self.NATIVE_LISTING, answers='config_model: "native"\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-1], "install aqua:evilmartians/lefthook aqua:mikefarah/yq")
+
+    def test_existing_checkout_is_used_and_kept(self) -> None:
+        result, calls = self.run_step(
+            self.NATIVE_LISTING, answers="config_model: native\n", existing="directory",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, ["install aqua:evilmartians/lefthook aqua:mikefarah/yq"])
+        self.assertTrue(self.directory_after)
+
+    def test_rendered_and_unknown_answers_keep_the_rendered_tools(self) -> None:
+        for answers in (None, "has_python: true\n", "config_model: rendered\n",
+                        "# config_model: native\n", "config_model: Native\n"):
+            with self.subTest(answers=answers):
+                result, calls = self.run_step(self.NATIVE_LISTING, answers=answers)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    calls,
+                    ["install uv", "install python", "install aqua:mikefarah/yq pipx:copier"],
+                )
+                self.assertFalse(self.link_after)
 
 
 if __name__ == "__main__":

@@ -375,6 +375,9 @@ class OrganizationTemplateTests(unittest.TestCase):
             args,
         )
         self.assertEqual(fetched, TEMPLATE)
+        # Danger and gate-pr-conventions.sh reject a relative PR_TEMPLATE_PATH;
+        # the runner's RUNNER_TEMP is absolute, so the path is too.
+        self.assertTrue(Path(out["path"]).is_absolute())
         self.assertTrue(out["path"].endswith("/org-pr-template/PULL_REQUEST_TEMPLATE.md"))
 
     def test_bad_revision_or_template_fails_closed(self) -> None:
@@ -393,6 +396,15 @@ class OrganizationTemplateTests(unittest.TestCase):
         setup = extract_step(GATES, "Confirm common setup")
         self.assertIn("PR_TEMPLATE_OUTCOME: ${{ steps.pr_template.outcome }}", setup)
         self.assertIn('require_success "organization PR template fetch"', setup)
+
+    def test_channel_reaches_the_gates_that_check_it(self) -> None:
+        # MD-12 compares the Shared Config Checkout's ref with STANDARDS_CHANNEL.
+        for name in ("Gate — audit", "lint-config", "Gate — PR conventions"):
+            with self.subTest(step=name):
+                self.assertIn(
+                    "STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}",
+                    extract_step(GATES, name),
+                )
 
     def test_template_is_the_single_source_of_the_checked_rules(self) -> None:
         match = re.search(r"<!-- pr-conventions: (\{.*?\}) -->", TEMPLATE)

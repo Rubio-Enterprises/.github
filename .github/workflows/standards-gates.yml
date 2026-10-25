@@ -330,17 +330,33 @@ jobs:
           version: ${{ steps.mise_version.outputs.version }}
 
       # Config rendering needs yq and copier, not the consumer lint toolchain.
+      # A native repository's lint-config reads its stubs with yq and Lefthook
+      # instead (standards ADR-0033). Their pins come from its Shared Config
+      # Checkout, which this job never bootstraps, so the selected channel
+      # checkout stands in for it while mise resolves them, exactly as the
+      # lint-config gate links it.
       - name: Install consumer config tools
         id: consumer_lint_tools
         if: steps.applicability.outputs.lint_config == 'true'
+        env:
+          STANDARDS_ROOT: ${{ github.workspace }}/.standards
         shell: bash
         run: |
           set -euo pipefail
+          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
+          wanted='["yq", "copier"]'
+          if [ "$config_model" = native ]; then
+            wanted='["yq", "lefthook"]'
+            if [ ! -e .standards-config ] && [ ! -L .standards-config ]; then
+              ln -s "$STANDARDS_ROOT" .standards-config
+              trap 'rm -f .standards-config' EXIT
+            fi
+          fi
           listing="$(mise ls --current --json)"
-          selected="$(jq -r '
+          selected="$(jq -r --argjson wanted "$wanted" '
             keys[] as $key
             | select(($key | sub("^[^:]+:"; "") | split("/") | last)
-                | IN("yq", "copier"))
+                | IN($wanted[]))
             | $key' <<<"$listing")"
           if [ -z "$selected" ]; then
             echo "::notice::the consumer pins none of the lint-config rendering tools; the gate reports them missing"
@@ -350,11 +366,14 @@ jobs:
           echo "consumer config tools: ${tools[*]}"
           # pipx installs require the consumer's selected uv and Python pins,
           # which may differ from the standards-side tools already installed.
-          if jq -e 'has("uv")' <<<"$listing" >/dev/null; then
-            mise install uv
-          fi
-          if jq -e 'has("python")' <<<"$listing" >/dev/null; then
-            mise install python
+          # The native selection has no pipx tool.
+          if [ "$config_model" != native ]; then
+            if jq -e 'has("uv")' <<<"$listing" >/dev/null; then
+              mise install uv
+            fi
+            if jq -e 'has("python")' <<<"$listing" >/dev/null; then
+              mise install python
+            fi
           fi
           mise install "${tools[@]}"
 
