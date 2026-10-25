@@ -703,6 +703,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             "typecheck-ts.yml": 1,
             "e2e.yml": 1,
             "cloud-setup-smoke.yml": 1,
+            "build.yml": 1,
         }
         for filename, count in expected.items():
             text = (workflows / filename).read_text(encoding="utf-8")

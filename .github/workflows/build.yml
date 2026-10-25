@@ -1,0 +1,313 @@
+name: build
+# Required Governance Workflow — the `gate-build` Gate Family (standards
+# ADR-0033; Check Catalog BD-01 and CT-01). The `gate-build` org ruleset injects
+# it on `pull_request` and `merge_group` wherever the derived property
+#   gate_build = standards_onboarded AND enforce_build
+#                AND (has_release_artifact OR has_container_image)
+# is true. The repository interface is small; docs/build-gate.md has the detail:
+#
+#   BD-01  has_release_artifact: a non-publishing `mise run build` task. Swift
+#          repositories build on RUNNERS.macos, unsigned. No job here holds
+#          signing, App Store Connect or registry credentials.
+#   CT-01  has_container_image: `compose.ci.yml` whose `app` service builds the
+#          release image and declares a real healthcheck. The image is built
+#          locally and never pushed.
+#
+# A declared check whose task or descriptor is missing fails: unlike the
+# typecheck gate there is no green "nothing to run" path for a declared Facet.
+"on":
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  # Keyed on the workflow SHA so a Candidate Validation injection never cancels
+  # the live one; only a newer revision of the same PR supersedes a run.
+  group: build-${{ github.workflow }}-${{ github.workflow_sha }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
+# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
+# org maximum; any tighter timeout in this file is deliberate.
+jobs:
+  detect:
+    # `.github` ships no build; its own direct pull_request and merge_group
+    # runs are a no-op. Injected runs in consumer repositories pass this guard.
+    if: github.repository != 'Rubio-Enterprises/.github'
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 120
+    outputs:
+      artifact: ${{ steps.pick.outputs.artifact }}
+      image: ${{ steps.pick.outputs.image }}
+      artifact_runner: ${{ steps.pick.outputs.artifact_runner }}
+      config_model: ${{ steps.pick.outputs.config_model }}
+    steps:
+      - name: Sparse-checkout the consumer's .copier-answers.yml
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .copier-answers.yml
+          sparse-checkout-cone-mode: false
+          # The first parent is the target branch: the PR base for GitHub's
+          # synthetic merge commit, the queue base for a merge group.
+          fetch-depth: 2
+      - name: Select the declared checks
+        id: pick
+        env:
+          MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]')) }}
+          # Release builds are multi-GiB work; never degrade to the light route.
+          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').medium || fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A Facet the target branch declares stays checked until its removal
+          # has merged, so a PR cannot drop a required check by deleting the
+          # answer. The removing PR must still pass; the next one runs without it.
+          base="$RUNNER_TEMP/base-copier-answers.yml"
+          : > "$base"
+          if git rev-parse --verify --quiet 'HEAD^1' >/dev/null &&
+            [ -n "$(git ls-tree --name-only 'HEAD^1' -- .copier-answers.yml)" ]; then
+            git show 'HEAD^1:.copier-answers.yml' > "$base"
+          fi
+          declared() {
+            grep -qE "^$1:[[:space:]]*true[[:space:]]*\$" .copier-answers.yml "$base" 2>/dev/null
+          }
+          artifact=false
+          image=false
+          if declared has_release_artifact; then artifact=true; fi
+          if declared has_container_image; then image=true; fi
+          if [ "$artifact" = false ] && [ "$image" = false ]; then
+            echo "::notice::neither this change nor its target branch declares has_release_artifact or has_container_image; nothing to build"
+          fi
+
+          # Capability outranks resource: Swift needs Xcode on macOS.
+          if grep -qE '^has_swift:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            runner="$MACOS_RUNNER"
+          else
+            runner="$HEAVY_RUNNER"
+          fi
+          runner="$(jq -ce . <<<"$runner")" || exit 1
+
+          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
+          case "${config_model:=rendered}" in
+            rendered|native) ;;
+            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
+          esac
+
+          {
+            echo "artifact=$artifact"
+            echo "image=$image"
+            echo "artifact_runner=$runner"
+            echo "config_model=$config_model"
+          } >> "$GITHUB_OUTPUT"
+          echo "BD-01=$artifact CT-01=$image config_model=$config_model"
+
+  bd-01:
+    name: BD-01 release artifact build
+    needs: detect
+    if: needs.detect.outputs.artifact == 'true'
+    runs-on: ${{ fromJSON(needs.detect.outputs.artifact_runner) }}
+    timeout-minutes: 120
+    steps:
+      - name: Check out the consumer repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Prepare the macOS build toolchain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Tart's non-login shell does not inherit Homebrew's PATH
+          for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+            if [ -x "$b" ]; then
+              eval "$("$b" shellenv)"
+              printf '%s\n' "$(brew --prefix)/bin" "$(brew --prefix)/sbin" >> "$GITHUB_PATH"
+              break
+            fi
+          done
+          # An Apple build needs the selected Xcode toolchain
+          xcodebuild -version
+          xcrun --find swift
+      # uv on PATH routes mise's pipx-backend installs through uvx; without it
+      # mise >= 2026.6.2 falls back to pip's --uploaded-prior-to, which cold
+      # runners' bootstrap pip (< 26) rejects.
+      - name: Install uv (routes mise pipx installs through uvx)
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.17"
+      # Key the mise cache to the uv-managed Python (standards#331); see
+      # lint-hooks.yml for why a Python bump must invalidate the cache.
+      - name: Fingerprint the uv-resolved python for the mise cache key
+        id: uv-python
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv python install
+          version="$(uv python find --managed-python --show-version)"
+          if [ -z "$version" ]; then
+            echo "::error::could not resolve the uv-managed python version for the mise cache key" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Resolve installed mise version
+        id: mise-version
+        env:
+          # renovate: datasource=github-releases depName=jdx/mise
+          MISE_VERSION: "2026.10.19"
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/bin/mise"
+          version="$MISE_VERSION"
+          if [ -e "$binary" ]; then
+            [ -x "$binary" ] || { echo "::error::installed mise is not executable: $binary" >&2; exit 1; }
+            reported="$("$binary" version --json)"
+            version="$(jq -er '.version | strings | capture("^(?<number>[0-9]{4}[.][0-9]+[.][0-9]+)( |$)").number' <<<"$reported")"
+          fi
+          [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || exit 1
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          echo "mise action version: $version"
+      # standards ADR-0033: a native repository's .mise.toml includes shared
+      # pins from the private standards checkout at `.standards-config/`, so
+      # no mise command works until `mise bootstrap` clones it. Route only that
+      # clone through a read-only standards-reader token, then remove the route
+      # before any repository code runs. Rendered repositories skip all three.
+      - name: Mint standards read token (native config model)
+        if: needs.detect.outputs.config_model == 'native'
+        id: standards-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: standards
+          permission-contents: read
+      - name: Route the Shared Config Checkout clone through the App token
+        if: needs.detect.outputs.config_model == 'native'
+        env:
+          TOKEN: ${{ steps.standards-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global \
+            url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
+            "https://github.com/${OWNER}/standards"
+      - name: Install consumer-repo runtimes
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+          # A failed private clone must fail, not wait on a credential prompt.
+          GIT_TERMINAL_PROMPT: "0"
+          GCM_INTERACTIVE: never
+        with:
+          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+          version: ${{ steps.mise-version.outputs.version }}
+          bootstrap: ${{ needs.detect.outputs.config_model == 'native' }}
+          bootstrap_args: ${{ needs.detect.outputs.config_model == 'native' && '--only repos,tools' || '' }}
+      - name: Require the Shared Config Checkout (native config model)
+        if: needs.detect.outputs.config_model == 'native'
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: "0"
+          GCM_INTERACTIVE: never
+        shell: bash
+        run: |
+          set -euo pipefail
+          mise bootstrap repos status --missing
+          if [ ! -f .standards-config/config/lefthook/base.yml ]; then
+            echo "::error::shared config missing at .standards-config/config/lefthook/base.yml: declare the checkout in .mise.toml [bootstrap.repos] and run 'mise bootstrap --only repos,tools' (standards ADR-0033)" >&2
+            exit 1
+          fi
+          sha="$(git -C .standards-config rev-parse HEAD)"
+          ref="$(git -C .standards-config symbolic-ref -q --short HEAD || echo detached)"
+          echo "Shared Config Checkout: standards \`$ref\` at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Shared Config Checkout: standards $ref at $sha"
+      - name: Remove the standards read route
+        if: always() && needs.detect.outputs.config_model == 'native'
+        shell: bash
+        run: |
+          set -euo pipefail
+          routes="$(git config --global --get-regexp '^url\..*\.insteadof$' || true)"
+          while read -r key _; do
+            case "$key" in
+              *x-access-token:*) git config --global --remove-section "${key%.insteadof}" ;;
+            esac
+          done <<<"$routes"
+          if git config --global --get-regexp '^url\.' 2>/dev/null | grep -q 'x-access-token:'; then
+            echo "::error::a token-bearing git URL route survived removal" >&2
+            exit 1
+          fi
+      # Same pnpm provisioning as the lint-hooks and typecheck gates (reads
+      # packageManager; avoids corepack's keyring drift). Installing the
+      # workspace stays the build task's job.
+      - name: Install pnpm
+        if: hashFiles('pnpm-lock.yaml') != ''
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - name: Require the build task
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! mise tasks info build >/dev/null 2>&1; then
+            echo "::error::has_release_artifact is declared but the repository has no 'build' mise task; add a non-publishing build task (Rubio-Enterprises/.github docs/build-gate.md)" >&2
+            exit 1
+          fi
+      - name: Build the release artifact (mise run build)
+        env:
+          MISE_ENV: ci
+        run: mise run build
+
+  ct-01:
+    name: CT-01 container smoke test
+    needs: detect
+    if: needs.detect.outputs.image == 'true'
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 60
+    env:
+      # One Compose project per attempt, so concurrent runs on a shared daemon
+      # never adopt each other's containers.
+      COMPOSE_PROJECT_NAME: ct01-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out the consumer repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Build, start and assert the release image
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error title=CT-01::$1" >&2; exit 1; }
+          [ -f compose.ci.yml ] ||
+            fail "has_container_image is declared but compose.ci.yml is missing (Rubio-Enterprises/.github docs/build-gate.md)"
+          services="$(docker compose -f compose.ci.yml config --services)" ||
+            fail "compose.ci.yml is not a valid Compose file"
+          grep -qx app <<<"$services" ||
+            fail "compose.ci.yml must define the release image as service 'app'"
+          # docker top reports daemon-side UIDs. Under a rootless or remapped
+          # daemon a root process is not UID 0 there, so refuse to judge.
+          security="$(docker info --format '{{json .SecurityOptions}}')"
+          if grep -Eq 'name=(rootless|userns)' <<<"$security"; then
+            fail "this runner's Docker daemon remaps user namespaces; the non-root check cannot run here"
+          fi
+          # --wait returns once services are running or healthy, so a service
+          # without a healthcheck passes it; the assertions below close that.
+          docker compose -f compose.ci.yml up --build --wait --wait-timeout 300
+          cid="$(docker compose -f compose.ci.yml ps -q app)"
+          [ -n "$cid" ] || fail "service 'app' has no running container"
+          health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")"
+          [ "$health" = healthy ] ||
+            fail "service 'app' needs a passing healthcheck (status: ${health:-no healthcheck})"
+          if ! docker top "$cid" -eo pid,uid |
+            awk 'NR > 1 { seen = 1; if ($2 == 0) root = 1 } END { exit (!seen || root) }'; then
+            docker top "$cid" -eo pid,uid,args || true
+            fail "service 'app' must run as a non-root user"
+          fi
+          echo "CT-01 passed: service 'app' is healthy and runs as non-root"
+      - name: Collect logs and remove the smoke project
+        if: always()
+        shell: bash
+        run: |
+          if [ -f compose.ci.yml ]; then
+            docker compose -f compose.ci.yml logs --no-color --timestamps || true
+            docker compose -f compose.ci.yml down --volumes --remove-orphans --rmi local || true
+          fi
