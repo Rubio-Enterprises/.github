@@ -53,15 +53,24 @@ channel.
 
 **Native config model (standards ADR-0033).** A consumer answering `config_model: native`
 inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Checkout at
-`.standards-config/`. `lint-hooks`, `typecheck-ts` and `build` set it up with mise-action's
-built-in `bootstrap: true` and `bootstrap_args: --only repos,tools`, cloning the private
-`standards` repo through the standards-reader token route. A required step then runs
-`mise bootstrap repos status --missing` and requires
-`.standards-config/config/lefthook/base.yml`, so a missing checkout fails rather than letting
-Lefthook skip the shared hooks. `typecheck-ts` and `build` remove the token route before
-repository code runs. Any other answer keeps the rendered model's `mise install`; an unknown
-value fails. The `config_model` answer is transitional and goes away when the rendered model
-is retired.
+`.standards-config/`. Every workflow that runs mise in a consumer (`lint-hooks`,
+`typecheck-ts`, `build`, and the `e2e` and `cloud-setup-smoke` reusables) sets the checkout
+up with mise-action's built-in `bootstrap: true` and `bootstrap_args: --only repos,tools`. It
+clones the private `standards` repo through the standards-reader token route.
+
+- A required step then runs `mise bootstrap repos status --missing` and requires
+  `.standards-config/config/lefthook/base.yml`. A missing checkout fails instead of letting
+  Lefthook skip the shared hooks.
+- `typecheck-ts`, `build` and `e2e` remove the token route before repository code runs.
+  `cloud-setup-smoke` keeps it for the setup chain, which must be able to refresh the
+  checkout.
+- A called workflow sees org secrets only when its caller forwards them, so the callable ones
+  (`typecheck-ts` in cache-seed mode, `e2e`, `cloud-setup-smoke`) declare
+  `STANDARDS_READER_APP_ID` and `STANDARDS_READER_APP_PRIVATE_KEY` as optional. A native
+  caller that does not forward them fails with a clear error.
+
+Any other answer keeps the rendered model's `mise install`; an unknown value fails. The
+`config_model` answer is transitional and goes away when the rendered model is retired.
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
 `gate-tests` org ruleset requires each enforcing repository's own repo-local
@@ -78,7 +87,8 @@ and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
 `plumbing-ref-publish.yml` (this repo's own ops, not reusables).
 
 **`lint-hooks.yml`** — `lefthook run pre-commit --all-files`, plus `lefthook run kb-check`
-(the full knowledgebase check, KB-01) where `has_knowledgebase`, the sole CI executor of the
+(the full knowledgebase check, KB-01) for native-model repositories declaring
+`has_knowledgebase` (rendered ones keep today's staged-only check), the sole CI executor of the
 standards Fixers and Checkers. The commit-msg smoke test is retired: PR Conventions and the
 local commit-msg hook own PR-01. It is an injected Required Governance
 Workflow (the `gate-lint-hooks` org ruleset, published at `gates/wf-v1`, standards#627), not a

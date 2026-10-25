@@ -28,6 +28,14 @@ name: typecheck-ts (gate)
           budget.
         type: boolean
         default: false
+    secrets:
+      # Org secrets reach a called workflow only when its caller forwards
+      # them. A config_model: native caller must, so the Shared Config
+      # Checkout can be cloned (standards ADR-0033); rendered callers need not.
+      STANDARDS_READER_APP_ID:
+        required: false
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        required: false
 permissions:
   contents: read
 concurrency:
@@ -176,7 +184,18 @@ jobs:
       # pins from the private standards checkout at `.standards-config/`, so
       # no mise command works until `mise bootstrap` clones it. Route only that
       # clone through a read-only standards-reader token, then remove the route
-      # before any repository code runs. Rendered repositories skip all three.
+      # before any repository code runs. Rendered repositories skip these.
+      - name: Require standards-reader credentials (native config model)
+        if: needs.route.outputs.config_model == 'native'
+        env:
+          APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "::error::config_model native needs STANDARDS_READER_APP_ID and STANDARDS_READER_APP_PRIVATE_KEY; a calling workflow must forward them" >&2
+            exit 1
+          fi
       - name: Mint standards read token (native config model)
         if: needs.route.outputs.config_model == 'native'
         id: standards-token

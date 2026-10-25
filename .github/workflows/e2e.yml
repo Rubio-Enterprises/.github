@@ -29,6 +29,14 @@ name: e2e (reusable)
       retries: {type: number, default: 2}
       shard: {type: string, default: ''}
       timeout-minutes: {type: number, default: 30}
+    secrets:
+      # Org secrets reach a called workflow only when its caller forwards
+      # them. A config_model: native caller must, so the Shared Config
+      # Checkout can be cloned (standards ADR-0033); rendered callers need not.
+      STANDARDS_READER_APP_ID:
+        required: false
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        required: false
 permissions:
   contents: read
 # Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
@@ -45,6 +53,19 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Read the config model
+        # standards ADR-0033: only an explicit native answer selects the Shared
+        # Config Checkout bootstrap; an unknown value fails.
+        id: config-model
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
+          case "${config_model:=rendered}" in
+            rendered|native) ;;
+            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
+          esac
+          printf 'config_model=%s\n' "$config_model" >> "$GITHUB_OUTPUT"
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
@@ -96,14 +117,90 @@ jobs:
           [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || exit 1
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "mise action version: $version"
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      # standards ADR-0033: a native repository's .mise.toml includes shared
+      # pins from the private standards checkout at `.standards-config/`, so
+      # no mise command works until `mise bootstrap` clones it. Route only that
+      # clone through a read-only standards-reader token, then remove the route
+      # before any repository code runs. Rendered repositories skip these.
+      - name: Require standards-reader credentials (native config model)
+        if: steps.config-model.outputs.config_model == 'native'
+        env:
+          APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "::error::config_model native needs STANDARDS_READER_APP_ID and STANDARDS_READER_APP_PRIVATE_KEY; a calling workflow must forward them" >&2
+            exit 1
+          fi
+      - name: Mint standards read token (native config model)
+        if: steps.config-model.outputs.config_model == 'native'
+        id: standards-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: standards
+          permission-contents: read
+      - name: Route the Shared Config Checkout clone through the App token
+        if: steps.config-model.outputs.config_model == 'native'
+        env:
+          TOKEN: ${{ steps.standards-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global \
+            url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
+            "https://github.com/${OWNER}/standards"
+      - name: Install consumer-repo runtimes
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         env:
           MISE_GITHUB_TOKEN: ${{ github.token }}
+          # A failed private clone must fail, not wait on a credential prompt.
+          GIT_TERMINAL_PROMPT: "0"
+          GCM_INTERACTIVE: never
         with:
           # Key the mise cache to the uv-resolved python (standards#331): a python
           # bump changes the prefix and invalidates rather than poisons the cache.
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           version: ${{ steps.mise-version.outputs.version }}
+          bootstrap: ${{ steps.config-model.outputs.config_model == 'native' }}
+          bootstrap_args: ${{ steps.config-model.outputs.config_model == 'native' && '--only repos,tools' || '' }}
+      - name: Require the Shared Config Checkout (native config model)
+        if: steps.config-model.outputs.config_model == 'native'
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: "0"
+          GCM_INTERACTIVE: never
+        shell: bash
+        run: |
+          set -euo pipefail
+          mise bootstrap repos status --missing
+          if [ ! -f .standards-config/config/lefthook/base.yml ]; then
+            echo "::error::shared config missing at .standards-config/config/lefthook/base.yml: declare the checkout in .mise.toml [bootstrap.repos] and run 'mise bootstrap --only repos,tools' (standards ADR-0033)" >&2
+            exit 1
+          fi
+          sha="$(git -C .standards-config rev-parse HEAD)"
+          ref="$(git -C .standards-config symbolic-ref -q --short HEAD || echo detached)"
+          echo "Shared Config Checkout: standards \`$ref\` at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Shared Config Checkout: standards $ref at $sha"
+      - name: Remove the standards read route
+        if: always() && steps.config-model.outputs.config_model == 'native'
+        shell: bash
+        run: |
+          set -euo pipefail
+          routes="$(git config --global --get-regexp '^url\..*\.insteadof$' || true)"
+          while read -r key _; do
+            case "$key" in
+              *x-access-token:*) git config --global --remove-section "${key%.insteadof}" ;;
+            esac
+          done <<<"$routes"
+          if git config --global --get-regexp '^url\.' 2>/dev/null | grep -q 'x-access-token:'; then
+            echo "::error::a token-bearing git URL route survived removal" >&2
+            exit 1
+          fi
       - id: detect
         shell: bash
         run: |
