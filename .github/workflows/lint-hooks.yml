@@ -606,7 +606,11 @@ jobs:
         # in the framework's remote hooks, so a remote Lefthook could not fetch
         # fails here with "hook kb-check doesn't exist" instead of passing.
         # Runs before the rewrite guard so a rewrite it makes fails the job.
-        if: needs.detect.outputs.has_knowledgebase == 'true'
+        # Native config model only: rendered repositories keep today's checks
+        # until they convert (standards native-config plan, invariant 1).
+        if: >-
+          needs.detect.outputs.has_knowledgebase == 'true' &&
+          needs.detect.outputs.config_model == 'native'
         env:
           MISE_ENV: ci
           MISE_GITHUB_TOKEN: ${{ github.token }}
