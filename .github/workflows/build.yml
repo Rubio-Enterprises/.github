@@ -174,7 +174,7 @@ jobs:
       # before any repository code runs. Rendered repositories keep mise-action.
       - name: Bootstrap the Shared Config Checkout (native config model)
         if: needs.detect.outputs.config_model == 'native'
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@6776a8489b477ee788d436fd39cc6698ee49e898 # v4
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@e99e6f79cc9bcb224d364a69ace9d1832462d0f1 # v4
         with:
           config-model: ${{ needs.detect.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
