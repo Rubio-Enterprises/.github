@@ -30,8 +30,9 @@ local check for the workflow files before pushing. Otherwise validation happens 
 
 Two delivery mechanisms live here now.
 
-**Gate workflows — the two property-targeted Required Governance Workflows.**
-`gate-typescript` runs where a repo carries `gate-typescript`; `standards-gates`
+**Gate workflows — the property-targeted Required Governance Workflows.**
+`gate-typescript` runs where a repo carries `gate-typescript`, `gate-build` where it
+carries `gate-build`; `standards-gates`
 runs on every `standards-onboarded` repo and reads its `gate-audit`,
 `gate-lint-config`, `gate-pr-conventions`, and `gate-secret-scan` properties to pick
 its checks (all set in `.github-private` Terraform). The org gate rulesets
@@ -46,8 +47,21 @@ channel.
 
 | Gate workflow | Gate Family | What it does | Standards content |
 | --- | --- | --- | --- |
-| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | channel (`canary`/`stable`), runtime-resolved |
+| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item; the rules come from this repo's `.github/PULL_REQUEST_TEMPLATE.md`, the organization default, read at the workflow's own commit and passed as `PR_TEMPLATE_PATH`), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | channel (`canary`/`stable`), runtime-resolved |
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
+| `build.yml` | `gate-build` | BD-01 non-publishing `mise run build` (`has_release_artifact`; Swift on `RUNNERS.macos`, unsigned) and CT-01 `compose.ci.yml` smoke with healthy and non-root assertions (`has_container_image`). A declared check with no task or descriptor fails. See [`docs/build-gate.md`](docs/build-gate.md) | — |
+
+**Native config model (standards ADR-0033).** A consumer answering `config_model: native`
+inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Checkout at
+`.standards-config/`. `lint-hooks`, `typecheck-ts` and `build` set it up with mise-action's
+built-in `bootstrap: true` and `bootstrap_args: --only repos,tools`, cloning the private
+`standards` repo through the standards-reader token route. A required step then runs
+`mise bootstrap repos status --missing` and requires
+`.standards-config/config/lefthook/base.yml`, so a missing checkout fails rather than letting
+Lefthook skip the shared hooks. `typecheck-ts` and `build` remove the token route before
+repository code runs. Any other answer keeps the rendered model's `mise install`; an unknown
+value fails. The `config_model` answer is transitional and goes away when the rendered model
+is retired.
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
 `gate-tests` org ruleset requires each enforcing repository's own repo-local
@@ -63,8 +77,10 @@ and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
 `test-gate.yml`, `copilot-setup-steps.yml`, `workflow-validation.yml`, and
 `plumbing-ref-publish.yml` (this repo's own ops, not reusables).
 
-**`lint-hooks.yml`** — `lefthook run pre-commit --all-files` + a commit-msg smoke test, the
-sole CI executor of the standards Fixers and Checkers. It is an injected Required Governance
+**`lint-hooks.yml`** — `lefthook run pre-commit --all-files`, plus `lefthook run kb-check`
+(the full knowledgebase check, KB-01) where `has_knowledgebase`, the sole CI executor of the
+standards Fixers and Checkers. The commit-msg smoke test is retired: PR Conventions and the
+local commit-msg hook own PR-01. It is an injected Required Governance
 Workflow (the `gate-lint-hooks` org ruleset, published at `gates/wf-v1`, standards#627), not a
 thin-called reusable: consumers cannot edit or skip it, and it has no `workflow_call` trigger
 (standards#642).

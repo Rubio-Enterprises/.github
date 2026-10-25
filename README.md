@@ -2,9 +2,11 @@
 
 Org community files and shared workflows
 
-Organization GitHub Actions workflows for `Rubio-Enterprises`: two Gate Family
-workflows (`standards-gates.yml`, `typecheck-ts.yml`) injected by organization
-rulesets, plus the smaller set of reusables that consumers thin-call directly.
+Organization GitHub Actions workflows for `Rubio-Enterprises`: the Gate Family
+workflows (`standards-gates.yml`, `typecheck-ts.yml`, `lint-hooks.yml`,
+`build.yml`) injected by organization rulesets, plus the smaller set of
+reusables that consumers thin-call directly. The Build gate's repository
+interface is in [`docs/build-gate.md`](./docs/build-gate.md).
 In this workspace, the repository is checked out as `Governance/dot-github`;
 its GitHub repository name remains `.github`.
 
