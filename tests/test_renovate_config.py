@@ -1263,6 +1263,63 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class DevcontainerPrebuildTests(unittest.TestCase):
+    def test_additional_build_definition_pattern_is_exact(self) -> None:
+        patterns = CONFIG["devcontainer"]["managerFilePatterns"]
+        self.assertEqual(len(patterns), 1)
+        for filename, expected in (
+            (".github/.devcontainer/devcontainer.json", True),
+            ("x/.github/.devcontainer/devcontainer.json", False),
+            (".github/.devcontainer/devcontainer.json.bak", False),
+            ("xgithub/.devcontainer/devcontainer.json", False),
+        ):
+            with self.subTest(filename=filename):
+                self.assertEqual(_selector_matches(patterns, filename), expected)
+
+    def test_floating_images_are_disabled_for_all_docker_managers(self) -> None:
+        for manager in ("devcontainer", "dockerfile", "docker-compose"):
+            for update in ("major", "minor", "patch", "digest", "pinDigest"):
+                dependency = {
+                    "manager": manager, "datasource": "docker",
+                    "depName": "ghcr.io/rubio-enterprises/bookmark-scraper/devcontainer",
+                    "packageName": "ghcr.io/rubio-enterprises/bookmark-scraper/devcontainer",
+                    "currentVersion": "main", "updateType": update,
+                }
+                with self.subTest(manager=manager, update=update):
+                    self.assertFalse(_resolve_dependency(dependency)["enabled"])
+                    matching = [
+                        rule for rule in CONFIG["packageRules"]
+                        if _rule_matches(rule, dependency, {}) and "pinDigests" in rule
+                    ]
+                    self.assertEqual([rule["pinDigests"] for rule in matching], [False])
+
+    def test_features_and_other_images_remain_managed(self) -> None:
+        for package in (
+            "ghcr.io/rubio-enterprises/devcontainer-features/baseline",
+            "ghcr.io/rubio-enterprises/agent-workspace",
+            "ghcr.io/rubio-enterprises/bookmark-scraper/devcontainer-extra",
+            "ghcr.io/rubio-enterprises-other/repo/devcontainer",
+            "ghcr.io/another-owner/repo/devcontainer",
+            "mcr.microsoft.com/devcontainers/base",
+        ):
+            dependency = {
+                "manager": "devcontainer", "datasource": "docker",
+                "depName": package, "packageName": package,
+                "fileName": ".github/.devcontainer/devcontainer.json",
+                "currentVersion": "1.2.3", "updateType": "patch",
+            }
+            with self.subTest(package=package):
+                self.assertTrue(_resolve_dependency(dependency).get("enabled", True))
+
+    def test_build_definition_does_not_run_runtime_lockfile_refresh(self) -> None:
+        for rule in CONFIG["packageRules"]:
+            if "postUpgradeTasks" in rule:
+                self.assertFalse(_rule_matches(rule, {
+                    "manager": "devcontainer", "datasource": "docker", "depName": "x",
+                    "fileName": ".github/.devcontainer/devcontainer.json",
+                }, {}))
+
+
 class DevcontainerLockfileTests(unittest.TestCase):
     """Feature bumps refresh devcontainer-lock.json through one allowlisted command."""
 

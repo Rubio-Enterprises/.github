@@ -18,6 +18,9 @@
   "minimumReleaseAge": "7 days",
   "rebaseWhen": "conflicted",
   "labels": ["dependencies"],
+  "devcontainer": {
+    "managerFilePatterns": ["/^\\.github/\\.devcontainer/devcontainer\\.json$/"]
+  },
   "packageRules": [
     {
       "description": "Biome is owned only by the standards mise floor. Freeze npm manifest copies (including upstream fork pins) without disabling custom.regex floor/schema bumps in standards.",
@@ -315,6 +318,13 @@
         "fileFilters": [".devcontainer/devcontainer-lock.json"],
         "executionMode": "branch"
       }
+    },
+    {
+      "description": "Per-repository prebuilt Dev Container images deliberately float on :main. They are private packages unavailable to Renovate; do not look up versions or pin digests in any Docker-datasource manager.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/^ghcr\\.io/rubio-enterprises/[^/]+/devcontainer$/"],
+      "enabled": false,
+      "pinDigests": false
     }
   ],
   "customManagers": [

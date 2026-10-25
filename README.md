@@ -49,6 +49,15 @@ bespoke Renovate policy can extend `github>Rubio-Enterprises/.github:copier`
 without inheriting the whole preset. See the workflow contracts below before
 adding a reusable caller.
 
+The shared preset extends the native Dev Container manager to read
+`.github/.devcontainer/devcontainer.json` as well as its default runtime
+locations. Build-definition feature versions remain managed. Docker-datasource
+images matching `ghcr.io/rubio-enterprises/<repo>/devcontainer` are excluded
+from both updates and digest pinning: consumers intentionally use private,
+floating `:main` prebuilds. Other images and Dev Container features keep their
+existing policy. The runtime lockfile-refresh task remains scoped to
+`.devcontainer/devcontainer.json`; it does not refresh build-definition locks.
+
 ## Reusable workflows
 
 | Workflow | Purpose |
