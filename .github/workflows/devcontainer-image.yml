@@ -69,8 +69,8 @@ jobs:
             runner: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    # Keep pruning from deleting untagged attestation manifests referenced by an index
     env: &build-env
-      # Keep pruning from deleting untagged attestation manifests referenced by an index
       BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
     steps: &build-steps
       - name: Check out the caller
@@ -107,13 +107,63 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      - name: Check the Dockerfile without building
+        shell: bash
+        env:
+          CONFIG: ${{ inputs.config }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/devcontainer-cli/node_modules/.bin/devcontainer" read-configuration \
+            --workspace-folder "$GITHUB_WORKSPACE" --config "$CONFIG" \
+            > "$RUNNER_TEMP/devcontainer-config.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { spawnSync } = require('node:child_process');
+          const { configuration } = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/devcontainer-config.json`, 'utf8'));
+          const build = configuration.build;
+          if (!build?.dockerfile) {
+            console.log('No build.dockerfile; Docker build checks skipped.');
+            process.exit(0);
+          }
+          const directory = path.dirname(path.resolve(process.env.GITHUB_WORKSPACE, process.env.CONFIG));
+          const args = ['build', '--check', '--platform', `linux/${process.env.ARCH}`,
+            '--file', path.resolve(directory, build.dockerfile)];
+          if (build.target) args.push('--target', build.target);
+          for (const [key, value] of Object.entries(build.args || {})) {
+            args.push('--build-arg', `${key}=${value}`);
+          }
+          args.push(path.resolve(directory, build.context || '.'));
+          const result = spawnSync('docker', args, { stdio: 'inherit' });
+          if (result.error) console.error('Unable to run Docker build checks.');
+          process.exit(result.status ?? 1);
+          NODE
+      - name: Install checksum-pinned Trivy
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          version=0.76.1
+          case "$ARCH" in
+            amd64) platform=64bit; checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0 ;;
+            arm64) platform=ARM64; checksum=e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f ;;
+            *) echo "::error::Unsupported Trivy architecture"; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-${platform}.tar.gz"
+          printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/trivy" trivy
       - name: Build the architecture image
         shell: bash
         env:
           CONFIG: ${{ inputs.config }}
           IMAGE: ${{ needs.prepare.outputs.image }}
           ARCH: ${{ matrix.arch }}
-          PUBLISH: ${{ needs.prepare.outputs.publish }}
         run: |
           set -euo pipefail
           args=(build --workspace-folder "$GITHUB_WORKSPACE"
@@ -121,11 +171,40 @@ jobs:
             --platform "linux/$ARCH"
             --image-name "$IMAGE:sha-$GITHUB_SHA-$ARCH"
             --cache-from "$IMAGE:main-$ARCH"
+            --output type=docker
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY")
-          if [[ "$PUBLISH" == true ]]; then
-            args+=(--push)
-          fi
           "$RUNNER_TEMP/devcontainer-cli/node_modules/.bin/devcontainer" "${args[@]}"
+      - name: Scan the local image for secrets
+        shell: bash
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf "$RUNNER_TEMP/trivy-cache"' EXIT
+          # Trivy otherwise skips all node_modules and lockfiles by default
+          printf 'skip-patterns: []\n' > "$RUNNER_TEMP/trivy-secret.yaml"
+          # shellcheck disable=SC2016
+          template='{{ range . }}{{ $target := .Target }}{{ range .Secrets }}{{ printf "%s:%d-%d: %s (%s)\n" $target .StartLine .EndLine .RuleID .Severity }}{{ end }}{{ end }}'
+          SECONDS=0
+          status=0
+          "$RUNNER_TEMP/trivy/trivy" image \
+            --image-src docker --scanners secret --exit-code 1 \
+            --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
+            --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
+            --timeout 15m --format template --template "$template" \
+            "$IMAGE:sha-$GITHUB_SHA-$ARCH" || status=$?
+          printf 'Secret scan (%s): %s seconds (exit %s)\n' "$ARCH" "$SECONDS" "$status"
+          exit "$status"
+      - name: Push the scanned architecture image
+        if: needs.prepare.outputs.publish == 'true'
+        shell: bash
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:sha-$GITHUB_SHA-$ARCH"
 
   build:
     name: Build (${{ matrix.arch }})

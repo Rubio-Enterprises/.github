@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -78,9 +79,38 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("min-versions-to-keep: 5", TEXT)
         for name in (
             "Resolve image and publication policy", "Verify native Docker architecture",
-            "Build the architecture image", "Publish multi-architecture tags and cache aliases",
+            "Check the Dockerfile without building", "Install checksum-pinned Trivy",
+            "Build the architecture image", "Scan the local image for secrets",
+            "Push the scanned architecture image", "Publish multi-architecture tags and cache aliases",
         ):
             self.assertNotIn("${{", script(name))
+
+    def test_check_scan_and_push_order_is_fail_closed_on_both_paths(self) -> None:
+        steps = job("validate")
+        names = (
+            "Check the Dockerfile without building", "Build the architecture image",
+            "Scan the local image for secrets", "Push the scanned architecture image",
+        )
+        positions = [steps.index(f"- name: {name}") for name in names]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("continue-on-error", TEXT)
+        self.assertNotIn("--push", script("Build the architecture image"))
+        self.assertIn("--output type=docker", script("Build the architecture image"))
+        self.assertIn("if: needs.prepare.outputs.publish == 'true'", steps[positions[-1]:])
+        self.assertNotIn("if:", steps[positions[-2]:positions[-1]])
+        self.assertIn("steps: *build-steps", job("build"))
+
+    def test_trivy_archives_and_hashes_are_pinned_without_mutable_installer(self) -> None:
+        install = script("Install checksum-pinned Trivy")
+        self.assertIn("version=0.76.1", install)
+        for checksum in (
+            "c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0",
+            "e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f",
+        ):
+            self.assertIn(checksum, install)
+        self.assertLess(install.index("sha256sum --check --strict"), install.index("tar -xzf"))
+        self.assertNotIn("latest", install)
+        self.assertNotIn("checksums.txt", install)
 
 
 class ShellTests(unittest.TestCase):
@@ -153,7 +183,7 @@ class ShellTests(unittest.TestCase):
                     "Resolve image and publication policy", CONFIG=config,
                 ).returncode, 0)
 
-    def test_build_uses_cli_cache_label_and_push_only_for_publication(self) -> None:
+    def test_build_loads_local_image_and_never_pushes(self) -> None:
         cli = self.root / "devcontainer-cli/node_modules/.bin/devcontainer"
         self.stub(cli, 'printf "%s\\0" "$@" > "$CAPTURE"\n')
         config = "path with spaces/$(not-a-command).json"
@@ -168,7 +198,124 @@ class ShellTests(unittest.TestCase):
                 self.assertEqual(args[args.index("--cache-from") + 1], self.env["IMAGE"] + ":main-arm64")
                 self.assertEqual(args[args.index("--image-name") + 1], self.env["IMAGE"] + ":sha-" + "a" * 40 + "-arm64")
                 self.assertIn("org.opencontainers.image.source=https://github.com/Rubio-Enterprises/Bookmark-Scraper", args)
-                self.assertEqual("--push" in args, publish == "true")
+                self.assertNotIn("--push", args)
+                self.assertEqual(args[args.index("--output") + 1], "type=docker")
+
+    def configuration(self, build: dict | None) -> None:
+        configuration = {"build": build} if build is not None else {"image": "base:tag"}
+        (self.root / "resolved.json").write_text(json.dumps({"configuration": configuration}))
+        self.stub(
+            self.root / "devcontainer-cli/node_modules/.bin/devcontainer",
+            'test "$1" = read-configuration\ncat "$RUNNER_TEMP/resolved.json"\n',
+        )
+
+    def docker_capture(self) -> None:
+        self.stub(self.root / "docker", 'printf "%s\\0" "$@" > "$CAPTURE"\nexit "${DOCKER_STATUS:-0}"\n')
+        self.env["PATH"] = str(self.root) + os.pathsep + os.environ["PATH"]
+
+    def test_docker_check_resolves_both_paths_relative_to_config(self) -> None:
+        self.configuration({
+            "dockerfile": "Docker file", "context": "../..", "target": "dependencies",
+            "args": {"VERSION": "value with spaces;$(not-a-command)"},
+        })
+        self.docker_capture()
+        for arch in ("amd64", "arm64"):
+            result = self.run_script("Check the Dockerfile without building", ARCH=arch)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            args = Path(self.env["CAPTURE"]).read_bytes().decode().split("\0")[:-1]
+            self.assertEqual(args, [
+                "build", "--check", "--platform", f"linux/{arch}", "--file",
+                str(self.root / "workspace/.github/.devcontainer/Docker file"),
+                "--target", "dependencies", "--build-arg", "VERSION=value with spaces;$(not-a-command)",
+                str(self.root / "workspace"),
+            ])
+
+    def test_docker_check_defaults_context_and_skips_image_only_config(self) -> None:
+        self.docker_capture()
+        self.configuration({"dockerfile": "Dockerfile"})
+        result = self.run_script("Check the Dockerfile without building")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = Path(self.env["CAPTURE"]).read_bytes().decode().split("\0")[:-1]
+        self.assertEqual(args[-1], str(self.root / "workspace/.github/.devcontainer"))
+        Path(self.env["CAPTURE"]).unlink()
+        self.configuration(None)
+        result = self.run_script("Check the Dockerfile without building")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skipped", result.stdout)
+        self.assertFalse(Path(self.env["CAPTURE"]).exists())
+
+    def test_docker_check_violation_and_parse_failure_fail_the_step(self) -> None:
+        self.configuration({"dockerfile": "Dockerfile"})
+        self.docker_capture()
+        result = self.run_script("Check the Dockerfile without building", DOCKER_STATUS="1")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        (self.root / "resolved.json").write_text("not JSON")
+        result = self.run_script("Check the Dockerfile without building")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_trivy_install_verifies_before_extracting_and_rejects_bad_arch(self) -> None:
+        self.stub(self.root / "curl", 'printf "%s\\0" "$@" > "$CAPTURE"\n')
+        self.stub(self.root / "sha256sum", 'cat > "$RUNNER_TEMP/checksum-input"\nexit "${CHECKSUM_STATUS:-0}"\n')
+        self.stub(self.root / "tar", 'touch "$RUNNER_TEMP/extracted"\n')
+        self.env["PATH"] = str(self.root) + os.pathsep + os.environ["PATH"]
+        for arch, platform in (("amd64", "64bit"), ("arm64", "ARM64")):
+            result = self.run_script("Install checksum-pinned Trivy", ARCH=arch)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"trivy_0.76.1_Linux-{platform}.tar.gz", Path(self.env["CAPTURE"]).read_text())
+            self.assertTrue((self.root / "extracted").exists())
+            (self.root / "extracted").unlink()
+        result = self.run_script("Install checksum-pinned Trivy", CHECKSUM_STATUS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "extracted").exists())
+        result = self.run_script("Install checksum-pinned Trivy", ARCH="invalid")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_scan_uses_local_image_redacted_template_and_ignores_caller_policy(self) -> None:
+        self.stub(
+            self.root / "trivy/trivy",
+            'printf "%s\\0" "$@" > "$CAPTURE"\nexit "${SCAN_STATUS:-0}"\n',
+        )
+        for status in (0, 1, 2):
+            result = self.run_script("Scan the local image for secrets", SCAN_STATUS=str(status))
+            self.assertEqual(result.returncode, status, result.stderr)
+            self.assertRegex(result.stdout, rf"Secret scan \(arm64\): \d+ seconds \(exit {status}\)")
+            args = Path(self.env["CAPTURE"]).read_bytes().decode().split("\0")[:-1]
+            for flag, value in (("--image-src", "docker"), ("--scanners", "secret"),
+                                ("--exit-code", "1"), ("--config", ""), ("--ignorefile", "")):
+                self.assertEqual(args[args.index(flag) + 1], value)
+            self.assertEqual(args[-1], self.env["IMAGE"] + ":sha-" + "a" * 40 + "-arm64")
+            template = args[args.index("--template") + 1]
+            for field in (".Target", ".StartLine", ".EndLine", ".RuleID", ".Severity"):
+                self.assertIn(field, template)
+            for field in (".Match", ".Code", ".Content", ".Text"):
+                self.assertNotIn(field, template)
+            self.assertEqual((self.root / "trivy-secret.yaml").read_text(), "skip-patterns: []\n")
+            self.assertNotIn("--skip-dirs", args)
+            self.assertNotIn("--skip-files", args)
+
+    def test_push_targets_only_the_scanned_local_tag_and_propagates_failure(self) -> None:
+        self.docker_capture()
+        result = self.run_script("Push the scanned architecture image")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = Path(self.env["CAPTURE"]).read_bytes().decode().split("\0")[:-1]
+        self.assertEqual(args, ["push", self.env["IMAGE"] + ":sha-" + "a" * 40 + "-arm64"])
+        result = self.run_script("Push the scanned architecture image", DOCKER_STATUS="1")
+        self.assertEqual(result.returncode, 1)
+
+    def test_failed_scan_prevents_any_push(self) -> None:
+        self.stub(self.root / "devcontainer-cli/node_modules/.bin/devcontainer", "exit 0\n")
+        self.stub(self.root / "trivy/trivy", 'exit "$SCAN_STATUS"\n')
+        self.docker_capture()
+        names = ("Build the architecture image", "Scan the local image for secrets",
+                 "Push the scanned architecture image")
+        pipeline = "\n".join(f"(\n{script(name)})" for name in names)
+        for status in (1, 2, 0):
+            result = subprocess.run(
+                ["bash", "-e", "-c", pipeline], env={**self.env, "SCAN_STATUS": str(status)},
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, status, result.stderr)
+            self.assertEqual(Path(self.env["CAPTURE"]).exists(), status == 0)
 
     def test_wrong_native_architecture_fails_before_building(self) -> None:
         self.stub(self.root / "docker", 'printf "%s\\n" "$DOCKER_ARCH"\n')

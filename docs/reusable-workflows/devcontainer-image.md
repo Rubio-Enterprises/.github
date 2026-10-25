@@ -66,9 +66,10 @@ source snapshot.
 
 ## Build and publication
 
-- Pull requests build both native architectures without pushing, merging, or
-  pruning. Only `push`, `schedule`, and `workflow_dispatch` on the default
-  branch publish. Dispatches on other branches and all other events do nothing.
+- Pull requests check the Dockerfile, build and secret-scan both native
+  architectures without pushing, merging, or pruning. Only `push`, `schedule`,
+  and `workflow_dispatch` on the default branch publish. Dispatches on other
+  branches and all other events do nothing.
 - amd64 uses `RUNNERS.docker` (hosted fallback `ubuntu-latest`); arm64 uses
   `RUNNERS.arm` (hosted fallback `ubuntu-24.04-arm`). Docker's architecture
   is checked before building, so a misrouted daemon fails instead of emulating.
@@ -78,10 +79,12 @@ source snapshot.
 - The official CLI is installed as `@devcontainers/cli@0.89.0` under
   `RUNNER_TEMP`, with npm lifecycle scripts disabled. The direct CLI allows
   an exact version pin and the OCI source label; `devcontainers/ci` installs
-  a floating `@devcontainers/cli@0` and has no label input. Only `build`
-  runs: image setup belongs in the caller's Dockerfile, not lifecycle commands.
+  a floating `@devcontainers/cli@0` and has no label input. Image setup belongs
+  in the caller's Dockerfile; no lifecycle commands run.
 - Each architecture imports cache from `:main-amd64` or `:main-arm64`,
-  then pushes `:sha-<commit>-amd64` or `:sha-<commit>-arm64`.
+  builds into the runner's local Docker with `--output type=docker`, scans that
+  local image, then pushes `:sha-<commit>-amd64` or `:sha-<commit>-arm64` only
+  after its scan succeeds. The build command never receives `--push`.
   Missing caches are normal on the first build. Same-repo PRs can authenticate
   read-only for cache; forks do not receive registry credentials and may build
   cold. Private base images/features must independently permit the caller.
@@ -105,6 +108,91 @@ source snapshot.
   active build. GitHub may coalesce pending runs and does not promise FIFO.
   Do not reuse this concurrency group in the caller.
 
+## Secret checks
+
+Both architecture jobs run the same fail-closed steps on PRs and publications:
+
+1. The pinned Dev Container CLI's `read-configuration` parses JSONC and resolves
+   configuration substitutions; no handwritten JSONC parser is needed. Dockerfile
+   and context come from `build.dockerfile` and `build.context`, both resolved
+   relative to the config file, not the workspace. Context defaults to that
+   directory. Build arguments and target are forwarded without shell evaluation.
+   Definitions without `build.dockerfile` skip only this check, not the image scan.
+2. `docker build --check --platform linux/<arch> --file <dockerfile> <context>`
+   validates without executing the Dockerfile's build steps. It includes
+   `SecretsUsedInArgOrEnv`. Docker documents that **`--check` exits nonzero for
+   violations**, unlike ordinary builds' exit-0 warnings. The Node subprocess
+   propagates that exit status (including launch errors), and Bash fails the
+   step. No warning-text parsing, ignored status, or separate build is involved.
+   Build checks require Buildx >= 0.15 and a supporting Dockerfile frontend
+   (introduced in Dockerfile 1.8); unsupported tooling fails rather than skipping.
+3. Trivy scans the built local tag with `--image-src docker --scanners secret
+   --exit-code 1`; it cannot silently fall back to a remote image. Scanner errors
+   also fail the step. The 15-minute timeout fails closed. The log records scan
+   seconds and status per architecture. No vulnerability database is needed for
+   this secret-only scan; telemetry and version-update checks are disabled.
+4. The report uses Trivy's native Go template output and prints **only file/image
+   config location, line range, rule ID and severity**. It never renders matched
+   content or code snippets, even partially redacted ones. No JSON/SARIF report
+   containing secret values is written or uploaded. Do not enable debug logging.
+5. Only a subsequent successful-step-only `docker push` publishes the scanned
+   tag, and only on the allowed default-branch events. A failed architecture
+   blocks the multi-architecture merge and pruning. The other architecture may
+   already have pushed its independently scanned tag; it cannot advance `:main`.
+
+### Trivy installation and exclusions
+
+Trivy **0.76.1** is downloaded directly from its official GitHub release, with
+separate Linux amd64/arm64 SHA-256 hashes committed in the workflow. Both hashes
+were compared with the release asset API digests and published checksum file.
+`sha256sum --check --strict` must succeed **before** extracting the `trivy` binary;
+no downloaded installer script or action runs. A rewritten tag/replaced archive
+cannot change the accepted bytes. Updating the version requires reviewing and
+updating both hashes together; a floating checksum download is not a trust pin.
+This deliberately avoids the mutable Trivy action/setup tags implicated in the
+[March 2026 incident](https://github.com/aquasecurity/trivy/discussions/10425).
+Checksums establish byte integrity, not immunity to a malicious upstream release.
+
+Caller `trivy.yaml`, `.trivyignore` and `trivy-secret.yaml` are not loaded. The
+workflow supplies its own secret config with **`skip-patterns: []`** because
+0.76.1 would otherwise skip all `node_modules` and several lockfiles. Neither
+`node_modules` nor `.venv` is excluded wholesale. There are initially **no custom
+false-positive exclusions**; any evidence-driven additions must be narrow,
+covered by tests and listed here with their reason.
+
+Trivy's built-in global allow rules remain enabled. In 0.76.1 they exclude these
+paths (scan-relative, without a leading slash):
+
+| Built-in ID | Path scope |
+| --- | --- |
+| `dist-info` | Python `.dist-info/` metadata |
+| `tests` | Start `test`, or contain `/test`, `-test`, `_test`, `.test` |
+| `examples` | Paths or matches containing `example` |
+| `vendor` | `/vendor/` |
+| `usr-dirs` | `usr/share/`, `usr/include/`, `usr/lib/` |
+| `locale-dir` | `/locale/` or `/locales/` |
+| `markdown` | Files ending `.md` |
+| `node.js` | `opt/yarn-v<version>/` |
+| `golang` | `usr/local/go/` |
+| `python` | `usr/local/lib/python<version>/` |
+| `rubygems` | `usr/lib/gems/` |
+| `wordpress` | `usr/src/wordpress/` |
+| `anaconda-log` | `var/log/anaconda/` |
+
+The `tests` start-of-path match and `examples` content match ignore case.
+Built-in detector-specific allow rules also remain as shipped; see the pinned
+[global rules](https://github.com/aquasecurity/trivy/blob/e713f67f7d54decdcd9b3132c9751833dcced698/pkg/fanal/secret/builtin-allow-rules.go)
+and [detectors](https://github.com/aquasecurity/trivy/blob/e713f67f7d54decdcd9b3132c9751833dcced698/pkg/fanal/secret/builtin-rules.go).
+These defaults reduce fixture/example false positives but are detection blind
+spots, not proof that excluded files are safe. Trivy also skips most binary files
+(except supported `.pyc` inspection), very short files, and detected base-image
+layers. **Skipping detected base layers is accepted for the Microsoft base**;
+this is not a full scan of the upstream base or a substitute for secret rotation.
+
+References: [Docker build checks](https://docs.docker.com/build/checks/),
+[`SecretsUsedInArgOrEnv`](https://docs.docker.com/reference/build-checks/secrets-used-in-arg-or-env/),
+[Trivy secret scanning](https://trivy.dev/latest/docs/scanner/secret/).
+
 ## Ownership and validation boundary
 
 The consumer owns its build definition, Dockerfile, Docker ignore file, and
@@ -114,7 +202,9 @@ floating first-party images from pinning and updates. The runtime config's
 existing lockfile-refresh rule does not cover build-definition lockfiles.
 
 Local contract tests execute the embedded shell with stub CLIs and check
-permissions, routing, tags, cache arguments, and input rejection. actionlint
+permissions, routing, tags, local-build/scan/push ordering, checksum rejection,
+Docker check exit propagation/path resolution, scan failure/report fields, cache
+arguments, and input rejection. actionlint
 checks workflow syntax; zizmor checks security. YAML anchors share the two build
 jobs' matrix and steps while preserving separate token scopes. Also audit an
 alias-expanded temporary copy because zizmor warns about anchor support.
