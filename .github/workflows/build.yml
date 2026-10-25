@@ -169,75 +169,26 @@ jobs:
           echo "mise action version: $version"
       # standards ADR-0033: a native repository's .mise.toml includes shared
       # pins from the private standards checkout at `.standards-config/`, so
-      # no mise command works until `mise bootstrap` clones it. Route only that
-      # clone through a read-only standards-reader token, then remove the route
-      # before any repository code runs. Rendered repositories skip all three.
-      - name: Mint standards read token (native config model)
+      # no mise command works until it is cloned. The shared action clones it
+      # through a read-only standards-reader token and removes the token route
+      # before any repository code runs. Rendered repositories keep mise-action.
+      - name: Bootstrap the Shared Config Checkout (native config model)
         if: needs.detect.outputs.config_model == 'native'
-        id: standards-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@6776a8489b477ee788d436fd39cc6698ee49e898 # v4
         with:
+          config-model: ${{ needs.detect.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: standards
-          permission-contents: read
-      - name: Route the Shared Config Checkout clone through the App token
-        if: needs.detect.outputs.config_model == 'native'
-        env:
-          TOKEN: ${{ steps.standards-token.outputs.token }}
-          OWNER: ${{ github.repository_owner }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config --global \
-            url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
-            "https://github.com/${OWNER}/standards"
+          mise-version: ${{ steps.mise-version.outputs.version }}
+          cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
       - name: Install consumer-repo runtimes
+        if: needs.detect.outputs.config_model != 'native'
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         env:
           MISE_GITHUB_TOKEN: ${{ github.token }}
-          # A failed private clone must fail, not wait on a credential prompt.
-          GIT_TERMINAL_PROMPT: "0"
-          GCM_INTERACTIVE: never
         with:
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           version: ${{ steps.mise-version.outputs.version }}
-          bootstrap: ${{ needs.detect.outputs.config_model == 'native' }}
-          bootstrap_args: ${{ needs.detect.outputs.config_model == 'native' && '--only repos,tools' || '' }}
-      - name: Require the Shared Config Checkout (native config model)
-        if: needs.detect.outputs.config_model == 'native'
-        env:
-          MISE_GITHUB_TOKEN: ${{ github.token }}
-          GIT_TERMINAL_PROMPT: "0"
-          GCM_INTERACTIVE: never
-        shell: bash
-        run: |
-          set -euo pipefail
-          mise bootstrap repos status --missing
-          if [ ! -f .standards-config/config/lefthook/base.yml ]; then
-            echo "::error::shared config missing at .standards-config/config/lefthook/base.yml: declare the checkout in .mise.toml [bootstrap.repos] and run 'mise bootstrap --only repos,tools' (standards ADR-0033)" >&2
-            exit 1
-          fi
-          sha="$(git -C .standards-config rev-parse HEAD)"
-          ref="$(git -C .standards-config symbolic-ref -q --short HEAD || echo detached)"
-          echo "Shared Config Checkout: standards \`$ref\` at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Shared Config Checkout: standards $ref at $sha"
-      - name: Remove the standards read route
-        if: always() && needs.detect.outputs.config_model == 'native'
-        shell: bash
-        run: |
-          set -euo pipefail
-          routes="$(git config --global --get-regexp '^url\..*\.insteadof$' || true)"
-          while read -r key _; do
-            case "$key" in
-              *x-access-token:*) git config --global --remove-section "${key%.insteadof}" ;;
-            esac
-          done <<<"$routes"
-          if git config --global --get-regexp '^url\.' 2>/dev/null | grep -q 'x-access-token:'; then
-            echo "::error::a token-bearing git URL route survived removal" >&2
-            exit 1
-          fi
       # Same pnpm provisioning as the lint-hooks and typecheck gates (reads
       # packageManager; avoids corepack's keyring drift). Installing the
       # workspace stays the build task's job.

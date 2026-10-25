@@ -55,15 +55,25 @@ channel.
 inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Checkout at
 `.standards-config/`. Every workflow that runs mise in a consumer (`lint-hooks`,
 `typecheck-ts`, `build`, and the `e2e` and `cloud-setup-smoke` reusables) sets the checkout
-up with mise-action's built-in `bootstrap: true` and `bootstrap_args: --only repos,tools`. It
-clones the private `standards` repo through the standards-reader token route.
+up with the shared composite action
+[`actions/standards-bootstrap`](actions/standards-bootstrap/action.yml), which repository
+workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
+mints the standards-reader token and routes the private clone through it. It runs
+mise-action's built-in `bootstrap: true` with `bootstrap_args: --only repos,tools`, then
+removes its route. It does nothing for rendered repositories, which keep their own
+mise-action step.
 
-- A required step then runs `mise bootstrap repos status --missing` and requires
+- The action then runs `mise bootstrap repos status --missing` and requires
   `.standards-config/config/lefthook/base.yml`. A missing checkout fails instead of letting
   Lefthook skip the shared hooks.
-- `typecheck-ts`, `build` and `e2e` remove the token route before repository code runs.
-  `cloud-setup-smoke` keeps it for the setup chain, which must be able to refresh the
-  checkout.
+- `typecheck-ts`, `build` and `e2e` let the action remove the token route before
+  repository code runs. `cloud-setup-smoke` passes `keep-route: "true"` for the setup chain,
+  which must be able to refresh the checkout. `lint-hooks` passes it too, matching its
+  rendered path, which keeps the route for Lefthook's `remotes:` fetch.
+- **Pin.** The workflows call the action as
+  `Rubio-Enterprises/.github/actions/standards-bootstrap@<sha> # v4`, one SHA in all five. A
+  local `./` path would resolve against the consumer's checkout, not this repo. A gate's
+  action pin is plumbing: it reaches consumers only through a `gates/wf-v1` publication.
 - A called workflow sees org secrets only when its caller forwards them, so the callable ones
   (`typecheck-ts` in cache-seed mode, `e2e`, `cloud-setup-smoke`) declare
   `STANDARDS_READER_APP_ID` and `STANDARDS_READER_APP_PRIVATE_KEY` as optional. A native

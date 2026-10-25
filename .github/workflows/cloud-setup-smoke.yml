@@ -250,85 +250,35 @@ jobs:
           echo "mise action version: $version"
       # standards ADR-0033: a native repository's .mise.toml includes shared
       # pins from the private standards checkout at `.standards-config/`, so
-      # no mise command works until `mise bootstrap` clones it. Same path as
-      # the gates: route that clone through a read-only standards-reader token.
-      # Unlike typecheck and build, the route stays for the chain below: the
-      # chain is the cloud session's own setup, which must be able to refresh
-      # the checkout. The token is the same accepted trade as GH_PAT above:
+      # no mise command works until it is cloned. Same shared action as the
+      # gates, except that the token route stays for the chain below: the chain
+      # is the cloud session's own setup, which must be able to refresh the
+      # checkout. The token is the same accepted trade as GH_PAT above:
       # read-only, scoped to standards, expiring after about an hour, and
       # present only for a native caller that forwarded the secrets.
-      # Rendered repositories skip these steps.
-      - name: Require standards-reader credentials (native config model)
+      # Rendered repositories keep mise-action.
+      - name: Bootstrap the Shared Config Checkout (native config model)
         if: >-
           steps.probe.outputs.runnable == 'true' &&
           steps.probe.outputs.config_model == 'native'
-        env:
-          APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
-          APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-        shell: bash
-        run: |
-          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
-            echo "::error::config_model native needs STANDARDS_READER_APP_ID and STANDARDS_READER_APP_PRIVATE_KEY; a calling workflow must forward them" >&2
-            exit 1
-          fi
-      - name: Mint standards read token (native config model)
-        if: >-
-          steps.probe.outputs.runnable == 'true' &&
-          steps.probe.outputs.config_model == 'native'
-        id: standards-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@6776a8489b477ee788d436fd39cc6698ee49e898 # v4
         with:
+          config-model: ${{ steps.probe.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: standards
-          permission-contents: read
-      - name: Route the Shared Config Checkout clone through the App token
+          mise-version: ${{ steps.mise-version.outputs.version }}
+          cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+          keep-route: "true"
+      - name: Install the consumer's pinned toolchain
         if: >-
           steps.probe.outputs.runnable == 'true' &&
-          steps.probe.outputs.config_model == 'native'
-        env:
-          TOKEN: ${{ steps.standards-token.outputs.token }}
-          OWNER: ${{ github.repository_owner }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config --global \
-            url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
-            "https://github.com/${OWNER}/standards"
-      - name: Install the consumer's pinned toolchain
-        if: steps.probe.outputs.runnable == 'true'
+          steps.probe.outputs.config_model != 'native'
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         env:
           MISE_GITHUB_TOKEN: ${{ github.token }}
-          # A failed private clone must fail, not wait on a credential prompt.
-          GIT_TERMINAL_PROMPT: "0"
-          GCM_INTERACTIVE: never
         with:
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           version: ${{ steps.mise-version.outputs.version }}
-          bootstrap: ${{ steps.probe.outputs.config_model == 'native' }}
-          bootstrap_args: ${{ steps.probe.outputs.config_model == 'native' && '--only repos,tools' || '' }}
-      - name: Require the Shared Config Checkout (native config model)
-        if: >-
-          steps.probe.outputs.runnable == 'true' &&
-          steps.probe.outputs.config_model == 'native'
-        env:
-          MISE_GITHUB_TOKEN: ${{ github.token }}
-          GIT_TERMINAL_PROMPT: "0"
-          GCM_INTERACTIVE: never
-        shell: bash
-        run: |
-          set -euo pipefail
-          mise bootstrap repos status --missing
-          if [ ! -f .standards-config/config/lefthook/base.yml ]; then
-            echo "::error::shared config missing at .standards-config/config/lefthook/base.yml: declare the checkout in .mise.toml [bootstrap.repos] and run 'mise bootstrap --only repos,tools' (standards ADR-0033)" >&2
-            exit 1
-          fi
-          sha="$(git -C .standards-config rev-parse HEAD)"
-          ref="$(git -C .standards-config symbolic-ref -q --short HEAD || echo detached)"
-          echo "Shared Config Checkout: standards \`$ref\` at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Shared Config Checkout: standards $ref at $sha"
 
       - name: Mint private-modules-reader token
         id: private-modules-token

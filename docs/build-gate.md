@@ -46,10 +46,10 @@ task, BD-01 fails.
   example, pass `CODE_SIGNING_ALLOWED=NO` to `xcodebuild`. Signed releases stay
   in `testflight.yml`.
 - Repositories on the native config model (`config_model: native`, standards
-  ADR-0033) are set up with `mise bootstrap --only repos,tools` before the
-  build. A read-only standards-reader token routes the clone of the private
-  Shared Config Checkout. The workflow removes that route before any
-  repository code runs.
+  ADR-0033) are set up by the [`standards-bootstrap`](standards-bootstrap.md)
+  action before the build. It clones the private Shared Config Checkout
+  through a read-only standards-reader token and removes that route before
+  any repository code runs.
 
 ### CT-01: `compose.ci.yml`
 

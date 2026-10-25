@@ -1,10 +1,11 @@
 """Contracts for the standards ADR-0033 native config model in the central workflows.
 
 A repository answering `config_model: native` provisions its Shared Config
-Checkout with `mise bootstrap --only repos,tools` in every workflow that runs
-mise in the consumer: the lint-hooks, typecheck and build Gate Families and the
-e2e and cloud-setup-smoke reusables. Every other repository keeps the rendered
-model's setup. The checkout must exist or the job fails.
+Checkout through the shared `standards-bootstrap` action in every workflow that
+runs mise in the consumer: the lint-hooks, typecheck and build Gate Families and
+the e2e and cloud-setup-smoke reusables. Every other repository keeps the
+rendered model's mise-action step. The action's own behaviour is covered by
+test_standards_bootstrap_action.py.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import unittest
 from pathlib import Path
 
 from test_ruby_workflows import ROOT, extract_run_block, extract_step
+from test_standards_bootstrap_action import action_inputs
 
 WORKFLOWS = ROOT / ".github" / "workflows"
 LINT = (WORKFLOWS / "lint-hooks.yml").read_text(encoding="utf-8")
@@ -28,11 +30,18 @@ SMOKE = (WORKFLOWS / "cloud-setup-smoke.yml").read_text(encoding="utf-8")
 GATES = (WORKFLOWS / "standards-gates.yml").read_text(encoding="utf-8")
 TEMPLATE = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
 
-READY_STEP = "Require the Shared Config Checkout (native config model)"
-UNROUTE_STEP = "Remove the standards read route"
-CREDENTIALS_STEP = "Require standards-reader credentials (native config model)"
-MINT_STEP = "Mint standards read token (native config model)"
-ROUTE_STEP = "Route the Shared Config Checkout clone through the App token"
+BOOTSTRAP_STEP = "Bootstrap the Shared Config Checkout (native config model)"
+ACTION_REF = re.compile(
+    r"uses: (Rubio-Enterprises/\.github/actions/standards-bootstrap@[0-9a-f]{40}) # v4\n"
+)
+# Step names the workflows carried before the shared action existed.
+INLINE_STEPS = (
+    "Require standards-reader credentials (native config model)",
+    "Mint standards read token (native config model)",
+    "Route the Shared Config Checkout clone through the App token",
+    "Require the Shared Config Checkout (native config model)",
+    "Remove the standards read route",
+)
 MISE_STEP_NAMES = {
     "lint-hooks": "Install consumer-repo runtimes (lefthook + pinned hook tools)",
     "typecheck-ts": "Install consumer-repo runtimes",
@@ -47,13 +56,19 @@ NATIVE_WORKFLOWS = {
     "e2e": (E2E, "steps.config-model.outputs.config_model"),
     "cloud-setup-smoke": (SMOKE, "steps.probe.outputs.config_model"),
 }
-# Workflows that mint their own token only for native repositories.
-NATIVE_ONLY_TOKEN = ("typecheck-ts", "build", "e2e", "cloud-setup-smoke")
 # Workflows a consumer can call, so org secrets arrive only when forwarded.
 CALLABLE = ("typecheck-ts", "e2e", "cloud-setup-smoke")
-# Workflows that remove the route before repository code runs.
-UNROUTED = {"typecheck-ts": "Install JS deps", "build": "Require the build task",
-            "e2e": "Install JS deps (lockfile-aware)"}
+# Workflows whose later steps keep the standards route: lint-hooks as before
+# the action, cloud-setup-smoke for the setup chain.
+KEEP_ROUTE = ("lint-hooks", "cloud-setup-smoke")
+# The first step that runs repository code after the bootstrap.
+REPOSITORY_CODE = {
+    "lint-hooks": "Install JS deps (so lefthook.local.yml pnpm hooks resolve workspace packages)",
+    "typecheck-ts": "Install JS deps",
+    "build": "Require the build task",
+    "e2e": "Install JS deps (lockfile-aware)",
+    "cloud-setup-smoke": "Run the cloud setup chain under CLOUD_SETUP_SMOKE",
+}
 RUNNERS = dict(LIGHT_RUNNER='["small"]', HEAVY_RUNNER='["medium"]',
                MACOS_RUNNER='["macos"]', RUBY_RUNNER='["ruby"]')
 PICK_STEPS = {
@@ -138,56 +153,83 @@ class ConfigModelSelectionTests(unittest.TestCase):
                 self.assertEqual(outputs(repo / "out")["has_knowledgebase"], expected)
 
 
+def native_guard(name: str, model: str, op: str) -> str:
+    guard = f"{model} {op} 'native'"
+    if name == "cloud-setup-smoke":
+        return f"steps.probe.outputs.runnable == 'true' && {guard}"
+    return guard
+
+
+def with_inputs(step: str) -> dict[str, str]:
+    block = step.split("\n        with:\n", 1)[1]
+    return dict(re.findall(r"(?m)^          ([a-z-]+): (.*)$", block))
+
+
 class NativeBootstrapContractTests(unittest.TestCase):
-    def test_mise_action_bootstraps_only_native_repositories(self) -> None:
+    def test_every_workflow_calls_one_pinned_action_for_native_repositories(self) -> None:
+        refs = set()
+        for name, (text, model) in NATIVE_WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                step = extract_step(text, BOOTSTRAP_STEP)
+                match = ACTION_REF.search(step)
+                self.assertIsNotNone(match, step)
+                refs.add(match.group(1))
+                self.assertEqual(condition(text, BOOTSTRAP_STEP), native_guard(name, model, "=="))
+                self.assertEqual(len(ACTION_REF.findall(text)), 1)
+        # One ref, so landing the action rewrites a single SHA everywhere.
+        self.assertEqual(len(refs), 1, refs)
+
+    def test_action_inputs(self) -> None:
+        declared = set(action_inputs())
+        for name, (text, model) in NATIVE_WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                given = with_inputs(extract_step(text, BOOTSTRAP_STEP))
+                self.assertLessEqual(set(given), declared)
+                rendered = extract_step(text, MISE_STEP_NAMES[name])
+                expected = {
+                    "config-model": f"${{{{ {model} }}}}",
+                    "app-id": "${{ secrets.STANDARDS_READER_APP_ID }}",
+                    "private-key": "${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}",
+                    "mise-version": "${{ steps.mise-version.outputs.version }}",
+                    "cache-key-prefix": re.search(r"cache_key_prefix: (.*)", rendered).group(1),
+                }
+                if name in KEEP_ROUTE:
+                    expected["keep-route"] = '"true"'
+                self.assertEqual(given, expected)
+
+    def test_rendered_repositories_keep_plain_mise_action(self) -> None:
         for name, (text, model) in NATIVE_WORKFLOWS.items():
             with self.subTest(workflow=name):
                 step = extract_step(text, MISE_STEP_NAMES[name])
-                self.assertIn(f"bootstrap: ${{{{ {model} == 'native' }}}}", step)
-                self.assertIn(
-                    f"bootstrap_args: ${{{{ {model} == 'native' && '--only repos,tools' || '' }}}}",
-                    step,
-                )
-                self.assertIn('GIT_TERMINAL_PROMPT: "0"', step)
-                self.assertNotIn("install_args", step)
+                self.assertEqual(condition(text, MISE_STEP_NAMES[name]),
+                                 native_guard(name, model, "!="))
+                self.assertIn("uses: jdx/mise-action@", step)
+                self.assertIn("version: ${{ steps.mise-version.outputs.version }}", step)
+                for absent in ("bootstrap", "GIT_TERMINAL_PROMPT", "install_args"):
+                    self.assertNotIn(absent, step)
 
-    def test_standards_route_precedes_the_bootstrap(self) -> None:
+    def test_no_inline_native_setup_remains(self) -> None:
         for name, (text, _) in NATIVE_WORKFLOWS.items():
-            with self.subTest(workflow=name):
-                route = text.index("url.\"https://x-access-token:${TOKEN}@github.com/${OWNER}/standards\"")
-                self.assertLess(route, text.index(f"- name: {MISE_STEP_NAMES[name]}"))
-                self.assertLess(
-                    text.index(f"- name: {MISE_STEP_NAMES[name]}"),
-                    text.index(f"- name: {READY_STEP}"),
-                )
-
-    def test_rendered_repositories_skip_every_native_step(self) -> None:
-        for name in NATIVE_ONLY_TOKEN:
-            text, model = NATIVE_WORKFLOWS[name]
-            steps = [MINT_STEP, ROUTE_STEP, READY_STEP]
-            if name in CALLABLE:
-                steps.append(CREDENTIALS_STEP)
-            for step in steps:
+            for step in INLINE_STEPS:
                 with self.subTest(workflow=name, step=step):
-                    self.assertIn(f"{model} == 'native'", condition(text, step))
-            mint = extract_step(text, MINT_STEP)
-            self.assertIn("repositories: standards\n", mint)
-            self.assertIn("permission-contents: read", mint)
-        smoke = NATIVE_WORKFLOWS["cloud-setup-smoke"][0]
-        for step in (CREDENTIALS_STEP, MINT_STEP, ROUTE_STEP, READY_STEP):
-            self.assertIn("steps.probe.outputs.runnable == 'true'", condition(smoke, step))
+                    self.assertNotIn(f"- name: {step}\n", text)
+            self.assertNotIn("bootstrap_args", text)
 
-    def test_route_is_removed_before_repository_code(self) -> None:
-        for name, later in UNROUTED.items():
-            text, model = NATIVE_WORKFLOWS[name]
+    def test_bootstrap_precedes_repository_code(self) -> None:
+        for name, later in REPOSITORY_CODE.items():
+            text, _ = NATIVE_WORKFLOWS[name]
             with self.subTest(workflow=name):
-                self.assertEqual(f"always() && {model} == 'native'", condition(text, UNROUTE_STEP))
-                self.assertLess(text.index(f"- name: {UNROUTE_STEP}"), text.index(f"- name: {later}"))
+                self.assertLess(text.index(f"- name: {BOOTSTRAP_STEP}\n"),
+                                text.index(f"- name: {later}\n"))
+                self.assertLess(text.index(f"- name: {MISE_STEP_NAMES[name]}\n"),
+                                text.index(f"- name: {later}\n"))
 
-    def test_cloud_smoke_keeps_the_route_for_the_setup_chain(self) -> None:
-        self.assertNotIn(UNROUTE_STEP, SMOKE)
-        self.assertLess(SMOKE.index(f"- name: {ROUTE_STEP}"),
-                        SMOKE.index("- name: Run the cloud setup chain under CLOUD_SETUP_SMOKE"))
+    def test_lint_hooks_mints_its_own_route_only_for_rendered_repositories(self) -> None:
+        for step in ("Mint standards read token (lefthook remotes fetch)",
+                     "Route the lefthook standards remote through the App token"):
+            with self.subTest(step=step):
+                self.assertEqual(condition(LINT, step),
+                                 "needs.detect.outputs.config_model != 'native'")
 
 
 class CallerCredentialTests(unittest.TestCase):
@@ -203,26 +245,13 @@ class CallerCredentialTests(unittest.TestCase):
                         call, rf"(?m)^      {secret}:\n(?:        .*\n)*?        required: false$"
                     )
 
-    def test_missing_forwarded_credentials_fail_with_a_clear_error(self) -> None:
-        for name in CALLABLE:
-            text, _ = NATIVE_WORKFLOWS[name]
-            script = extract_run_block(text, CREDENTIALS_STEP)
-            for app_id, key, succeeds in (("1", "k", True), ("", "k", False), ("1", "", False)):
-                with self.subTest(workflow=name, app_id=app_id, key=key), \
-                        tempfile.TemporaryDirectory() as tmp:
-                    result = run(script, Path(tmp), APP_ID=app_id, APP_PRIVATE_KEY=key)
-                    self.assertEqual(result.returncode == 0, succeeds, result.stderr)
-                    if not succeeds:
-                        self.assertIn("a calling workflow must forward them", result.stderr)
-            self.assertLess(text.index(f"- name: {CREDENTIALS_STEP}"), text.index(f"- name: {MINT_STEP}"))
-
 
 class ReusableOrderingTests(unittest.TestCase):
     def test_config_model_is_known_before_any_native_step(self) -> None:
         for text, reader in ((E2E, "Read the config model"),
                              (SMOKE, "Resolve whether this repo has a smoke-capable cloud-setup chain")):
             with self.subTest(reader=reader):
-                self.assertLess(text.index(f"- name: {reader}"), text.index(f"- name: {CREDENTIALS_STEP}"))
+                self.assertLess(text.index(f"- name: {reader}"), text.index(f"- name: {BOOTSTRAP_STEP}"))
 
     def test_smoke_probe_reports_the_model_even_without_a_chain(self) -> None:
         script = extract_run_block(SMOKE, PICK_STEPS["cloud-setup-smoke"][1])
@@ -233,83 +262,6 @@ class ReusableOrderingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             out = outputs(repo / "out")
         self.assertEqual((out["config_model"], out["runnable"]), ("native", "false"))
-
-
-class SharedConfigReadinessTests(unittest.TestCase):
-    def ready(self, *, status: int, checkout: bool):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            bin_dir = repo / "bin"
-            bin_dir.mkdir()
-            (bin_dir / "mise").write_text(
-                "#!/bin/sh\n"
-                '[ "$*" = "bootstrap repos status --missing" ] || exit 2\n'
-                f"exit {status}\n"
-            )
-            (bin_dir / "mise").chmod(0o755)
-            if checkout:
-                shared = repo / ".standards-config"
-                (shared / "config" / "lefthook").mkdir(parents=True)
-                (shared / "config" / "lefthook" / "base.yml").write_text("{}\n")
-                for args in (["init", "-q", "-b", "stable"],
-                             ["-c", "user.email=t@e", "-c", "user.name=t",
-                              "commit", "-q", "--allow-empty", "-m", "x"]):
-                    subprocess.run(["git", *args], cwd=shared, check=True,
-                                   capture_output=True)
-            summary = repo / "summary"
-            results = {
-                name: run(extract_run_block(text, READY_STEP), repo,
-                          PATH=f"{bin_dir}:{os.environ['PATH']}",
-                          GITHUB_STEP_SUMMARY=str(summary))
-                for name, (text, _) in NATIVE_WORKFLOWS.items()
-            }
-            return results, summary.read_text() if summary.exists() else ""
-
-    def test_present_checkout_passes_and_records_its_revision(self) -> None:
-        results, summary = self.ready(status=0, checkout=True)
-        for name, result in results.items():
-            with self.subTest(workflow=name):
-                self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("standards `stable` at `", summary)
-
-    def test_missing_or_stale_checkout_fails(self) -> None:
-        for status, checkout, message in (
-            (0, False, "shared config missing"),
-            (1, True, ""),
-        ):
-            results, _ = self.ready(status=status, checkout=checkout)
-            for name, result in results.items():
-                with self.subTest(workflow=name, status=status, checkout=checkout):
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn(message, result.stderr)
-
-
-class RouteRemovalTests(unittest.TestCase):
-    def test_token_routes_are_removed_and_others_kept(self) -> None:
-        for name in UNROUTED:
-            text, _ = NATIVE_WORKFLOWS[name]
-            for routed, other in ((True, True), (True, False), (False, True), (False, False)):
-                with self.subTest(workflow=name, routed=routed, other=other), \
-                        tempfile.TemporaryDirectory() as tmp:
-                    home = Path(tmp)
-                    env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / "xdg"),
-                           "GIT_CONFIG_NOSYSTEM": "1"}
-                    config = ["git", "config", "--global"]
-                    (home / ".gitconfig").write_text("[user]\n\tname = t\n")
-                    if routed:
-                        subprocess.run(
-                            [*config, "url.https://x-access-token:ghs_secret@github.com/O/standards.insteadOf",
-                             "https://github.com/O/standards"],
-                            check=True, env={**os.environ, **env})
-                    if other:
-                        subprocess.run(
-                            [*config, "url.git@github.com:.insteadOf", "gh:"],
-                            check=True, env={**os.environ, **env})
-                    result = run(extract_run_block(text, UNROUTE_STEP), home, **env)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    remaining = (home / ".gitconfig").read_text()
-                    self.assertNotIn("ghs_secret", remaining)
-                    self.assertEqual("git@github.com:" in remaining, other)
 
 
 class LintHooksExecutionTests(unittest.TestCase):

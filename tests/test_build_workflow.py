@@ -16,7 +16,7 @@ TEXT = WORKFLOW.read_text(encoding="utf-8")
 PICK_STEP = "Select the declared checks"
 TASK_STEP = "Require the build task"
 SMOKE_STEP = "Build, start and assert the release image"
-UNROUTE_STEP = "Remove the standards read route"
+BOOTSTRAP_STEP = "Bootstrap the Shared Config Checkout (native config model)"
 
 
 def job(name: str) -> str:
@@ -224,17 +224,15 @@ class ArtifactBuildTests(unittest.TestCase):
         self.assertIn("no 'build' mise task", result.stderr)
         self.assertEqual(self.run_task_check(has_task=True).returncode, 0)
 
-    def test_build_runs_the_repository_task_after_the_route_is_removed(self) -> None:
+    def test_build_runs_the_repository_task_after_the_native_bootstrap(self) -> None:
+        # The standards-bootstrap action removes its token route before it
+        # returns, so the repository's task never runs with the route.
         bd = job("bd-01")
         self.assertIn("run: mise run build", bd)
-        self.assertIn(f"if: always() && needs.detect.outputs.config_model == 'native'",
-                      extract_step(TEXT, UNROUTE_STEP))
+        self.assertNotIn("keep-route", extract_step(TEXT, BOOTSTRAP_STEP))
         order = [
-            "Mint standards read token (native config model)",
-            "Route the Shared Config Checkout clone through the App token",
+            BOOTSTRAP_STEP,
             "Install consumer-repo runtimes",
-            "Require the Shared Config Checkout (native config model)",
-            UNROUTE_STEP,
             "Install pnpm",
             TASK_STEP,
             "Build the release artifact (mise run build)",
