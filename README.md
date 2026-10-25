@@ -67,6 +67,12 @@ existing policy. The runtime lockfile-refresh task remains scoped to
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages for repos declaring `has_codewiki`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
+A repository workflow that runs mise in a `config_model: native` repository
+calls the [`standards-bootstrap`](./actions/standards-bootstrap/action.yml)
+composite action first. It clones the Shared Config Checkout with the
+standards-reader token, then removes the token route. The ref to pin and the
+secrets to pass are in [`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md).
+
 Canonical non-E2E tests are not centrally executed: each enforcing repository
 gates landing through its own `.github/workflows/test-gate.yml` required status
 (the Test Gate Contract — standards ADR-0020). The central `test-py.yml` /
