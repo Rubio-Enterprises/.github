@@ -1,15 +1,16 @@
 {
-	"expected_current_sha": "1fbb52dcc79e73e6798dae3e50f48f2202a92343",
-	"target_sha": "9f1564564ea6d939e86f54a4b2bfca9aba841855",
-	"reason": "Publish .github v4.8.0 (#415 standards-bootstrap action, #416 native config support and the build gate) for standards ADR-0033's Phase 2 pilot. Gate Family diff from the live tag: #416 in standards-gates, typecheck-ts, lint-hooks and the new build.yml (gate-build, whose .github-private ruleset is not applied yet and will start in evaluate mode with no selected repositories), plus #405's macOS fallback label (macos-15 to macos-26) in lint-hooks. Rendered-model repositories run the same steps as today; every native step is gated on config_model: native, and no repository is native yet. MISE_VERSION changes 2026.9.11 to 2026.10.19: mac-dev-playbook #1553/#1554 baked it into glue-runner 20261026.014355-9ee2840, and warm-glue-canary printed 'baked mise 2026.10.19' on linux-x64-small and linux-x64-medium after the operator converge; runs cited in references, per the rollout rule (#419). Proportional Candidate Validation at the exact target: actionlint passes and 248 unit tests pass, including rendered-versus-main step identity. The new PR-template read uses github.workflow_sha; injected runs today report github.workflow_ref Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@refs/tags/gates/wf-v1 (mo run 40171931931), so it resolves to the published .github commit. No temporary evaluate ruleset was created; the CT-01 Docker-daemon check is deferred to the Phase 2 pilot, before gate-build selects any repository.",
+	"expected_current_sha": "9f1564564ea6d939e86f54a4b2bfca9aba841855",
+	"target_sha": "427623d6179953834b50c1663facac001aed0700",
+	"reason": "Publish .github v4.8.1 at exact released commit 427623d6179953834b50c1663facac001aed0700 to deliver #423's native-only tool-cache Python discovery fix. Fresh authoritative API and git ls-remote reads agree on the lightweight live lease recorded in expected_current_sha. Gate Family changes since that lease are only UV_NO_PROJECT guards in lint-hooks, typecheck-ts and build; standards-gates, rendered behavior, runtime pins and MISE_VERSION are unchanged. Proportional Candidate Validation at the exact release: 249 tests passed, 4 existing Trivy skips, 540 subtests passed; all-workflow actionlint passed. Actual aw-import-screentime#80 native worktree, pinned 3.13.13 with requires-python <3.14: lint-hooks and cloud-smoke fingerprint bodies passed with real uv 0.12.15 and 0.12.17 using managed tool seed 3.14.7, without changing its manifest, pins or venv. Raw local evidence is phase3/evidence/github-python-cache/publication/released-real-native-fixture.json; linked #423 records the same real-native evidence. No temporary evaluate ruleset was created. #80 stays on HOLD until the corrected starter tag. The existing push-triggered publisher alone performs the exact lease update and final reread; no tags were moved manually.",
 	"references": [
-		"https://github.com/Rubio-Enterprises/.github/pull/415",
-		"https://github.com/Rubio-Enterprises/.github/pull/416",
-		"https://github.com/Rubio-Enterprises/mac-dev-playbook/pull/1553",
-		"https://github.com/Rubio-Enterprises/mac-dev-playbook/pull/1554",
-		"https://github.com/Rubio-Enterprises/standards/pull/742",
-		"https://github.com/Rubio-Enterprises/.github-private/pull/519",
-		"https://github.com/Rubio-Enterprises/mac-dev-playbook/actions/runs/40260470719",
-		"https://github.com/Rubio-Enterprises/mac-dev-playbook/actions/runs/40260472759"
+		"https://github.com/Rubio-Enterprises/.github/releases/tag/v4.8.1",
+		"https://github.com/Rubio-Enterprises/.github/pull/420",
+		"https://github.com/Rubio-Enterprises/.github/pull/423",
+		"https://github.com/Rubio-Enterprises/.github/pull/423#issuecomment-6422782912",
+		"https://github.com/Rubio-Enterprises/.github/actions/runs/40367588923",
+		"https://github.com/Rubio-Enterprises/.github/actions/runs/40368995845",
+		"https://github.com/Rubio-Enterprises/.github/blob/427623d6179953834b50c1663facac001aed0700/tests/test_python_cache_workflows.py",
+		"https://github.com/Rubio-Enterprises/aw-import-screentime/pull/80",
+		"https://github.com/Rubio-Enterprises/standards/pull/742"
 	]
 }
