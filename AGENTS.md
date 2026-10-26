@@ -250,9 +250,9 @@ reread contract in the runbook.
   reads the executable at the same mise data directory path that mise-action checks
   and passes its observed version to the action; an absent binary uses the fallback,
   while a malformed present binary fails. The action receives `MISE_GITHUB_TOKEN`
-  before setup. Renovate bumps remain human-reviewed, and a changed gate pin
-  cannot be published until the publisher observes a matching binary on the
-  actual glue route.
+  before setup. Renovate bumps remain human-reviewed. The publisher does not
+  check the pin: before publishing a changed gate pin, the operator confirms that
+  the warm pools bake it and cites the run (see the publication runbook).
 - **Runner Route selection.** Private org variable `RUNNERS` is a JSON map;
   `org-ops ci mode` owns live values. Each key has an independent hosted
   fallback, so public consumers (which cannot see private org variables)
