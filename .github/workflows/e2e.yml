@@ -29,6 +29,14 @@ name: e2e (reusable)
       retries: {type: number, default: 2}
       shard: {type: string, default: ''}
       timeout-minutes: {type: number, default: 30}
+    secrets:
+      # Org secrets reach a called workflow only when its caller forwards
+      # them. A config_model: native caller must, so the Shared Config
+      # Checkout can be cloned (standards ADR-0033); rendered callers need not.
+      STANDARDS_READER_APP_ID:
+        required: false
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        required: false
 permissions:
   contents: read
 # Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
@@ -45,6 +53,19 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Read the config model
+        # standards ADR-0033: only an explicit native answer selects the Shared
+        # Config Checkout bootstrap; an unknown value fails.
+        id: config-model
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
+          case "${config_model:=rendered}" in
+            rendered|native) ;;
+            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
+          esac
+          printf 'config_model=%s\n' "$config_model" >> "$GITHUB_OUTPUT"
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
@@ -82,7 +103,7 @@ jobs:
         id: mise-version
         env:
           # renovate: datasource=github-releases depName=jdx/mise
-          MISE_VERSION: "2026.9.11"
+          MISE_VERSION: "2026.10.19"
         shell: bash
         run: |
           set -euo pipefail
@@ -96,7 +117,23 @@ jobs:
           [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || exit 1
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "mise action version: $version"
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      # standards ADR-0033: a native repository's .mise.toml includes shared
+      # pins from the private standards checkout at `.standards-config/`, so
+      # no mise command works until it is cloned. The shared action clones it
+      # through a read-only standards-reader token and removes the token route
+      # before any repository code runs. Rendered repositories keep mise-action.
+      - name: Bootstrap the Shared Config Checkout (native config model)
+        if: steps.config-model.outputs.config_model == 'native'
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+        with:
+          config-model: ${{ steps.config-model.outputs.config_model }}
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          mise-version: ${{ steps.mise-version.outputs.version }}
+          cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+      - name: Install consumer-repo runtimes
+        if: steps.config-model.outputs.config_model != 'native'
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         env:
           MISE_GITHUB_TOKEN: ${{ github.token }}
         with:

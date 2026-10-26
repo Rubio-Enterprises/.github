@@ -60,7 +60,7 @@ class MacOSRoutingTests(unittest.TestCase):
         for hook in (
             "Run lefthook pre-commit across all files",
             "Run lefthook pre-commit on changed fork files",
-            "Validate commit-msg hook accepts a conventional commit",
+            "Run the full knowledgebase check",
         ):
             self.assertLess(LINT_TEXT.index(PREPARE_STEP), LINT_TEXT.index(hook))
         prepare = extract_step(LINT_TEXT, PREPARE_STEP)

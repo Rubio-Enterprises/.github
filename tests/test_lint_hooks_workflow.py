@@ -318,10 +318,14 @@ class PrivateGoModuleTokenTests(unittest.TestCase):
         self.assertIn("permission-contents: read", mint)
 
     def test_standards_reader_mints_only_the_two_framework_repos(self) -> None:
+        # The standards-bootstrap action mints inside itself, so read its scope
+        # from the action: the native path's token is the action's.
+        action = (ROOT / "actions" / "standards-bootstrap" / "action.yml").read_text()
         steps = WORKFLOW_TEXT.split("- name: ")[1:]
         scopes = sorted(
-            step.split("repositories:", 1)[1].split("\n", 1)[0].strip()
+            (action if "/actions/standards-bootstrap@" in step else step)
+            .split("repositories:", 1)[1].split("\n", 1)[0].strip()
             for step in steps
             if "secrets.STANDARDS_READER_APP_ID" in step
         )
-        self.assertEqual(scopes, ["knowledgebase-framework", "standards"])
+        self.assertEqual(scopes, ["knowledgebase-framework", "standards", "standards"])

@@ -72,6 +72,15 @@ name: cloud-setup smoke (reusable)
           Optional private key paired with PRIVATE_MODULES_READER_APP_ID; both
           secrets must be forwarded before this workflow mints a token.
         required: false
+      STANDARDS_READER_APP_ID:
+        description: >-
+          Required from a config_model: native caller (standards ADR-0033) to
+          clone the private Shared Config Checkout; rendered callers omit it.
+        required: false
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        description: >-
+          Private key paired with STANDARDS_READER_APP_ID.
+        required: false
   # Both direct triggers are required so GitHub's org-ruleset
   # `required_workflows` validator would accept this file if it is ever promoted
   # to a Gate Family (422 otherwise — the standards-gates.yml / lint-hooks.yml precedent).
@@ -135,6 +144,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # standards ADR-0033: only an explicit native answer selects the
+          # Shared Config Checkout bootstrap; an unknown value fails.
+          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
+          case "${config_model:=rendered}" in
+            rendered|native) ;;
+            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
+          esac
+          echo "config_model=$config_model" >> "$GITHUB_OUTPUT"
           # Transitional consumers may not have the answer yet. Only the
           # explicit facet value enables Ruby setup; absence and false preserve
           # the existing smoke path.
@@ -217,7 +234,7 @@ jobs:
         if: steps.probe.outputs.runnable == 'true'
         env:
           # renovate: datasource=github-releases depName=jdx/mise
-          MISE_VERSION: "2026.9.11"
+          MISE_VERSION: "2026.10.19"
         shell: bash
         run: |
           set -euo pipefail
@@ -231,8 +248,31 @@ jobs:
           [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || exit 1
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "mise action version: $version"
+      # standards ADR-0033: a native repository's .mise.toml includes shared
+      # pins from the private standards checkout at `.standards-config/`, so
+      # no mise command works until it is cloned. Same shared action as the
+      # gates, except that the token route stays for the chain below: the chain
+      # is the cloud session's own setup, which must be able to refresh the
+      # checkout. The token is the same accepted trade as GH_PAT above:
+      # read-only, scoped to standards, expiring after about an hour, and
+      # present only for a native caller that forwarded the secrets.
+      # Rendered repositories keep mise-action.
+      - name: Bootstrap the Shared Config Checkout (native config model)
+        if: >-
+          steps.probe.outputs.runnable == 'true' &&
+          steps.probe.outputs.config_model == 'native'
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+        with:
+          config-model: ${{ steps.probe.outputs.config_model }}
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          mise-version: ${{ steps.mise-version.outputs.version }}
+          cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+          keep-route: "true"
       - name: Install the consumer's pinned toolchain
-        if: steps.probe.outputs.runnable == 'true'
+        if: >-
+          steps.probe.outputs.runnable == 'true' &&
+          steps.probe.outputs.config_model != 'native'
         uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
         env:
           MISE_GITHUB_TOKEN: ${{ github.token }}

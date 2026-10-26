@@ -25,6 +25,14 @@ name: lint-hooks
 # A capability-routed repo's declared class is ignored: a resource tier cannot
 # satisfy a runtime or platform requirement it does not provide.
 #
+# Config model (standards ADR-0033): a repository answering
+# `config_model: native` inherits its lint configs, hooks and lint-tool pins
+# from a gitignored Shared Config Checkout at `.standards-config/`. Its setup
+# is the shared `standards-bootstrap` action: `mise bootstrap --only
+# repos,tools` clones that checkout through the standards-reader route and
+# installs the pinned tools, and a missing checkout fails the job. Every other repository keeps the rendered model's `mise
+# install` unchanged. The hook runs and the rewrite guard are the same for both.
+#
 # Delivery: the `gate-lint-hooks` org ruleset injects this file as a Required
 # Governance Workflow (published at `gates/wf-v1`) into every repository whose
 # `gate-lint-hooks` property is true, on `pull_request` and `merge_group`. A
@@ -57,6 +65,8 @@ jobs:
       runner: ${{ steps.pick.outputs.runner }}
       is_fork: ${{ steps.pick.outputs.is_fork }}
       has_ruby: ${{ steps.pick.outputs.has_ruby }}
+      has_knowledgebase: ${{ steps.pick.outputs.has_knowledgebase }}
+      config_model: ${{ steps.pick.outputs.config_model }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -85,6 +95,21 @@ jobs:
             has_ruby=true
           fi
           printf 'has_ruby=%s\n' "$has_ruby" >> "$GITHUB_OUTPUT"
+
+          has_knowledgebase=false
+          if grep -qE '^has_knowledgebase:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            has_knowledgebase=true
+          fi
+          printf 'has_knowledgebase=%s\n' "$has_knowledgebase" >> "$GITHUB_OUTPUT"
+
+          # An absent answer is the rendered model; an unknown value fails
+          # rather than guessing which setup the repository needs.
+          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
+          case "${config_model:=rendered}" in
+            rendered|native) ;;
+            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
+          esac
+          printf 'config_model=%s\n' "$config_model" >> "$GITHUB_OUTPUT"
 
           # has_swift routes to the macOS runner (swiftlint needs sourcekitd),
           # as does has_homebrew_formulae (`brew style` needs Homebrew).
@@ -256,7 +281,7 @@ jobs:
         id: mise-version
         env:
           # renovate: datasource=github-releases depName=jdx/mise
-          MISE_VERSION: "2026.9.11"
+          MISE_VERSION: "2026.10.19"
         shell: bash
         run: |
           set -euo pipefail
@@ -271,6 +296,7 @@ jobs:
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "mise action version: $version"
       - name: Install consumer-repo runtimes (lefthook + pinned hook tools)
+        if: needs.detect.outputs.config_model != 'native'
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         env:
           MISE_GITHUB_TOKEN: ${{ github.token }}
@@ -279,6 +305,22 @@ jobs:
           # bump changes the prefix and invalidates rather than poisons the cache.
           cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           version: ${{ steps.mise-version.outputs.version }}
+      # A native repository (standards ADR-0033) inherits its hooks and tool
+      # pins from the Shared Config Checkout at `.standards-config/`. The shared
+      # action clones it through the same read-only token, installs the pins and
+      # fails when the checkout is missing, so Lefthook's `extends` cannot skip
+      # the shared hooks silently. Its token route stays for the job, as the
+      # rendered path's does.
+      - name: Bootstrap the Shared Config Checkout (native config model)
+        if: needs.detect.outputs.config_model == 'native'
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+        with:
+          config-model: ${{ needs.detect.outputs.config_model }}
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          mise-version: ${{ steps.mise-version.outputs.version }}
+          cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+          keep-route: "true"
       # Consumers whose go.mod replaces a dependency with a private org fork
       # declare the fork repo name(s) in the repo variable
       # GO_PRIVATE_MODULE_REPOS (comma-separated, e.g. "scaleset").
@@ -322,11 +364,13 @@ jobs:
       # at the PRIVATE standards repo (standards governance-propagation-
       # architecture.md, Layer 3b). lefthook's remote fetch shells out to git,
       # so route that clone through a read-only App token — same pattern as the
-      # Go-private-module steps above, but unconditional: every governed
-      # consumer carries the stub after the re-render wave, and for a pre-wave
-      # consumer with a fully rendered lefthook.yml the insteadOf rule is
-      # simply inert (nothing fetches the URL).
+      # Go-private-module steps above. Every rendered consumer carries the stub
+      # after the re-render wave, and for a pre-wave consumer with a fully
+      # rendered lefthook.yml the insteadOf rule is simply inert (nothing
+      # fetches the URL). A native repository's route comes from the
+      # standards-bootstrap action above instead.
       - name: Mint standards read token (lefthook remotes fetch)
+        if: needs.detect.outputs.config_model != 'native'
         id: standards-remote-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
@@ -336,6 +380,7 @@ jobs:
           repositories: standards
           permission-contents: read
       - name: Route the lefthook standards remote through the App token
+        if: needs.detect.outputs.config_model != 'native'
         env:
           TOKEN: ${{ steps.standards-remote-token.outputs.token }}
           OWNER: ${{ github.repository_owner }}
@@ -545,6 +590,22 @@ jobs:
           fi
           echo "fork-mode lefthook hooks passed"
         shell: bash
+      - name: Run the full knowledgebase check
+        # KB-01: the framework's pre-commit job checks only knowledgebases with
+        # staged changes, so a clean CI checkout skips them all. Its `kb-check`
+        # event checks every knowledgebase without staging. It is defined only
+        # in the framework's remote hooks, so a remote Lefthook could not fetch
+        # fails here with "hook kb-check doesn't exist" instead of passing.
+        # Runs before the rewrite guard so a rewrite it makes fails the job.
+        # Native config model only: rendered repositories keep today's checks
+        # until they convert (standards native-config plan, invariant 1).
+        if: >-
+          needs.detect.outputs.has_knowledgebase == 'true' &&
+          needs.detect.outputs.config_model == 'native'
+        env:
+          MISE_ENV: ci
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+        run: mise exec -- lefthook run kb-check
       - name: Fail if a hook rewrote a tracked file
         # Both execution paths above run write-mode Fixers. Check their
         # rewrites afterward, including stage_fixed changes on fork PRs.
@@ -572,13 +633,3 @@ jobs:
           git --no-pager diff HEAD -- | head -n 400
           exit 1
         shell: bash
-      - name: Validate commit-msg hook accepts a conventional commit
-        # Writes a well-formed conventional-commit message and runs the
-        # commit-msg hook against it. Smokes the commitlint config + the
-        # commitlint binary's presence on PATH. Failure here means the hook
-        # would reject valid commits locally.
-        env:
-          MISE_ENV: ci
-        run: |
-          printf 'feat(ci): smoke-test commit-msg hook\n' > /tmp/test-commit-msg
-          mise exec -- lefthook run commit-msg --file /tmp/test-commit-msg

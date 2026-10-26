@@ -29,7 +29,7 @@ jobs:
       # toolchain (for example Rust), so a missing tool fails that gate instead.
       MISE_EXEC_AUTO_INSTALL: "false"
       # renovate: datasource=github-releases depName=jdx/mise
-      MISE_VERSION: "2026.9.11"
+      MISE_VERSION: "2026.10.19"
     steps:
       - name: Resolve gate selection and standards channel
         id: selection
@@ -178,6 +178,35 @@ jobs:
             echo "standards_tools=$standards_tools"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Fetch the organization PR template
+        # The organization default, .github/PULL_REQUEST_TEMPLATE.md in this
+        # repository, is the single source of the checked conventions,
+        # including its `pr-conventions` comment. Read it at this workflow's
+        # own commit: the Plumbing Ref for an injected run, the exact candidate
+        # during Candidate Validation. GitHub omits org defaults from consumer
+        # clones, so Danger receives the path explicitly. The file lives under
+        # RUNNER_TEMP, outside the consumer tree the other gates inspect.
+        id: pr_template
+        if: steps.applicability.outputs.pr_conventions == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEMPLATE_SHA: ${{ github.workflow_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TEMPLATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::workflow SHA is not a commit: $TEMPLATE_SHA" >&2; exit 1; }
+          template="$RUNNER_TEMP/org-pr-template/PULL_REQUEST_TEMPLATE.md"
+          mkdir -p "${template%/*}"
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "/repos/Rubio-Enterprises/.github/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=$TEMPLATE_SHA" \
+            > "$template"
+          if ! grep -q '<!-- pr-conventions: ' "$template"; then
+            echo "::error::the organization PR template at $TEMPLATE_SHA has no pr-conventions comment" >&2
+            exit 1
+          fi
+          echo "path=$template" >> "$GITHUB_OUTPUT"
+          echo "PR template: Rubio-Enterprises/.github \`.github/PULL_REQUEST_TEMPLATE.md\` at \`$TEMPLATE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Require standards-reader credentials
         id: reader_credentials
         if: steps.applicability.outputs.setup_needed == 'true'
@@ -301,17 +330,33 @@ jobs:
           version: ${{ steps.mise_version.outputs.version }}
 
       # Config rendering needs yq and copier, not the consumer lint toolchain.
+      # A native repository's lint-config reads its stubs with yq and Lefthook
+      # instead (standards ADR-0033). Their pins come from its Shared Config
+      # Checkout, which this job never bootstraps, so the selected channel
+      # checkout stands in for it while mise resolves them, exactly as the
+      # lint-config gate links it.
       - name: Install consumer config tools
         id: consumer_lint_tools
         if: steps.applicability.outputs.lint_config == 'true'
+        env:
+          STANDARDS_ROOT: ${{ github.workspace }}/.standards
         shell: bash
         run: |
           set -euo pipefail
+          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
+          wanted='["yq", "copier"]'
+          if [ "$config_model" = native ]; then
+            wanted='["yq", "lefthook"]'
+            if [ ! -e .standards-config ] && [ ! -L .standards-config ]; then
+              ln -s "$STANDARDS_ROOT" .standards-config
+              trap 'rm -f .standards-config' EXIT
+            fi
+          fi
           listing="$(mise ls --current --json)"
-          selected="$(jq -r '
+          selected="$(jq -r --argjson wanted "$wanted" '
             keys[] as $key
             | select(($key | sub("^[^:]+:"; "") | split("/") | last)
-                | IN("yq", "copier"))
+                | IN($wanted[]))
             | $key' <<<"$listing")"
           if [ -z "$selected" ]; then
             echo "::notice::the consumer pins none of the lint-config rendering tools; the gate reports them missing"
@@ -321,11 +366,14 @@ jobs:
           echo "consumer config tools: ${tools[*]}"
           # pipx installs require the consumer's selected uv and Python pins,
           # which may differ from the standards-side tools already installed.
-          if jq -e 'has("uv")' <<<"$listing" >/dev/null; then
-            mise install uv
-          fi
-          if jq -e 'has("python")' <<<"$listing" >/dev/null; then
-            mise install python
+          # The native selection has no pipx tool.
+          if [ "$config_model" != native ]; then
+            if jq -e 'has("uv")' <<<"$listing" >/dev/null; then
+              mise install uv
+            fi
+            if jq -e 'has("python")' <<<"$listing" >/dev/null; then
+              mise install python
+            fi
           fi
           mise install "${tools[@]}"
 
@@ -349,6 +397,8 @@ jobs:
           STANDARDS_AUDIT_TOOLS_OUTCOME: ${{ steps.standards_audit_tools.outcome }}
           CONSUMER_LINT_NEEDED: ${{ steps.applicability.outputs.lint_config }}
           CONSUMER_LINT_OUTCOME: ${{ steps.consumer_lint_tools.outcome }}
+          PR_CONVENTIONS_NEEDED: ${{ steps.applicability.outputs.pr_conventions }}
+          PR_TEMPLATE_OUTCOME: ${{ steps.pr_template.outcome }}
         shell: bash
         run: |
           set -euo pipefail
@@ -382,6 +432,9 @@ jobs:
             fi
             if [ "$CONSUMER_LINT_NEEDED" = true ]; then
               require_success "consumer lint tool setup" "$CONSUMER_LINT_OUTCOME"
+            fi
+            if [ "$PR_CONVENTIONS_NEEDED" = true ]; then
+              require_success "organization PR template fetch" "$PR_TEMPLATE_OUTCOME"
             fi
           elif [ "$SETUP_NEEDED" != false ] && [ "$ANY_SELECTED" = true ]; then
             echo "::error::applicability detection did not produce setup_needed" >&2
@@ -463,6 +516,9 @@ jobs:
           # (including node/), never the consumer's mise config.
           MISE_CEILING_PATHS: ${{ github.workspace }}
           GITHUB_TOKEN: ${{ github.token }}
+          # Danger reads the checked conventions from the organization default;
+          # a standards revision that predates the variable ignores it.
+          PR_TEMPLATE_PATH: ${{ steps.pr_template.outputs.path }}
         shell: bash
         run: |
           set -euo pipefail
