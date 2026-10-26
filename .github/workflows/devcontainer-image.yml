@@ -182,50 +182,41 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -rf "$RUNNER_TEMP/trivy-cache"' EXIT
-          # Store hashes identify public ssh2 fixtures even after their test paths are lost
+          # skip-patterns replaces Trivy's defaults. Keep them plus package caches:
+          # installs hardlink into caches whose hashes defeat path-based allow rules.
+          # Third-party package contents stay out of scope, matching Trivy's defaults.
           cat > "$RUNNER_TEMP/trivy-secret.yaml" <<'TRIVY'
           skip-patterns:
-            - mnt/devcontainer-cache/pnpm-store/v11/files/03/e8ac3ad639ce72d9757c3f07c1a817acdcb4138711211fecbe213fd5082410a3ce8dfb12c5e221b66bb5b938ed590711ec6a59fd8f92574b73e7eebd9f8d01
-            - mnt/devcontainer-cache/pnpm-store/v11/files/08/1a4d030797fb0d20039eef21fffbfb801b7a15220095620fecbd41b41d9bff8bd4a987488b9683a262e6a75ae8fe1cba19b25177cbeb62dc28bce1a7b730dd
-            - mnt/devcontainer-cache/pnpm-store/v11/files/0e/8eec4450dbb0d2ae6d8f068a7e39ac6f42c8b2648cc539091851d95338f8e892bfda89a58760deb768db6e3c224a604b612f300d87a3087d1273849492a5fb
-            - mnt/devcontainer-cache/pnpm-store/v11/files/18/a3c7d1407f1835ab3d50d19b8416cc2f5368999e715a83e09a25444753102cc0c33e3460cd026587b0272851f4ed83b3676191d80111481594899b0cc036fa
-            - mnt/devcontainer-cache/pnpm-store/v11/files/2e/495fdf2a0f8e452ce864098d2b43a3589934e3cf094cac2a63057622c803bf223ffce5b98223a6630d1a8c198ffba483ecceef455c9fb8809a4f030f073869
-            - mnt/devcontainer-cache/pnpm-store/v11/files/38/453eb8161652d084d7bcef57f561cbe7dcf2300e1c51c5380c434f1a95147b59a71ff24bb8ac4af5d8c813e07f47c7f7a80ad0f3963b496a4041b18550746c
-            - mnt/devcontainer-cache/pnpm-store/v11/files/41/de26bc294e157d03a296a14089039fb9ffa32c318aac11eb1369f74f590b7a9ed44e3ecafe8128b6916c65fbc5261e959235945fe93a6614665d5f1bcc9bb1
-            - mnt/devcontainer-cache/pnpm-store/v11/files/43/6f02f5b307e205d95ee962a816aaff6211cb6bdf426dcc31d6ebc8442886bb6f12f9fdb587a5547b7590e3d1ddc82fbddb4df2c92a1bb8468916acf62c5a2e
-            - mnt/devcontainer-cache/pnpm-store/v11/files/48/02052c23fe5fb8f0fbe8a012ad4bf128cdd153ff6b1cbaa0aada7eb8cdb444df82949924cf346910d17e07eac42abd43766198de582e7c06edbcdaa2bc7a14
-            - mnt/devcontainer-cache/pnpm-store/v11/files/4f/087fd189a740cd5ed3b942b70bdb410bdf86bccb94f7b440cce58565b487daad3c61bf3221e206b88fa9335f2663abf84bd30dd4e9c58dad0da9931d10d1a2
-            - mnt/devcontainer-cache/pnpm-store/v11/files/58/fe74411e342a348e2c42371322b1b6745a1e7f239077f495878e74b40fae8b45658b60969e71424dbe1cac91da2640f9d88bab813900fbdc044ecc6391bb40
-            - mnt/devcontainer-cache/pnpm-store/v11/files/63/099a9241550fa2de612fe28cc5612ccf4c3606ed9f7b79305064489686bbbb251c427789045635098ec944f984cff1a656aab533acf7f0b5e9cea63c759716
-            - mnt/devcontainer-cache/pnpm-store/v11/files/63/8247405ad29e075221dda58e50491ab2122642b7b5ab0756d5b40280fa6432249af53791c14c5a064ccd9f26f9bda1f1c9b0a636800202384eadc71f9cba53
-            - mnt/devcontainer-cache/pnpm-store/v11/files/6a/9cdd0b5dde589c8702920b6db96acb34f2a353198ddd4a3b934064ded5c18f013bc2b934336c40685feef1f6461b86af61a8db258659247fc800f882049778
-            - mnt/devcontainer-cache/pnpm-store/v11/files/6f/07af0003503a88817be01b99370d7176064815ecfb12d81c3a129f7a9e408402f891bb2ff882115b002e8ca27f1c8d69af95dfa3960ddcfd64d56321f3f796
-            - mnt/devcontainer-cache/pnpm-store/v11/files/72/93a11ba4677b9f9a3a2de54d0c83f023e79e36dcdef733f280a50582c9032249f3e70a8f14713353cfe4810d2fa8137b7b7e9728e94eead875b43587424e02
-            - mnt/devcontainer-cache/pnpm-store/v11/files/7d/3ffc59deded2a0b6aecd25e69fd50a379b447204b6d59ad8136169ea39bfbe0878e0dbaff96be4ee44a17907ef85e42bdefcb0560e9ce59e4cf29b871ad0bd
-            - mnt/devcontainer-cache/pnpm-store/v11/files/80/50a694218d21f7038eeadcadb36944e66f174226e546ecb28550066458528eb10da393f3c29fef1cc9cc2dcaaeff9f512c6c67fa923b447382bf9db62984b7
-            - mnt/devcontainer-cache/pnpm-store/v11/files/90/01cc5a0efc271bb9b569272aac53c596be50f46cdf075dc670c8128d34ca3347a90b8cd1fa443d3963d57e5c81015db782419ff4748c2f01fc62cf729cb5b7
-            - mnt/devcontainer-cache/pnpm-store/v11/files/90/3f8d54f94852f629fb4b69e06f752b598ab450a62c6d5f3dcf6c9090ae89a62364921a1356a1994927077149289be696e51b7a34ec6ab6113e4f9245652cea
-            - mnt/devcontainer-cache/pnpm-store/v11/files/92/4b631bc0e6c29b6a9130b1df5e273a3e641110abf78bfe937a638c615aab30b12823593162a63c996832aae4cabcb9a575e377295cfc59bd4f50ebcc7ed32b
-            - mnt/devcontainer-cache/pnpm-store/v11/files/93/33a54ba03efd5de9cca2b85be55b2a725fbfed821ce8d2c8fe61d302ae7b5c459b6280069875e70205096bfd5cf4c62387cf7b1f42e30b7d39b529ad920cb0
-            - mnt/devcontainer-cache/pnpm-store/v11/files/9b/dae572f20eadd9f4932df704edcb2ce2e56ed312f76290d218db43f7f8fe96bebb2bf2143d769c24d5138f2dcfa589176fb82b278919cf965416a7a12e7302
-            - mnt/devcontainer-cache/pnpm-store/v11/files/a0/318c9394f1813eeedd433c47a6e690c39cb575b0082b8e2afe9ffc1e92efcde5264c7b77a3ab73fe1836f60ade347cf1100b028c8ba098de32af433b9feb28
-            - mnt/devcontainer-cache/pnpm-store/v11/files/aa/85c50453dec094ff5ce8990fffd4c9c1a80edcce6396234da7841acf1d51e1b263c189ee077ddf985ca59e8e0bddb9810ac99452843796f2dc27f6e68ad080
-            - mnt/devcontainer-cache/pnpm-store/v11/files/b1/baa4c5e1b7a07cc19fcc564da6b58224cb5c2e295dc6b989daec3540936f0287f6a4140120d5b8467bea2a696e1cf55cf089d8bd1dd00376d46ac097cebbbf
-            - mnt/devcontainer-cache/pnpm-store/v11/files/b2/c9d877ff80ea23a4c4ce4bfc04d79c9d0c474fb70ba83cf9450e5776e79268b54f45f13ba64a326503dfc99ab705155cc7ee6f5332e1608434702ef0d5ff7e
-            - mnt/devcontainer-cache/pnpm-store/v11/files/b5/c0383718c81b5eeb413d970e2b92264360f4ee9f0141727923bcbda321e7b7ff44c904c43dffbfd50664f9970e21ab1582cc13f429f2351a6f7bc5e439684d
-            - mnt/devcontainer-cache/pnpm-store/v11/files/bb/a83968107765c6c1ac36aaef2ab800b8ef6187e51067e49caeaa0460ad52a82e33005dee9f691bc161a2181cb1e0f74109e66eb2d2df8372a797b211713c5f
-            - mnt/devcontainer-cache/pnpm-store/v11/files/c2/97acc402554d0611aecadfaafac9427074582c28822ffebcfa33edead33e965a76c9c13b89a8a2fe2b25ddec66270170cead0b0d2498b2324ed4a35ffb2f89
-            - mnt/devcontainer-cache/pnpm-store/v11/files/c5/839760d2d87c573a52481f76820ad87ea2669b8923d622e93f510f0f273b7090d5247a651b8939be3d09b46d3616a03837ece3acf4600778dbbfb609a0710b
-            - mnt/devcontainer-cache/pnpm-store/v11/files/c7/b8750ecac6d2c2bc552139b9fc5b42b875594cd7dccef6fdc58938fad2204bd02791db25bdac9e0cc0671b9a5160888929dd60c456f02776d1d25d6f867fb0
-            - mnt/devcontainer-cache/pnpm-store/v11/files/c7/bbceefb0ac81d4a910839309b2dfb7fa67f01dc4915d54b36f75e0aeaebb1e5c074e469bd464a414198f666463b0998095637545c5bdac0cd2af935324ad86
-            - mnt/devcontainer-cache/pnpm-store/v11/files/d0/4e09fc99b6208b4e1239efd9ccfaa67deb1fb640d419cae1006e11e622693640f4244c293be77c3ff05a0f4c7c164a7ac5c3e24523cccf214741963b97a825
-            - mnt/devcontainer-cache/pnpm-store/v11/files/db/4ea37d542bb4279b2e8fc7c642dfe8c8e0bf7f2bbc8e6ad95410b1c1d09755b79ba566743230ed38c9b6f5744547c020ea604029d1c370304fa019072aa661
-            - mnt/devcontainer-cache/pnpm-store/v11/files/dd/6e1eeafe4dc3405cb7236d67955ec8be2224009fa38bc6208e42542a9c777829fcd19af41928b1e2d5fd714179296b809b8b293039b4d5e3cd66308a92897d
-            - mnt/devcontainer-cache/pnpm-store/v11/files/e8/40d75f553e28ea413a22d17d433b47e4127327f3c40cdcac917a94b591f4edbdd6c8c56db3f28cd0c458873f3958aa49a3625a5313e38fb180c614b517d92f
-            - mnt/devcontainer-cache/pnpm-store/v11/files/f1/6a44e61491833976f6e31af9e279aef3d53811e08b440dafc2f1ca974630fda9b08460a441275c2fcfb9e3a68fd66bb52c80858e112e885203deb4c5169c04
-            - mnt/devcontainer-cache/pnpm-store/v11/files/f1/955c52f8d097b751cf3a28f5a094a1677d4643d1c347374321a8fb684b5aa11433d855b053dd764765080a5ec5c53e5c39ef8bfa77f3e87163eab3e0dc03df
-            - mnt/devcontainer-cache/pnpm-store/v11/files/f5/5ed42caac559cf2b07fa82073ca475b1a7c91bee463b565baced7f1f6f6d102d5d6bdafaf2270aeff7dab319619716a57243d418c33ca989f89105791264b4
-            - mnt/devcontainer-cache/pnpm-store/v11/files/f5/6750d0c92d19d956e325d1008418bc192ad87f4c207debac81e5e7004b175bdd8ea74814b39398a5a0aa81111f54646c4f473d04f214ad430bff877e0f2c6b
+            - "**/.git/**"
+            - "**/node_modules/**"
+            - "**/go.mod"
+            - "**/go.sum"
+            - "**/package-lock.json"
+            - "**/yarn.lock"
+            - "**/pnpm-lock.yaml"
+            - "**/Pipfile.lock"
+            - "**/Gemfile.lock"
+            - "**/*.jpg"
+            - "**/*.png"
+            - "**/*.gif"
+            - "**/*.doc"
+            - "**/*.pdf"
+            - "**/*.bin"
+            - "**/*.svg"
+            - "**/*.socket"
+            - "**/*.deb"
+            - "**/*.rpm"
+            - "**/*.zip"
+            - "**/*.gz"
+            - "**/*.gzip"
+            - "**/*.tar"
+            - "**/pnpm-store/**"
+            - "**/_cacache/**"
+            - "**/.cache/uv/**"
+            - "**/.cache/pip/**"
+            - "**/.cache/mise/npm/aube/store/**"
+            - "**/.cache/mise/downloads-cas/**"
+          # Keep the SDK prose guard for regular files in uncached install layouts.
           exclude-block:
             description: Anthropic SDK execution-identity documentation, not GCP credentials
             regexes:
@@ -238,8 +229,8 @@ jobs:
           SECONDS=0
           status=0
           "$RUNNER_TEMP/trivy/trivy" image \
-            --image-src docker --scanners secret --exit-code 1 \
-            --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
+            --image-src docker --scanners secret --image-config-scanners secret \
+            --exit-code 1 --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
             --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
             --timeout 15m --format template --template "$template" \
             "$IMAGE:sha-$GITHUB_SHA-$ARCH" || status=$?

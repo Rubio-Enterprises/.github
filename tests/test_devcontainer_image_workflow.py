@@ -13,6 +13,40 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEXT = (ROOT / ".github/workflows/devcontainer-image.yml").read_text(encoding="utf-8")
 
+DEFAULT_SKIP_PATTERNS = (
+    "**/.git/**",
+    "**/node_modules/**",
+    "**/go.mod",
+    "**/go.sum",
+    "**/package-lock.json",
+    "**/yarn.lock",
+    "**/pnpm-lock.yaml",
+    "**/Pipfile.lock",
+    "**/Gemfile.lock",
+    "**/*.jpg",
+    "**/*.png",
+    "**/*.gif",
+    "**/*.doc",
+    "**/*.pdf",
+    "**/*.bin",
+    "**/*.svg",
+    "**/*.socket",
+    "**/*.deb",
+    "**/*.rpm",
+    "**/*.zip",
+    "**/*.gz",
+    "**/*.gzip",
+    "**/*.tar",
+)
+CACHE_SKIP_PATTERNS = (
+    "**/pnpm-store/**",
+    "**/_cacache/**",
+    "**/.cache/uv/**",
+    "**/.cache/pip/**",
+    "**/.cache/mise/npm/aube/store/**",
+    "**/.cache/mise/downloads-cas/**",
+)
+
 
 def script(name: str) -> str:
     lines = TEXT.splitlines()
@@ -281,7 +315,8 @@ class ShellTests(unittest.TestCase):
             self.assertRegex(result.stdout, rf"Secret scan \(arm64\): \d+ seconds \(exit {status}\)")
             args = Path(self.env["CAPTURE"]).read_bytes().decode().split("\0")[:-1]
             for flag, value in (("--image-src", "docker"), ("--scanners", "secret"),
-                                ("--exit-code", "1"), ("--config", ""), ("--ignorefile", "")):
+                                ("--image-config-scanners", "secret"), ("--exit-code", "1"),
+                                ("--config", ""), ("--ignorefile", "")):
                 self.assertEqual(args[args.index(flag) + 1], value)
             self.assertEqual(args[-1], self.env["IMAGE"] + ":sha-" + "a" * 40 + "-arm64")
             template = args[args.index("--template") + 1]
@@ -290,13 +325,11 @@ class ShellTests(unittest.TestCase):
             for field in (".Match", ".Code", ".Content", ".Text"):
                 self.assertNotIn(field, template)
             policy = (self.root / "trivy-secret.yaml").read_text()
-            paths = [line.strip()[2:] for line in policy.splitlines() if line.startswith("  - ")]
-            self.assertEqual(len(paths), 41)
-            for path in paths:
-                self.assertRegex(path, r"^mnt/devcontainer-cache/pnpm-store/v11/files/[0-9a-f]{2}/[0-9a-f]{126}$")
+            paths = [json.loads(line.strip()[2:]) for line in policy.splitlines() if line.startswith("  - ")]
+            self.assertEqual(paths, list(DEFAULT_SKIP_PATTERNS + CACHE_SKIP_PATTERNS))
+            self.assertNotIn("/files/", policy)
             self.assertIn("exclude-block:", policy)
             self.assertNotIn("disable-rules", policy)
-            self.assertNotIn("node_modules", policy)
             self.assertNotIn(".venv", policy)
             self.assertNotIn("--skip-dirs", args)
             self.assertNotIn("--skip-files", args)
@@ -383,8 +416,8 @@ class RealTrivyTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
 
-    def test_source_and_dependency_credentials_fail_without_leaking(self) -> None:
-        names = ("app/credentials.env", "node_modules/pkg/credentials.env", ".venv/lib/pkg/credentials.env")
+    def test_first_party_and_uncached_venv_credentials_fail_without_leaking(self) -> None:
+        names = ("app/credentials.env", ".venv/lib/python3.13/site-packages/pkg/credentials.env")
         for name in names:
             self.put(name, "TOKEN=" + self.token + "\n")
         result = self.scan()
@@ -394,7 +427,7 @@ class RealTrivyTests(unittest.TestCase):
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
     def test_only_exact_sdk_prose_is_excluded_not_other_credentials(self) -> None:
-        name = "root/.cache/uv/archive-v0/random/anthropic/resources/beta/agents/agents.py"
+        name = ".venv/lib/python3.12/site-packages/anthropic/resources/beta/agents/agents.py"
         prose = '\n'.join((
             'sending `{"type": "service_account"}` stores the default.',
             'send null or `{"type": "service_account"}` to restore the default.',
@@ -410,17 +443,38 @@ class RealTrivyTests(unittest.TestCase):
         self.assertIn("github-pat", result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
-    def test_only_listed_pnpm_object_paths_are_excluded(self) -> None:
-        paths = [line.strip()[2:] for line in self.policy.splitlines() if line.startswith("  - ")]
+    def test_package_caches_are_excluded_but_first_party_source_is_scanned(self) -> None:
+        paths = (
+            "mnt/devcontainer-cache/pnpm-store/v11/files/ff/" + "0" * 126,
+            "mnt/devcontainer-cache/npm/_cacache/content-v2/sha512/fixture",
+            "root/.cache/uv/archive-v0/fixture/pkg/credentials.env",
+            "root/.cache/pip/http-v2/fixture",
+            "root/.cache/mise/npm/aube/store/v1/files/fixture",
+            "root/.cache/mise/downloads-cas/blobs/fixture",
+        )
+        self.assertEqual(len(paths), len(CACHE_SKIP_PATTERNS))
         for path in paths:
             self.put(path, "TOKEN=" + self.token)
         result = self.scan()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        neighbor = "mnt/devcontainer-cache/pnpm-store/v11/files/ff/" + "0" * 126
-        self.put(neighbor, "TOKEN=" + self.token)
+        source = "app/credentials.env"
+        self.put(source, "TOKEN=" + self.token)
         result = self.scan()
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn(neighbor, result.stdout)
+        self.assertIn(source, result.stdout)
+        for path in paths:
+            self.assertNotIn(path, result.stdout)
+        self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    def test_default_dependency_git_and_lockfile_paths_are_excluded(self) -> None:
+        paths = (
+            "node_modules/pkg/credentials.env", ".git/config",
+            "pnpm-lock.yaml", "package-lock.json",
+        )
+        for path in paths:
+            self.put(path, json.dumps({"TOKEN": self.token}))
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
 

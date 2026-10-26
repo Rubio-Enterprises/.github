@@ -127,10 +127,12 @@ Both architecture jobs run the same fail-closed steps on PRs and publications:
    Build checks require Buildx >= 0.15 and a supporting Dockerfile frontend
    (introduced in Dockerfile 1.8); unsupported tooling fails rather than skipping.
 3. Trivy scans the built local tag with `--image-src docker --scanners secret
-   --exit-code 1`; it cannot silently fall back to a remote image. Scanner errors
-   also fail the step. The 15-minute timeout fails closed. The log records scan
-   seconds and status per architecture. No vulnerability database is needed for
-   this secret-only scan; telemetry and version-update checks are disabled.
+   --image-config-scanners secret --exit-code 1`; it cannot silently fall back
+   to a remote image. Both filesystem contents and image configuration (including
+   environment variables and build history) are checked. Scanner errors also fail
+   the step. The 15-minute timeout fails closed. The log records scan seconds and
+   status per architecture. No vulnerability database is needed for this
+   secret-only scan; telemetry and version-update checks are disabled.
 4. The report uses Trivy's native Go template output and prints **only file/image
    config location, line range, rule ID and severity**. It never renders matched
    content or code snippets, even partially redacted ones. No JSON/SARIF report
@@ -149,16 +151,45 @@ were compared with the release asset API digests and published checksum file.
 no downloaded installer script or action runs. A rewritten tag/replaced archive
 cannot change the accepted bytes. Updating the version requires reviewing and
 updating both hashes together; a floating checksum download is not a trust pin.
+Review the copied default skip list and its contract-test snapshot against each
+new Trivy release too.
 This deliberately avoids the mutable Trivy action/setup tags implicated in the
 [March 2026 incident](https://github.com/aquasecurity/trivy/discussions/10425).
 Checksums establish byte integrity, not immunity to a malicious upstream release.
 
-Caller `trivy.yaml`, `.trivyignore` and `trivy-secret.yaml` are not loaded. The
-workflow supplies an explicit **`skip-patterns` allowlist** because 0.76.1
-would otherwise skip all `node_modules` and several lockfiles. Neither
-`node_modules` nor `.venv` is excluded wholesale. The only custom exclusions
-are the evidence-backed fixtures and prose blocks below. The temporary Trivy
-analysis cache is deleted on success or failure.
+Caller `trivy.yaml`, `.trivyignore` and `trivy-secret.yaml` are not loaded. Setting
+`skip-patterns` **replaces**, rather than extends, Trivy's defaults. The workflow
+preserves all 23 patterns from 0.76.1's
+[`defaultSkipPatterns`](https://github.com/aquasecurity/trivy/blob/e713f67f7d54decdcd9b3132c9751833dcced698/pkg/fanal/secret/scanner.go#L33-L58):
+`.git`, `node_modules`, the listed dependency manifests/lockfiles, and the listed
+image, document, binary and archive extensions. Its additional cache scopes are:
+
+| Pattern | Contents |
+| --- | --- |
+| `**/pnpm-store/**` | pnpm's content-addressed package files |
+| `**/_cacache/**` | npm's content-addressed cache |
+| `**/.cache/uv/**` | uv's package cache |
+| `**/.cache/pip/**` | pip's package cache |
+| `**/.cache/mise/npm/aube/store/**` | mise's npm backend package store |
+| `**/.cache/mise/downloads-cas/**` | mise's content-addressed tool downloads |
+
+**Third-party package contents are out of scope**, consistent with Trivy's
+default dependency exclusions. Package installs can be hardlinks into these
+caches; their hashed cache names also hide the original test/example paths from
+Trivy's built-in allow rules. The policy does not maintain individual package
+hash exceptions. No detector is disabled. First-party files outside the preserved
+default/cache scopes remain scanned, as does image configuration regardless of
+filesystem path exclusions. The temporary analysis cache is deleted on success
+or failure.
+
+There is no blanket `.venv` or `site-packages` skip, but that does **not** guarantee
+installed Python coverage. Trivy's
+[layer walker](https://github.com/aquasecurity/trivy/blob/e713f67f7d54decdcd9b3132c9751833dcced698/pkg/fanal/walker/tar.go#L64-L76)
+skips hardlink entries. In the bookmark-scraper image, Anthropic SDK source files
+are regular entries in uv's excluded cache and hardlinks in the CodeWiki tool's
+installed `site-packages`; neither copy is scanned. Skipped cache contents do not
+move to installed-path findings. Regular files in uncached venv layouts can still
+be scanned, subject to the other built-in exclusions below.
 
 Trivy's built-in global allow rules remain enabled. In 0.76.1 they exclude these
 paths (scan-relative, without a leading slash):
@@ -189,28 +220,11 @@ spots, not proof that excluded files are safe. Trivy also skips most binary file
 layers. **Skipping detected base layers is accepted for the Microsoft base**;
 this is not a full scan of the upstream base or a substitute for secret rotation.
 
-### Pilot false-positive exclusions
+### SDK prose guard
 
-The first [pilot run][first-scan] failed both architectures with 50 findings
-each: 41 private-key matches in pnpm's content-addressed store and nine
-`gcp-service-account` matches in Anthropic SDK 2.3.0 docstrings. No image was
-pushed. The two corrections use Trivy's native configuration:
-
-- **41 exact pnpm object paths**, not the store or dependency tree, are skipped.
-  Every object's SHA-512 was verified against the published `ssh2@1.17.0`
-  archive and mapped to its public `test/fixtures/` file. Hashing removes the
-  original test path, so Trivy's built-in test-path allow rule cannot recognize
-  these copies. The full paths/hashes are embedded in the workflow; the table
-  below maps their unique 12-character digest prefixes back to the fixtures.
-  New or changed objects are not excluded. This trusts pnpm's content-addressed
-  naming, not an independent scan-time assertion that those bytes still match.
-- **Three exact prose patterns** in `exclude-block.regexes` suppress the
-  SDK's execution-identity examples. They cover only the literal example
-  substring, not whole files, the SDK, uv cache, or real service-account JSON.
-  The remaining contents of all six affected SDK files stay scanned. No
-  detector is disabled.
-
-The excluded prose patterns are:
+The workflow retains three narrow `exclude-block.regexes` for Anthropic SDK
+execution-identity documentation. They suppress only these literal example
+substrings, not whole files or real service-account JSON:
 
 ```text
 sending `\{"type": "service_account"\}` stores the
@@ -218,60 +232,20 @@ send null or `\{"type": "service_account"\}`
 Always present; `\{"type": "service_account"\}` when runs carry no customer-named
 ```
 
+The guard matters for layouts that materialize SDK files outside excluded caches
+as regular files. Scanning the six installed Anthropic 2.3.0 source files directly
+produces nine `gcp-service-account` matches without it and none with it. The
+bookmark-scraper image scan itself has no such findings even without the guard,
+because of the uv-cache/hardlink layout described above; that zero is not proof
+that these files were inspected.
+
 The affected SDK files are `resources/beta/agents/agents.py` (four matches)
 and `types/beta/{agent_create_params,agent_update_params,`
 `beta_managed_agents_agent,beta_managed_agents_session_agent,`
 `beta_managed_agents_session_thread_agent}.py` (one each), under `anthropic/`.
-The real-scanner regression checks also verify that unrelated credentials in
-dependency files and SDK files still fail without exposing matched content.
-
-All fixture paths below are relative to `ssh2@1.17.0/test/fixtures/`:
-
-| SHA-512 prefix | Fixture |
-| --- | --- |
-| `03e8ac3ad639` | `keyParser/ppk_rsa_enc.result` |
-| `081a4d030797` | `keyParser/openssh_new_dsa` |
-| `0e8eec4450db` | `openssh_new_rsa` |
-| `18a3c7d1407f` | `keyParser/openssh_old_rsa.result` |
-| `2e495fdf2a0f` | `keyParser/openssh_new_rsa_enc_gcm.result` |
-| `38453eb81616` | `keyParser/openssh_new_rsa_enc.result` |
-| `41de26bc294e` | `keyParser/ppk_rsa.result` |
-| `436f02f5b307` | `keyParser/openssh_new_ecdsa_enc_gcm` |
-| `4802052c23fe` | `ssh_host_ecdsa_key` |
-| `4f087fd189a7` | `keyParser/openssh_old_dsa_enc.result` |
-| `58fe74411e34` | `keyParser/openssh_old_dsa.result` |
-| `63099a924155` | `keyParser/openssh_new_ecdsa_enc` |
-| `638247405ad2` | `keyParser/openssh_new_ecdsa.result` |
-| `6a9cdd0b5dde` | `keyParser/openssh_old_rsa_enc.result` |
-| `6f07af000350` | `keyParser/openssh_new_ed25519.result` |
-| `7293a11ba467` | `https_key.pem` |
-| `7d3ffc59dede` | `keyParser/openssh_old_ecdsa_enc.result` |
-| `8050a694218d` | `keyParser/openssh_old_rsa_enc_aes256.result` |
-| `9001cc5a0efc` | `ssh_host_dsa_key` |
-| `903f8d54f948` | `ssh_host_rsa_key` |
-| `924b631bc0e6` | `keyParser/openssh_new_dsa_enc_gcm.result` |
-| `9333a54ba03e` | `keyParser/openssh_old_ecdsa.result` |
-| `9bdae572f20e` | `id_rsa` |
-| `a0318c9394f1` | `keyParser/openssh_new_ecdsa_enc.result` |
-| `aa85c50453de` | `keyParser/openssh_old_ecdsa` |
-| `b1baa4c5e1b7` | `keyParser/openssh_new_dsa_enc_gcm` |
-| `b2c9d877ff80` | `keyParser/openssh_new_dsa.result` |
-| `b5c0383718c8` | `id_dsa` |
-| `bba839681077` | `id_ecdsa` |
-| `c297acc40255` | `keyParser/openssh_new_rsa_enc` |
-| `c5839760d2d8` | `keyParser/openssh_new_ecdsa` |
-| `c7b8750ecac6` | `keyParser/openssh_new_rsa.result` |
-| `c7bbceefb0ac` | `keyParser/ppk_dsa_enc.result` |
-| `d04e09fc99b6` | `keyParser/openssh_new_dsa_enc.result` |
-| `db4ea37d542b` | `keyParser/openssh_old_rsa` |
-| `dd6e1eeafe4d` | `bad_rsa_private_key` |
-| `e840d75f553e` | `keyParser/openssh_new_dsa_enc` |
-| `f16a44e61491` | `keyParser/openssh_new_ed25519` |
-| `f1955c52f8d0` | `keyParser/openssh_new_ecdsa_enc_gcm.result` |
-| `f55ed42caac5` | `keyParser/openssh_old_dsa` |
-| `f56750d0c92d` | `keyParser/openssh_new_rsa_enc_gcm` |
-
-[first-scan]: https://github.com/Rubio-Enterprises/bookmark-scraper/actions/runs/40151668405
+Real-scanner regressions check that unrelated credentials in first-party source
+and uncached SDK/venv files still fail without exposing matched content, while
+default dependency paths and the six package-cache scopes remain excluded.
 
 References: [Docker build checks](https://docs.docker.com/build/checks/),
 [`SecretsUsedInArgOrEnv`](https://docs.docker.com/reference/build-checks/secrets-used-in-arg-or-env/),
@@ -293,7 +267,7 @@ checks workflow syntax; zizmor checks security. YAML anchors share the two build
 jobs' matrix and steps while preserving separate token scopes. Also audit an
 alias-expanded temporary copy because zizmor warns about anchor support.
 Set `TRIVY_TEST_BINARY` to a checksum-verified Trivy 0.76.1 binary when running
-`tests/test_devcontainer_image_workflow.py` to include the three real-scanner
+`tests/test_devcontainer_image_workflow.py` to include the four real-scanner
 regressions; without it, only those optional integration tests are skipped.
 
 Only a real caller can prove native builds, GHCR permissions/private visibility,
