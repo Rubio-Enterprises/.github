@@ -1,5 +1,14 @@
 # Changelog
 
+## [4.7.0](https://github.com/Rubio-Enterprises/.github/compare/v4.6.0...v4.7.0) (2026-10-26)
+
+
+### Features
+
+* **actions:** add the standards-bootstrap composite action ([#415](https://github.com/Rubio-Enterprises/.github/issues/415)) ([c498070](https://github.com/Rubio-Enterprises/.github/commit/c498070b6c787f45e731174a94c37c1f5f6f2c4f))
+* **ci:** add native devcontainer image prebuilds ([#411](https://github.com/Rubio-Enterprises/.github/issues/411)) ([8b931a0](https://github.com/Rubio-Enterprises/.github/commit/8b931a067dd51a75c828cbbec62ba9295bd88c51))
+* **renovate:** manage prebuild definitions without pinning images ([#412](https://github.com/Rubio-Enterprises/.github/issues/412)) ([b75ca7f](https://github.com/Rubio-Enterprises/.github/commit/b75ca7ffa4ce26e18fe7304a91302caa17f699de))
+
 ## [4.6.0](https://github.com/Rubio-Enterprises/.github/compare/v4.5.0...v4.6.0) (2026-10-21)
 
 
