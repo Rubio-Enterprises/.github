@@ -150,6 +150,9 @@ jobs:
       # then read the managed version.
       - name: Fingerprint the uv-resolved python for the mise cache key
         id: uv-python
+        # Native cache seeds ignore consumer project bounds, matching uvx
+        env:
+          UV_NO_PROJECT: ${{ needs.route.outputs.config_model == 'native' }}
         shell: bash
         run: |
           set -euo pipefail

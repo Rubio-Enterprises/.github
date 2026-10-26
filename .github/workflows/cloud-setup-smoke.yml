@@ -211,6 +211,9 @@ jobs:
       # points at an interpreter this VM lacks — a poisoned cache no re-run fixes.
       - name: Fingerprint the uv-resolved python for the mise cache key
         id: uv-python
+        # Native cache seeds ignore consumer project bounds, matching uvx
+        env:
+          UV_NO_PROJECT: ${{ steps.probe.outputs.config_model == 'native' }}
         if: steps.probe.outputs.runnable == 'true'
         shell: bash
         run: |
