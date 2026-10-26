@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.8.0](https://github.com/Rubio-Enterprises/.github/compare/v4.7.0...v4.8.0) (2026-10-26)
+
+
+### Features
+
+* **ci:** support native config repositories and add the build gate ([#416](https://github.com/Rubio-Enterprises/.github/issues/416)) ([d423252](https://github.com/Rubio-Enterprises/.github/commit/d4232528e8f83ba73a42e79d2ec9c7db5a5951f3))
+
 ## [4.7.0](https://github.com/Rubio-Enterprises/.github/compare/v4.6.0...v4.7.0) (2026-10-26)
 
 
