@@ -62,16 +62,15 @@ does not dereference or judge them. Its responsibility is the deterministic
 transition: shape, ancestry, complete Gate Family files, exact expected current
 state, compare-and-swap, and final verification.
 
-The publisher compares the candidate gate workflow's single annotated
-`MISE_VERSION` with the live tag's pin. An unchanged pin needs no runner
-observation, including this initial rollout. For a changed pin, a preflight
-job runs on the same `RUNNERS.light` route as the required gate and reads
-`$MISE_DATA_DIR/bin/mise` (or mise-action's equivalent default data directory).
-The publisher refuses to advance the tag if that executable is absent,
-unparseable, or different from the candidate pin. A hosted fallback with no
-preinstalled mise therefore cannot authorize a pin-changing publication.
-The `warm-glue` deployment receipt in mac-dev-playbook remains its internal
-drift signal; the publisher does not need cross-repository credentials.
+The publisher does not check the gates' mise version. Before a Publication
+Request that changes a gate's `MISE_VERSION`, the operator confirms that the
+warm pools bake that version: mac-dev-playbook's `warm-glue-canary.yml` prints
+`baked mise <version>`. Cite that run in the request's `references`. The pin is
+only the cold fallback. Since [#314][pr-314], each gate's "Resolve installed
+mise version" step passes a warm runner's own binary to mise-action, whatever
+the pin says, and cold hosted runs download the pinned version.
+
+[pr-314]: https://github.com/Rubio-Enterprises/.github/pull/314
 
 ## Automatic publication
 

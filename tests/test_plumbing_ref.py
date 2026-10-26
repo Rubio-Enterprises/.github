@@ -1226,63 +1226,43 @@ class OwnerRecoveryRunbookTests(unittest.TestCase):
             self.assertEqual(fixture.live_sha(), expected)
 
 
-class MisePublicationPreflightTests(unittest.TestCase):
-    def test_unchanged_pin_needs_no_runner_observation(self) -> None:
+class MisePinPublicationTests(unittest.TestCase):
+    def test_changed_gate_mise_pin_validates_without_runner_observation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = GitFixture(Path(directory))
-            current = fixture.create_floor()
-            target = fixture.commit({"README": "workflow-only publication\n"}, "candidate")
-            with mock.patch.dict("os.environ", {"WARM_GLUE_MISE_VERSION": ""}):
-                plumbing_ref._require_deployed_mise(fixture.repo, current, target)
+            expected = fixture.create_floor()
+            target = fixture.commit(
+                {
+                    GATE_WORKFLOWS["standards-gates"]:
+                        "name: standards-gates\n"
+                        "# renovate: datasource=github-releases depName=jdx/mise\n"
+                        'MISE_VERSION: "2026.9.12"\n'
+                },
+                "bump gate mise pin",
+            )
+            before = fixture.write_request(expected, expected, "Bootstrap publisher")
+            after = fixture.write_request(expected, target)
+            fixture.push_main()
+            fixture.set_live_ref(expected)
 
-    def test_first_cutover_accepts_identical_legacy_live_pins(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            fixture = GitFixture(Path(directory))
-            fixture.create_floor()
-            current = fixture.commit({
-                GATE_WORKFLOWS["standards-gates"]:
-                    "name: standards-gates\n"
-                    "# renovate: datasource=github-releases depName=jdx/mise\n"
-                    'version: "2026.9.11"\n'
-                    "# renovate: datasource=github-releases depName=jdx/mise\n"
-                    'version: "2026.9.11"\n'
-            }, "published legacy pins")
-            target = fixture.commit({
-                GATE_WORKFLOWS["standards-gates"]:
-                    "name: standards-gates\n"
-                    "# renovate: datasource=github-releases depName=jdx/mise\n"
-                    'MISE_VERSION: "2026.9.11"\n'
-            }, "single pin")
             with mock.patch.dict("os.environ", {"WARM_GLUE_MISE_VERSION": ""}):
-                plumbing_ref._require_deployed_mise(fixture.repo, current, target)
+                report = plumbing_ref.execute_forward(
+                    repository=fixture.repo,
+                    remote="origin",
+                    request_path=fixture.repo / REQUEST_PATH,
+                    manifest_path=fixture.repo / MANIFEST_PATH,
+                    before_sha=before,
+                    after_sha=after,
+                    mode="validate",
+                    run_attempt=1,
+                )
 
-    def test_changed_pin_requires_observed_warm_glue_version(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            fixture = GitFixture(Path(directory))
-            current = fixture.create_floor()
-            target = fixture.commit({
-                GATE_WORKFLOWS["standards-gates"]:
-                    "name: standards-gates\n"
-                    "# renovate: datasource=github-releases depName=jdx/mise\n"
-                    'MISE_VERSION: "2026.9.11"\n'
-                    'MISE_VERSION: "2026.9.11"\n'
-            }, "malformed pin")
-            with self.assertRaisesRegex(plumbing_ref.PolicyError, "exactly one"):
-                plumbing_ref._require_deployed_mise(fixture.repo, current, target)
-            target = fixture.commit({
-                GATE_WORKFLOWS["standards-gates"]:
-                    "name: standards-gates\n"
-                    "# renovate: datasource=github-releases depName=jdx/mise\n"
-                    'MISE_VERSION: "2026.9.12"\n'
-            }, "new pin")
-            with mock.patch.dict("os.environ", {"WARM_GLUE_MISE_VERSION": ""}):
-                with self.assertRaisesRegex(plumbing_ref.PolicyError, "observed version"):
-                    plumbing_ref._require_deployed_mise(fixture.repo, current, target)
-            with mock.patch.dict("os.environ", {"WARM_GLUE_MISE_VERSION": "2026.9.12"}):
-                plumbing_ref._require_deployed_mise(fixture.repo, current, target)
-            with mock.patch.dict("os.environ", {"WARM_GLUE_MISE_VERSION": "2026.7.7"}):
-                with self.assertRaisesRegex(plumbing_ref.PolicyError, "differs"):
-                    plumbing_ref._require_deployed_mise(fixture.repo, current, target)
+            self.assertEqual(report["result"], "validated")
+            self.assertEqual(
+                report["affected_workflows"],
+                [GATE_WORKFLOWS["standards-gates"]],
+            )
+
 
 class WorkflowContractTests(unittest.TestCase):
     def test_normal_publisher_uses_base_validator_and_narrow_permissions(self) -> None:
@@ -1307,6 +1287,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("concurrency:", workflow)
         self.assertNotIn("secrets.", workflow)
         self.assertNotIn("pull_request.head.ref", workflow)
+        self.assertNotIn("readiness", workflow)
+        self.assertNotIn("MISE", workflow)
 
     def test_automated_rollback_surface_is_absent(self) -> None:
         rollback_workflow = ROOT / ".github" / "workflows" / "plumbing-ref-rollback.yml"
