@@ -1,5 +1,14 @@
 # Changelog
 
+## [4.8.1](https://github.com/Rubio-Enterprises/.github/compare/v4.8.0...v4.8.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **ci:** scope devcontainer secret scanning and inspect image config ([#421](https://github.com/Rubio-Enterprises/.github/issues/421)) ([41c4656](https://github.com/Rubio-Enterprises/.github/commit/41c465636ae6b525cea7008578f5bf69d7e63546))
+* isolate native tool-cache python discovery ([#423](https://github.com/Rubio-Enterprises/.github/issues/423)) ([9aea1ed](https://github.com/Rubio-Enterprises/.github/commit/9aea1edee73618d2cc1ac783b86853b908fa5137))
+* **plumbing-ref:** drop the runner mise observation from the publisher ([#419](https://github.com/Rubio-Enterprises/.github/issues/419)) ([faa5dc9](https://github.com/Rubio-Enterprises/.github/commit/faa5dc92ee22db74a8c80812f37b69e9d9df874e))
+
 ## [4.8.0](https://github.com/Rubio-Enterprises/.github/compare/v4.7.0...v4.8.0) (2026-10-26)
 
 
