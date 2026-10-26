@@ -109,6 +109,20 @@ refresh the checkout. `lint-hooks` also keeps it for its native path, as it did
 before the action existed. Either way the token stays read-only, scoped to
 `standards`, and expires within an hour. Its revocation runs when the job ends.
 
+## Tool-cache Python is not the consumer runtime
+
+Before bootstrap, the central workflows fingerprint a uv-managed interpreter
+into the mise cache key to protect cached pipx/uvx tools from stale shebangs.
+This is a toolchain seed, not the Python used for consumer tests or linting.
+[uv tool environments ignore consumer project Python requests](https://docs.astral.sh/uv/concepts/tools/#python-versions).
+
+For native repositories only, the fingerprint step sets `UV_NO_PROJECT=true`
+so `uv python find` also ignores consumer `requires-python`. A native checkout
+pinned to Python 3.13 with `requires-python <3.14` can therefore fingerprint a
+3.14 tool interpreter before mise loads its runtime pin. The setting is scoped
+to that step; bootstrap and later consumer commands retain their own Python
+selection. Rendered repositories keep project discovery unchanged.
+
 ## Secret reachability
 
 Checked read-only on 2026-10-25:
