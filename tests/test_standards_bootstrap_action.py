@@ -1,0 +1,295 @@
+"""Contracts for the `standards-bootstrap` composite action (standards ADR-0033).
+
+The action sets up a `config_model: native` repository: it mints a read-only
+standards-reader token, routes the private Shared Config Checkout clone through
+it, runs `mise bootstrap --only repos,tools` through jdx/mise-action, requires
+the checkout, and removes the route. It does nothing for a rendered repository.
+The shell steps run here under the default bash and macOS's bash 3.2.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from test_ruby_workflows import ROOT, extract_run_block, extract_step
+
+ACTION = (ROOT / "actions" / "standards-bootstrap" / "action.yml").read_text(encoding="utf-8")
+
+MODEL = "Read the config model"
+PREREQUISITES = "Check the native prerequisites"
+MINT = "Mint the standards read token"
+ROUTE = "Route the standards clone through the token"
+BOOTSTRAP = "Install mise and bootstrap the Shared Config Checkout"
+READY = "Require the Shared Config Checkout"
+UNROUTE = "Remove the standards read route"
+STEPS = [MODEL, PREREQUISITES, MINT, ROUTE, BOOTSTRAP, READY, UNROUTE]
+NATIVE = "steps.model.outputs.config_model == 'native'"
+OWNER = "Rubio-Enterprises"
+ROUTE_KEY = f"url.https://x-access-token:ghs_secret@github.com/{OWNER}/standards.insteadof"
+BASHES = ["bash"] + (["/bin/bash"] if Path("/bin/bash").exists() else [])
+
+
+def action_inputs() -> dict[str, str]:
+    """Map each declared input to its default (empty when none)."""
+    block = ACTION.split("\ninputs:\n", 1)[1].split("\noutputs:\n", 1)[0]
+    inputs: dict[str, str] = {}
+    for match in re.finditer(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\s*\n)*)", block + "\n"):
+        default = re.search(r"(?m)^    default: (.*)$", match.group(2))
+        inputs[match.group(1)] = default.group(1).strip('"') if default else ""
+    return inputs
+
+
+def condition(name: str) -> str:
+    for line in extract_step(ACTION, name).splitlines():
+        if line.strip().startswith("if:"):
+            return line.strip()[3:].strip()
+    return ""
+
+
+def run(name: str, cwd: Path, *, shell: str = "bash", **env: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [shell, "-c", extract_run_block(ACTION, name)], cwd=cwd, text=True,
+        capture_output=True, check=False, env={**os.environ, **env},
+    )
+
+
+def outputs(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    return dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line)
+
+
+class InterfaceTests(unittest.TestCase):
+    def test_inputs_and_defaults(self) -> None:
+        self.assertEqual(action_inputs(), {
+            "app-id": "", "private-key": "", "config-model": "", "mise-version": "",
+            "cache-key-prefix": "mise-v1", "keep-route": "false",
+        })
+
+    def test_config_model_output_comes_from_the_model_step(self) -> None:
+        self.assertIn("value: ${{ steps.model.outputs.config_model }}", ACTION)
+        self.assertIn("using: composite", ACTION)
+
+    def test_steps_run_in_order(self) -> None:
+        positions = [ACTION.index(f"- name: {step}\n") for step in STEPS]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_nested_actions_are_pinned_by_digest(self) -> None:
+        uses = re.findall(r"(?m)^\s+uses: (\S+)(.*)$", ACTION)
+        self.assertEqual(len(uses), 2)
+        for ref, comment in uses:
+            with self.subTest(ref=ref):
+                self.assertRegex(ref, r"^[\w-]+/[\w.-]+@[0-9a-f]{40}$")
+                self.assertRegex(comment, r"^ # v\d")
+
+
+class ConfigModelTests(unittest.TestCase):
+    def test_input_wins_and_an_empty_input_reads_the_answers(self) -> None:
+        for given, answers, expected in (
+            ("", None, "rendered"),
+            ("", "has_python: true\n", "rendered"),
+            ("", "config_model: rendered\n", "rendered"),
+            ("", "config_model: native\n", "native"),
+            ("", 'config_model: "native"\n', "native"),
+            ("", "# config_model: native\n", "rendered"),
+            ("", "config_model: Native\n", None),
+            ("native", None, "native"),
+            ("rendered", "config_model: native\n", "rendered"),
+            ("Native", None, None),
+        ):
+            for shell in BASHES:
+                with self.subTest(given=given, answers=answers, shell=shell), \
+                        tempfile.TemporaryDirectory() as tmp:
+                    repo = Path(tmp)
+                    if answers is not None:
+                        (repo / ".copier-answers.yml").write_text(answers)
+                    result = run(MODEL, repo, shell=shell, GIVEN_MODEL=given,
+                                 GITHUB_OUTPUT=str(repo / "out"))
+                    if expected is None:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("unsupported config_model", result.stderr)
+                        self.assertNotIn("config_model", outputs(repo / "out"))
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(outputs(repo / "out")["config_model"], expected)
+
+    def test_rendered_repositories_run_nothing_else(self) -> None:
+        self.assertEqual(condition(MODEL), "")
+        for step in STEPS[1:-1]:
+            with self.subTest(step=step):
+                self.assertEqual(condition(step), NATIVE)
+        self.assertEqual(
+            condition(UNROUTE), f"always() && {NATIVE} && inputs.keep-route != 'true'"
+        )
+
+
+class PrerequisiteTests(unittest.TestCase):
+    def check(self, *, app_id: str = "1", key: str = "k", version: str = "",
+              installed: str | None = None, shell: str = "bash"):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = root / "mise-data"
+            if installed is not None:
+                binary = data / "bin" / "mise"
+                binary.parent.mkdir(parents=True)
+                report = json.dumps({"version": f"{installed} linux-x64 (2026-10-01)"})
+                binary.write_text(f"#!/bin/sh\n[ \"$*\" = 'version --json' ] || exit 2\necho '{report}'\n")
+                binary.chmod(0o755)
+            result = run(PREREQUISITES, root, shell=shell, APP_ID=app_id, APP_PRIVATE_KEY=key,
+                         MISE_VERSION=version, MISE_DATA_DIR=str(data),
+                         GITHUB_OUTPUT=str(root / "out"))
+            return result, outputs(root / "out")
+
+    def test_missing_credentials_fail_with_a_clear_error(self) -> None:
+        for app_id, key in (("", "k"), ("1", ""), ("", "")):
+            with self.subTest(app_id=app_id, key=key):
+                result, out = self.check(app_id=app_id, key=key)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("a reusable workflow's caller must forward them", result.stderr)
+                self.assertEqual(out, {})
+
+    def test_mise_version_must_meet_the_native_floor(self) -> None:
+        for version, installed, expected in (
+            ("2026.10.19", None, "2026.10.19"),
+            ("2026.11.3", "2026.9.11", "2026.11.3"),
+            ("2027.1.0", None, "2027.1.0"),
+            ("", None, "2026.10.19"),
+            ("", "2026.11.3", "2026.11.3"),
+            ("", "2026.10.19", "2026.10.19"),
+            ("2026.10.18", None, None),
+            ("2026.9.30", None, None),
+            ("2025.12.99", None, None),
+            ("", "2026.10.5", None),
+            ("latest", None, None),
+            ("v2026.10.19", None, None),
+        ):
+            for shell in BASHES:
+                with self.subTest(version=version, installed=installed, shell=shell):
+                    result, out = self.check(version=version, installed=installed, shell=shell)
+                    if expected is None:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("::error::", result.stderr)
+                        self.assertEqual(out, {})
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(out, {"mise_version": expected})
+
+
+class TokenAndBootstrapTests(unittest.TestCase):
+    def test_token_is_read_only_and_scoped_to_standards(self) -> None:
+        step = extract_step(ACTION, MINT)
+        for line in ("app-id: ${{ inputs.app-id }}", "private-key: ${{ inputs.private-key }}",
+                     "owner: ${{ github.repository_owner }}", "repositories: standards\n",
+                     "permission-contents: read"):
+            with self.subTest(line=line):
+                self.assertIn(line, step + "\n")
+
+    def test_mise_action_runs_the_native_bootstrap(self) -> None:
+        step = extract_step(ACTION, BOOTSTRAP)
+        self.assertIn("uses: jdx/mise-action@", step)
+        for line in ("version: ${{ steps.prerequisites.outputs.mise_version }}",
+                     "cache_key_prefix: ${{ inputs.cache-key-prefix }}",
+                     "bootstrap: true", "bootstrap_args: --only repos,tools",
+                     "MISE_GITHUB_TOKEN: ${{ github.token }}",
+                     'GIT_TERMINAL_PROMPT: "0"', "GCM_INTERACTIVE: never"):
+            with self.subTest(line=line):
+                self.assertIn(line, step)
+        self.assertNotIn("install_args", step)
+
+
+class RouteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.home)
+        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / "xdg"),
+                    "GIT_CONFIG_NOSYSTEM": "1", "OWNER": OWNER}
+        (self.home / ".gitconfig").write_text("[user]\n\tname = t\n")
+
+    def git_config(self, *args: str) -> None:
+        subprocess.run(["git", "config", "--global", *args], check=True,
+                       env={**os.environ, **self.env})
+
+    def routes(self) -> str:
+        return subprocess.run(
+            ["git", "config", "--global", "--get-regexp", r"^url\."], text=True,
+            capture_output=True, env={**os.environ, **self.env},
+        ).stdout
+
+    def test_route_rewrites_only_the_standards_url(self) -> None:
+        result = run(ROUTE, self.home, TOKEN="ghs_secret", **self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.routes(), f"{ROUTE_KEY} https://github.com/{OWNER}/standards\n")
+
+    def test_removal_drops_only_the_standards_token_route(self) -> None:
+        others = {
+            "url.git@github.com:.insteadOf": "gh:",
+            f"url.https://x-access-token:ghs_go@github.com/{OWNER}/scaleset.insteadOf":
+                f"https://github.com/{OWNER}/scaleset",
+        }
+        for shell in BASHES:
+            for routed in (True, False):
+                for with_others in (True, False):
+                    with self.subTest(shell=shell, routed=routed, others=with_others):
+                        (self.home / ".gitconfig").write_text("[user]\n\tname = t\n")
+                        if routed:
+                            run(ROUTE, self.home, TOKEN="ghs_secret", **self.env)
+                        if with_others:
+                            for key, value in others.items():
+                                self.git_config(key, value)
+                        result = run(UNROUTE, self.home, shell=shell, **self.env)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        remaining = self.routes()
+                        self.assertNotIn("ghs_secret", remaining)
+                        self.assertEqual("ghs_go" in remaining, with_others)
+                        self.assertEqual("git@github.com:" in remaining, with_others)
+
+
+class ReadinessTests(unittest.TestCase):
+    def ready(self, *, status: int, checkout: bool, shell: str = "bash"):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            bin_dir = repo / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "mise").write_text(
+                "#!/bin/sh\n"
+                '[ "$*" = "bootstrap repos status --missing" ] || exit 2\n'
+                f"exit {status}\n"
+            )
+            (bin_dir / "mise").chmod(0o755)
+            if checkout:
+                shared = repo / ".standards-config"
+                (shared / "config" / "lefthook").mkdir(parents=True)
+                (shared / "config" / "lefthook" / "base.yml").write_text("{}\n")
+                for args in (["init", "-q", "-b", "stable"],
+                             ["-c", "user.email=t@e", "-c", "user.name=t",
+                              "commit", "-q", "--allow-empty", "-m", "x"]):
+                    subprocess.run(["git", *args], cwd=shared, check=True, capture_output=True)
+            summary = repo / "summary"
+            result = run(READY, repo, shell=shell, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                         GITHUB_STEP_SUMMARY=str(summary))
+            return result, summary.read_text() if summary.exists() else ""
+
+    def test_present_checkout_passes_and_records_its_revision(self) -> None:
+        for shell in BASHES:
+            with self.subTest(shell=shell):
+                result, summary = self.ready(status=0, checkout=True, shell=shell)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertRegex(summary, r"standards `stable` at `[0-9a-f]{40}`")
+
+    def test_missing_or_stale_checkout_fails(self) -> None:
+        for status, checkout, message in ((0, False, "shared config missing"), (1, True, "")):
+            with self.subTest(status=status, checkout=checkout):
+                result, _ = self.ready(status=status, checkout=checkout)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
