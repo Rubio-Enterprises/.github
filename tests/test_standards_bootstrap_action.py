@@ -1,10 +1,9 @@
 """Contracts for the `standards-bootstrap` composite action (standards ADR-0033).
 
-The action sets up a `config_model: native` repository: it mints a read-only
-standards-reader token, routes the private Shared Config Checkout clone through
-it, runs `mise bootstrap --only repos,tools` through jdx/mise-action, requires
-the checkout, and removes the route. It does nothing for a rendered repository.
-The shell steps run here under the default bash and macOS's bash 3.2.
+The checkout must exist before mise resolves consumer includes, but its channel
+comes from mise's stored TOML rather than the Copier answer. The action still
+runs native bootstrap and independent readiness checks. The shell steps run
+under the default bash and macOS's bash 3.2.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,12 +24,15 @@ ACTION = (ROOT / "actions" / "standards-bootstrap" / "action.yml").read_text(enc
 
 MODEL = "Read the config model"
 PREREQUISITES = "Check the native prerequisites"
+INSTALL_MISE = "Install mise without loading repository config"
+DECLARATION = "Read the Shared Config Checkout declaration"
 MINT = "Mint the standards read token"
+CHECKOUT = "Check out the Shared Config Checkout"
 ROUTE = "Route the standards clone through the token"
 BOOTSTRAP = "Install mise and bootstrap the Shared Config Checkout"
 READY = "Require the Shared Config Checkout"
 UNROUTE = "Remove the standards read route"
-STEPS = [MODEL, PREREQUISITES, MINT, ROUTE, BOOTSTRAP, READY, UNROUTE]
+STEPS = [MODEL, PREREQUISITES, INSTALL_MISE, DECLARATION, MINT, CHECKOUT, ROUTE, BOOTSTRAP, READY, UNROUTE]
 NATIVE = "steps.model.outputs.config_model == 'native'"
 OWNER = "Rubio-Enterprises"
 ROUTE_KEY = f"url.https://x-access-token:ghs_secret@github.com/{OWNER}/standards.insteadof"
@@ -83,7 +86,7 @@ class InterfaceTests(unittest.TestCase):
 
     def test_nested_actions_are_pinned_by_digest(self) -> None:
         uses = re.findall(r"(?m)^\s+uses: (\S+)(.*)$", ACTION)
-        self.assertEqual(len(uses), 2)
+        self.assertEqual(len(uses), 4)
         for ref, comment in uses:
             with self.subTest(ref=ref):
                 self.assertRegex(ref, r"^[\w-]+/[\w.-]+@[0-9a-f]{40}$")
@@ -193,7 +196,96 @@ class PrerequisiteTests(unittest.TestCase):
                         self.assertEqual(out, {"mise_version": expected})
 
 
+class CheckoutDeclarationTests(unittest.TestCase):
+    def declaration(self, config: str | None, *, present: bool = False, shell: str = "bash"):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            if config is not None:
+                (root / ".mise.toml").write_text(config)
+            (root / ".copier-answers.yml").write_text("standards_channel: stable\n")
+            if present:
+                (root / ".standards-config").mkdir()
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "mise").write_text(
+                f"#!{sys.executable}\n"
+                "import json, pathlib, sys, tomllib\n"
+                "assert sys.argv[1:4] == ['config', 'get', '--file'], sys.argv\n"
+                "with pathlib.Path('calls').open('a') as out:\n"
+                "    out.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                "assert len(sys.argv) == 6 and sys.argv[4] == '.mise.toml'\n"
+                "config = tomllib.loads(pathlib.Path(sys.argv[4]).read_text())\n"
+                "key = sys.argv[5].rsplit('.', 1)[1]\n"
+                "print(config['bootstrap']['repos']['.standards-config'][key])\n"
+            )
+            (bin_dir / "mise").chmod(0o755)
+            result = run(DECLARATION, root, shell=shell, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                         GITHUB_OUTPUT=str(root / "out"))
+            calls = [json.loads(line) for line in (root / "calls").read_text().splitlines()]
+            return result, outputs(root / "out"), calls
+
+    def test_cold_and_present_checkouts_read_the_authoritative_declaration(self) -> None:
+        for ref in ("stable", "canary"):
+            config = (
+                'include = ["git::http://127.0.0.1:9/unreachable.git//base.toml?ref=stable"]\n'
+                '[bootstrap.repos]\n'
+                f"'.standards-config' = {{url = 'https://github.com/{OWNER}/standards.git', ref = '{ref}'}}\n"
+            )
+            for present in (False, True):
+                for shell in BASHES:
+                    with self.subTest(ref=ref, present=present, shell=shell):
+                        result, out, calls = self.declaration(config, present=present, shell=shell)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(out, {"ref": ref})
+                        self.assertEqual({call[-1] for call in calls}, {
+                            'bootstrap.repos.".standards-config".url',
+                            'bootstrap.repos.".standards-config".ref',
+                        })
+
+    def test_table_form_and_git_suffix_optional(self) -> None:
+        config = (
+            '[bootstrap.repos.".standards-config"]\n'
+            f'url = "https://github.com/{OWNER}/standards"\nref = "canary"\n'
+        )
+        result, out, _ = self.declaration(config)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(out, {"ref": "canary"})
+
+    def test_missing_malformed_or_unexpected_declarations_fail_closed(self) -> None:
+        for config in (
+            None, "", "not valid TOML", '[bootstrap.repos]\n".standards-config" = {}\n',
+            f'[bootstrap.repos]\n".standards-config" = {{url="https://github.com/{OWNER}/standards.git"}}\n',
+            '[bootstrap.repos]\n".standards-config" = {url="https://example.invalid/standards.git",ref="stable"}\n',
+            f'[bootstrap.repos]\n".standards-config" = {{url="https://github.com/{OWNER}/standards.git",ref="main"}}\n',
+            f'[bootstrap.repos]\n".standards-config" = {{url="https://github.com/{OWNER}/standards.git",ref="stable\\nother=output"}}\n',
+        ):
+            with self.subTest(config=config):
+                result, out, _ = self.declaration(config)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(out, {})
+
+
 class TokenAndBootstrapTests(unittest.TestCase):
+    def test_mise_is_installed_without_loading_the_consumer_config(self) -> None:
+        step = extract_step(ACTION, INSTALL_MISE)
+        self.assertIn("uses: jdx/mise-action@", step)
+        for line in ("install: false", "cache: false", "env: false",
+                     "version: ${{ steps.prerequisites.outputs.mise_version }}"):
+            self.assertIn(line, step)
+        self.assertNotIn("bootstrap: true", step)
+
+    def test_checkout_uses_the_declared_channel_and_full_history_before_bootstrap(self) -> None:
+        step = extract_step(ACTION, CHECKOUT)
+        for line in ("uses: actions/checkout@", "repository: Rubio-Enterprises/standards",
+                     "ref: ${{ steps.declaration.outputs.ref }}", "path: .standards-config",
+                     "fetch-depth: 0", "persist-credentials: false",
+                     "token: ${{ steps.token.outputs.token }}"):
+            with self.subTest(line=line):
+                self.assertIn(line, step)
+        declaration = extract_step(ACTION, DECLARATION)
+        self.assertNotIn(".copier-answers.yml", declaration)
+        self.assertLess(ACTION.index(f"- name: {CHECKOUT}\n"), ACTION.index(f"- name: {BOOTSTRAP}\n"))
+
     def test_token_is_read_only_and_scoped_to_standards(self) -> None:
         step = extract_step(ACTION, MINT)
         for line in ("app-id: ${{ inputs.app-id }}", "private-key: ${{ inputs.private-key }}",

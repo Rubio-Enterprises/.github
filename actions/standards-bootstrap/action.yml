@@ -1,8 +1,9 @@
 name: standards-bootstrap
 description: >-
   Set up a config_model native repository (standards ADR-0033): clone its
-  Shared Config Checkout through a read-only standards-reader token, install
-  its mise tools when requested, require the checkout, then remove the token route. Does
+  Shared Config Checkout before loading its mise includes, using a read-only
+  standards-reader token. Install its mise tools when requested, require the
+  checkout, then remove the token route. Does
   nothing for a rendered repository. Usage: docs/standards-bootstrap.md.
 author: Rubio-Enterprises
 inputs:
@@ -113,6 +114,38 @@ runs:
           exit 1
         fi
         printf 'mise_version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+    - name: Install mise without loading repository config
+      if: steps.model.outputs.config_model == 'native'
+      uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      env:
+        MISE_GITHUB_TOKEN: ${{ github.token }}
+      with:
+        version: ${{ steps.prerequisites.outputs.mise_version }}
+        install: false
+        cache: false
+        env: false
+    - name: Read the Shared Config Checkout declaration
+      id: declaration
+      if: steps.model.outputs.config_model == 'native'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Explicit-file config get reads stored TOML without resolving includes.
+        if ! url="$(mise config get --file .mise.toml 'bootstrap.repos.".standards-config".url')" ||
+           ! ref="$(mise config get --file .mise.toml 'bootstrap.repos.".standards-config".ref')"; then
+          echo "::error::declare the Shared Config Checkout in .mise.toml [bootstrap.repos]" >&2
+          exit 1
+        fi
+        case "$url" in
+          https://github.com/Rubio-Enterprises/standards|https://github.com/Rubio-Enterprises/standards.git) ;;
+          *) echo "::error::the Shared Config Checkout must use the Rubio-Enterprises/standards HTTPS URL" >&2; exit 1 ;;
+        esac
+        case "$ref" in
+          stable|canary) ;;
+          *) echo "::error::the Shared Config Checkout ref must be stable or canary" >&2; exit 1 ;;
+        esac
+        printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+        echo "Shared Config Checkout declaration: standards $ref"
     - name: Mint the standards read token
       id: token
       if: steps.model.outputs.config_model == 'native'
@@ -123,6 +156,16 @@ runs:
         owner: ${{ github.repository_owner }}
         repositories: standards
         permission-contents: read
+    - name: Check out the Shared Config Checkout
+      if: steps.model.outputs.config_model == 'native'
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        repository: Rubio-Enterprises/standards
+        ref: ${{ steps.declaration.outputs.ref }}
+        path: .standards-config
+        token: ${{ steps.token.outputs.token }}
+        fetch-depth: 0
+        persist-credentials: false
     - name: Route the standards clone through the token
       if: steps.model.outputs.config_model == 'native'
       shell: bash

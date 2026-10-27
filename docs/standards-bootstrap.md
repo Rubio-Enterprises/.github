@@ -4,8 +4,8 @@
 repository answering `config_model: native` (standards ADR-0033). Such a
 repository's `.mise.toml` includes shared pins from a gitignored Shared Config
 Checkout at `.standards-config/`, a clone of the private `standards` repository.
-No mise command works in CI until that checkout exists, so every job that runs
-mise in a native repository must call this action first.
+Mise commands that resolve the consumer's includes need that checkout first.
+Every job that runs mise in a native repository must call this action first.
 
 The action:
 
@@ -13,18 +13,28 @@ The action:
    skipped.
 2. Checks for the standards-reader credentials and a mise version of at least
    2026.10.19.
-3. Mints a read-only standards-reader token scoped to `standards`, and routes
-   `https://github.com/<owner>/standards` through it with Git's `insteadOf`.
-4. Runs `jdx/mise-action` with `bootstrap: true`. This runs `mise bootstrap
-   --only repos,tools` in place of `mise install`: it clones the checkout, runs
-   the repository's `post-repos` hook, installs the shared and repository pins,
-   and exports mise's environment to later steps. With `bootstrap-parts: repos`,
-   it provisions only the checkout and runs the readiness hook, without tool
-   installation, tool caching or environment export.
-5. Fails unless `mise bootstrap repos status --missing` passes and
+3. Installs mise without loading consumer includes, installing tools, restoring
+   the tool cache or exporting the consumer environment. Reads the stored
+   `.mise.toml` `[bootstrap.repos]` entry for `.standards-config` with
+   `mise config get --file`; this command does not resolve includes. The entry
+   must name the `Rubio-Enterprises/standards` HTTPS URL and a `stable` or `canary`
+   ref. A missing or invalid entry fails; the Copier channel answer is not used.
+4. Mints a read-only standards-reader token scoped to `standards`. Uses
+   GitHub's `actions/checkout` to provision `.standards-config` at the declared
+   ref with full history and without persisting credentials. This also refreshes
+   an existing checkout. The checkout precedes mise's first consumer include
+   resolution, eliminating the separate cold `git::` fragment clones.
+5. Routes later standards freshness reads through the token with Git's
+   `insteadOf`, then runs `jdx/mise-action` with `bootstrap: true`. This runs
+   `mise bootstrap --only repos,tools`: it verifies or refreshes the checkout,
+   runs the repository's `post-repos` hook, installs the shared and repository
+   pins, and exports mise's environment. With `bootstrap-parts: repos`, it runs
+   only repo bootstrap and the readiness hook, without tool installation, tool
+   caching or consumer-environment export.
+6. Fails unless `mise bootstrap repos status --missing` passes and
    `.standards-config/config/lefthook/base.yml` exists. It writes the
    checkout's ref and commit to the step summary.
-6. Removes the token route, even when an earlier step failed, so later steps
+7. Removes the token route, even when an earlier step failed, so later steps
    that run repository code cannot use it. It removes only its own route.
 
 The central workflows use it: the `lint-hooks`, `typecheck-ts` and `build` gates
@@ -67,7 +77,8 @@ jobs:
   with an error naming both secrets.
 - **Replace the mise step.** In a native repository the action installs mise.
   Do not also run `jdx/mise-action` with its default `install: true`. That
-  action loads the repository's config, so it fails before the checkout exists.
+  action loads the repository's config and can fetch cold fragments before the
+  checkout exists.
 - **Rendered repositories.** The action does nothing for them, so they still
   need their own `jdx/mise-action` step. A template that renders one workflow
   for both models chooses at render time:

@@ -58,10 +58,12 @@ inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config 
 up with the shared composite action
 [`actions/standards-bootstrap`](actions/standards-bootstrap/action.yml), which repository
 workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
-mints the standards-reader token and routes the private clone through it. It runs
-mise-action's built-in `bootstrap: true` with `bootstrap_args: --only repos,tools`, then
-removes its route. It does nothing for rendered repositories, which keep their own
-mise-action step.
+installs mise without loading consumer includes, reads the authoritative ref from
+`.mise.toml` with explicit-file `mise config get`, then uses `actions/checkout` to
+provision the full-history checkout before resolving includes. It runs mise-action's
+built-in `bootstrap: true` with `bootstrap_args: --only repos,tools` and removes its
+standards-reader token route afterwards. It does nothing for rendered repositories,
+which keep their own mise-action step.
 
 - The action then runs `mise bootstrap repos status --missing` and requires
   `.standards-config/config/lefthook/base.yml`. A missing checkout fails instead of letting
