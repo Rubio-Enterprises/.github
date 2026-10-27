@@ -18,7 +18,9 @@ The action:
 4. Runs `jdx/mise-action` with `bootstrap: true`. This runs `mise bootstrap
    --only repos,tools` in place of `mise install`: it clones the checkout, runs
    the repository's `post-repos` hook, installs the shared and repository pins,
-   and exports mise's environment to later steps.
+   and exports mise's environment to later steps. With `bootstrap-parts: repos`,
+   it provisions only the checkout and runs the readiness hook, without tool
+   installation, tool caching or environment export.
 5. Fails unless `mise bootstrap repos status --missing` passes and
    `.standards-config/config/lefthook/base.yml` exists. It writes the
    checkout's ref and commit to the step summary.
@@ -98,6 +100,12 @@ jobs:
   self-updates a warm runner's mise; on a runner whose mise is older, it fails.
   Pass a version to have mise-action install or update to it.
 - `cache-key-prefix`: mise-action's `cache_key_prefix`. Default `mise-v1`.
+- `bootstrap-parts`: `repos,tools` (default) or `repos`. The latter provisions
+  and verifies only the checkout for jobs that install tools elsewhere, such as
+  [Dev Container image builds](reusable-workflows/devcontainer-image.md). It
+  skips mise-action's tool cache and environment export; no preceding setup-uv
+  step is needed because no pipx tools are installed. Unknown values fail before
+  token minting. Rendered repositories still skip every native step.
 - `keep-route`: `true` keeps the token route for the rest of the job. Default
   `false`.
 
