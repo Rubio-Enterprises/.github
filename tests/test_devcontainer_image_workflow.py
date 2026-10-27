@@ -109,19 +109,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("STANDARDS_READER", script("Build the architecture image"))
         self.assertIn("steps: *build-steps", job("build"))
 
-    def test_rendered_callers_without_reader_secrets_only_detect_the_model(self) -> None:
-        from test_standards_bootstrap_action import MODEL, STEPS, NATIVE, condition, run
+    def test_rendered_callers_fail_before_provisioning(self) -> None:
+        from test_standards_bootstrap_action import MODEL, run
 
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / ".copier-answers.yml").write_text("config_model: rendered\n")
+            (repo / ".copier-answers.yml").write_text("config_model: rendered\\n")
             result = run(MODEL, repo, GIVEN_MODEL="", GITHUB_OUTPUT=str(repo / "output"))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((repo / "output").read_text(), "config_model=rendered\n")
-        for step in STEPS[1:-1]:
-            self.assertEqual(condition(step), NATIVE)
-        self.assertIn(NATIVE, condition(STEPS[-1]))
-        self.assertIn("required: false", TEXT.split("secrets:", 1)[1].split("permissions:", 1)[0])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsupported config_model answer: rendered", result.stderr)
+            self.assertFalse((repo / "output").exists())
 
     def test_native_routes_and_shared_steps(self) -> None:
         self.assertIn(".docker || fromJSON('[\"ubuntu-latest\"]')", TEXT)

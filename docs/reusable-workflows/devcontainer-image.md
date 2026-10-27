@@ -15,8 +15,8 @@ outputs. The pilot consumer is `bookmark-scraper`.
 
 | Optional secret | Required when |
 | --- | --- |
-| `STANDARDS_READER_APP_ID` | The caller answers `config_model: native` |
-| `STANDARDS_READER_APP_PRIVATE_KEY` | The caller answers `config_model: native` |
+| `STANDARDS_READER_APP_ID` | Every full consumer |
+| `STANDARDS_READER_APP_PRIVATE_KEY` | Every full consumer |
 
 Rendered callers need no secrets and keep the same build path. Native callers
 must explicitly forward both secrets as shown below; missing credentials fail
@@ -88,7 +88,7 @@ After checkout, the pinned `standards-bootstrap` action provisions and verifies
 `.standards-config/` on the runner using `bootstrap-parts: repos` and
 `keep-route: false`. It does not install the caller's toolchain on the runner,
 cache those tools, or export their environment; the Dockerfile installs them.
-Rendered callers skip every native bootstrap step. The action removes and
+Retired rendered callers are unsupported; absent metadata means native once the bootstrap pin is converged. The action removes and
 verifies removal of its standards token URL route before Docker runs. Git stores
 the original credential-free remote URL, not its rewritten authenticated URL.
 No reader credentials are passed as Docker arguments, environment or secrets.

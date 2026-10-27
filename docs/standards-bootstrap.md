@@ -90,7 +90,7 @@ jobs:
   [Dev Container image builds](reusable-workflows/devcontainer-image.md). It
   skips mise-action's tool cache and environment export; no preceding setup-uv
   step is needed because no pipx tools are installed. Unknown values fail before
-  token minting. Rendered repositories still skip every native step.
+  token minting. Retired rendered repositories fail during validation.
 - `keep-route`: `true` keeps the token route for the rest of the job. Default
   `false`.
 
