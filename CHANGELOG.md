@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.9.0](https://github.com/Rubio-Enterprises/.github/compare/v4.8.1...v4.9.0) (2026-10-27)
+
+
+### Features
+
+* **bootstrap:** support checkout-only provisioning ([#429](https://github.com/Rubio-Enterprises/.github/issues/429)) ([bbbc482](https://github.com/Rubio-Enterprises/.github/commit/bbbc4826608fb9908e05137b4e1ad893c0e48030))
+
 ## [4.8.1](https://github.com/Rubio-Enterprises/.github/compare/v4.8.0...v4.8.1) (2026-10-26)
 
 
