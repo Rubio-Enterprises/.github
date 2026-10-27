@@ -70,7 +70,7 @@ class InterfaceTests(unittest.TestCase):
     def test_inputs_and_defaults(self) -> None:
         self.assertEqual(action_inputs(), {
             "app-id": "", "private-key": "", "config-model": "", "mise-version": "",
-            "cache-key-prefix": "mise-v1", "keep-route": "false",
+            "cache-key-prefix": "mise-v1", "bootstrap-parts": "repos,tools", "keep-route": "false",
         })
 
     def test_config_model_output_comes_from_the_model_step(self) -> None:
@@ -132,7 +132,7 @@ class ConfigModelTests(unittest.TestCase):
 
 class PrerequisiteTests(unittest.TestCase):
     def check(self, *, app_id: str = "1", key: str = "k", version: str = "",
-              installed: str | None = None, shell: str = "bash"):
+              installed: str | None = None, shell: str = "bash", parts: str = "repos,tools"):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             data = root / "mise-data"
@@ -143,9 +143,20 @@ class PrerequisiteTests(unittest.TestCase):
                 binary.write_text(f"#!/bin/sh\n[ \"$*\" = 'version --json' ] || exit 2\necho '{report}'\n")
                 binary.chmod(0o755)
             result = run(PREREQUISITES, root, shell=shell, APP_ID=app_id, APP_PRIVATE_KEY=key,
-                         MISE_VERSION=version, MISE_DATA_DIR=str(data),
+                         MISE_VERSION=version, MISE_DATA_DIR=str(data), BOOTSTRAP_PARTS=parts,
                          GITHUB_OUTPUT=str(root / "out"))
             return result, outputs(root / "out")
+
+    def test_bootstrap_parts_accepts_only_the_two_supported_modes(self) -> None:
+        for parts in ("repos", "repos,tools", "", "tools", "repos --skip tools", "repos; echo injected"):
+            for shell in BASHES:
+                with self.subTest(parts=parts, shell=shell):
+                    result, out = self.check(parts=parts, shell=shell)
+                    valid = parts in ("repos", "repos,tools")
+                    self.assertEqual(result.returncode == 0, valid, result.stderr)
+                    if not valid:
+                        self.assertIn("bootstrap-parts must be repos or repos,tools", result.stderr)
+                        self.assertEqual(out, {})
 
     def test_missing_credentials_fail_with_a_clear_error(self) -> None:
         for app_id, key in (("", "k"), ("1", ""), ("", "")):
@@ -196,7 +207,9 @@ class TokenAndBootstrapTests(unittest.TestCase):
         self.assertIn("uses: jdx/mise-action@", step)
         for line in ("version: ${{ steps.prerequisites.outputs.mise_version }}",
                      "cache_key_prefix: ${{ inputs.cache-key-prefix }}",
-                     "bootstrap: true", "bootstrap_args: --only repos,tools",
+                     "bootstrap: true", "bootstrap_args: --only ${{ inputs.bootstrap-parts }}",
+                     "cache: ${{ inputs.bootstrap-parts != 'repos' }}",
+                     "env: ${{ inputs.bootstrap-parts != 'repos' }}",
                      "MISE_GITHUB_TOKEN: ${{ github.token }}",
                      'GIT_TERMINAL_PROMPT: "0"', "GCM_INTERACTIVE: never"):
             with self.subTest(line=line):

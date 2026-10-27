@@ -2,7 +2,7 @@ name: standards-bootstrap
 description: >-
   Set up a config_model native repository (standards ADR-0033): clone its
   Shared Config Checkout through a read-only standards-reader token, install
-  its mise tools, require the checkout, then remove the token route. Does
+  its mise tools when requested, require the checkout, then remove the token route. Does
   nothing for a rendered repository. Usage: docs/standards-bootstrap.md.
 author: Rubio-Enterprises
 inputs:
@@ -37,6 +37,13 @@ inputs:
     description: The jdx/mise-action `cache_key_prefix`.
     required: false
     default: mise-v1
+  bootstrap-parts:
+    description: >-
+      `repos,tools` installs the checkout and toolchain (default). `repos` only
+      provisions the checkout, without tool caching or environment export, for
+      jobs that build their toolchain elsewhere, such as Dev Container images.
+    required: false
+    default: repos,tools
   keep-route:
     description: >-
       `true` keeps the token route to `standards` for the rest of the job.
@@ -76,8 +83,13 @@ runs:
         APP_ID: ${{ inputs.app-id }}
         APP_PRIVATE_KEY: ${{ inputs.private-key }}
         MISE_VERSION: ${{ inputs.mise-version }}
+        BOOTSTRAP_PARTS: ${{ inputs.bootstrap-parts }}
       run: |
         set -euo pipefail
+        case "$BOOTSTRAP_PARTS" in
+          repos|repos,tools) ;;
+          *) echo "::error::bootstrap-parts must be repos or repos,tools" >&2; exit 1 ;;
+        esac
         if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
           echo "::error::config_model native needs the standards-reader App: pass secrets.STANDARDS_READER_APP_ID and secrets.STANDARDS_READER_APP_PRIVATE_KEY as app-id and private-key; a reusable workflow's caller must forward them" >&2
           exit 1
@@ -122,9 +134,7 @@ runs:
         git config --global \
           url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
           "https://github.com/${OWNER}/standards"
-    # mise-action runs `mise bootstrap --only repos,tools` in place of `mise
-    # install`: it clones `.standards-config/`, runs the repository's post-repos
-    # hook, then installs the shared and repository pins and exports mise's env.
+    # Image builds need the checkout, not a second toolchain on the runner
     - name: Install mise and bootstrap the Shared Config Checkout
       if: steps.model.outputs.config_model == 'native'
       uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
@@ -136,8 +146,10 @@ runs:
       with:
         version: ${{ steps.prerequisites.outputs.mise_version }}
         cache_key_prefix: ${{ inputs.cache-key-prefix }}
+        cache: ${{ inputs.bootstrap-parts != 'repos' }}
+        env: ${{ inputs.bootstrap-parts != 'repos' }}
         bootstrap: true
-        bootstrap_args: --only repos,tools
+        bootstrap_args: --only ${{ inputs.bootstrap-parts }}
     # Independent of the repository's own post-repos hook, so a stub that drops
     # the hook or the checkout declaration still fails here instead of letting
     # Lefthook's `extends` skip the shared hooks silently.
