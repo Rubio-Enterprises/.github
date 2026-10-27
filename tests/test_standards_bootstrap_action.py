@@ -270,6 +270,7 @@ class TokenAndBootstrapTests(unittest.TestCase):
         step = extract_step(ACTION, INSTALL_MISE)
         self.assertIn("uses: jdx/mise-action@", step)
         for line in ("install: false", "cache: false", "env: false",
+                     "working_directory: ${{ runner.temp }}",
                      "version: ${{ steps.prerequisites.outputs.mise_version }}"):
             self.assertIn(line, step)
         self.assertNotIn("bootstrap: true", step)

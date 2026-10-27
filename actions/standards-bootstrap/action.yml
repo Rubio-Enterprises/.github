@@ -124,6 +124,8 @@ runs:
         install: false
         cache: false
         env: false
+        # mise-action always runs mise ls, even with install/env disabled.
+        working_directory: ${{ runner.temp }}
     - name: Read the Shared Config Checkout declaration
       id: declaration
       if: steps.model.outputs.config_model == 'native'

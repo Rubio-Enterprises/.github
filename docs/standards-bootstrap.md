@@ -13,8 +13,11 @@ The action:
    skipped.
 2. Checks for the standards-reader credentials and a mise version of at least
    2026.10.19.
-3. Installs mise without loading consumer includes, installing tools, restoring
-   the tool cache or exporting the consumer environment. Reads the stored
+3. Installs mise without installing tools, restoring the tool cache or exporting
+   the consumer environment. This installation-only mise-action runs from the
+   runner's temporary directory: it always invokes `mise ls`, even with install
+   and environment export disabled, so the consumer's includes must not be in
+   scope yet. Reads the stored
    `.mise.toml` `[bootstrap.repos]` entry for `.standards-config` with
    `mise config get --file`; this command does not resolve includes. The entry
    must name the `Rubio-Enterprises/standards` HTTPS URL and a `stable` or `canary`
