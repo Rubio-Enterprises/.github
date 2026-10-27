@@ -58,6 +58,7 @@ concurrency:
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
   route:
+    if: github.repository != 'Rubio-Enterprises/.github'
     # Resolve the runner from the consumer's DECLARED Workload Class
     # (`typecheck_workload_class`, standards ADR-0022) instead of routing every
     # selected repo to glue-heavy.
