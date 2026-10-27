@@ -1,9 +1,9 @@
 name: standards-bootstrap
 description: >-
-  Set up a config_model native repository (standards ADR-0033): clone its
+  Set up a repository (standards ADR-0033): clone its
   Shared Config Checkout through a read-only standards-reader token, install
-  its mise tools when requested, require the checkout, then remove the token route. Does
-  nothing for a rendered repository. Usage: docs/standards-bootstrap.md.
+  its mise tools when requested, require the checkout, then remove the token route.
+  Usage: docs/standards-bootstrap.md.
 author: Rubio-Enterprises
 inputs:
   app-id:
@@ -17,13 +17,6 @@ inputs:
       The standards-reader App private key: pass
       `secrets.STANDARDS_READER_APP_PRIVATE_KEY`. Required for a native
       repository.
-    required: false
-    default: ""
-  config-model:
-    description: >-
-      `native` or `rendered`. Empty reads `config_model` from
-      `.copier-answers.yml`, where an absent answer means `rendered`. Any other
-      value fails.
     required: false
     default: ""
   mise-version:
@@ -51,33 +44,11 @@ inputs:
       the route is removed before repository code runs.
     required: false
     default: "false"
-outputs:
-  config-model:
-    description: The resolved config model, `native` or `rendered`.
-    value: ${{ steps.model.outputs.config_model }}
 runs:
   using: composite
   steps:
-    - name: Read the config model
-      id: model
-      shell: bash
-      env:
-        GIVEN_MODEL: ${{ inputs.config-model }}
-      run: |
-        set -euo pipefail
-        config_model="$GIVEN_MODEL"
-        if [ -z "$config_model" ]; then
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-        fi
-        case "${config_model:=rendered}" in
-          rendered|native) ;;
-          *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
-        esac
-        printf 'config_model=%s\n' "$config_model" >> "$GITHUB_OUTPUT"
-        echo "config_model: $config_model"
     - name: Check the native prerequisites
       id: prerequisites
-      if: steps.model.outputs.config_model == 'native'
       shell: bash
       env:
         APP_ID: ${{ inputs.app-id }}
@@ -91,7 +62,7 @@ runs:
           *) echo "::error::bootstrap-parts must be repos or repos,tools" >&2; exit 1 ;;
         esac
         if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
-          echo "::error::config_model native needs the standards-reader App: pass secrets.STANDARDS_READER_APP_ID and secrets.STANDARDS_READER_APP_PRIVATE_KEY as app-id and private-key; a reusable workflow's caller must forward them" >&2
+          echo "::error::shared config bootstrap needs the standards-reader App: pass secrets.STANDARDS_READER_APP_ID and secrets.STANDARDS_READER_APP_PRIVATE_KEY as app-id and private-key; a reusable workflow's caller must forward them" >&2
           exit 1
         fi
         floor=2026.10.19
@@ -109,13 +80,12 @@ runs:
           exit 1
         fi
         if [ $((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]})) -lt 2026010019 ]; then
-          echo "::error::config_model native needs mise $floor or later, got $version" >&2
+          echo "::error::shared config bootstrap needs mise $floor or later, got $version" >&2
           exit 1
         fi
         printf 'mise_version=%s\n' "$version" >> "$GITHUB_OUTPUT"
     - name: Mint the standards read token
       id: token
-      if: steps.model.outputs.config_model == 'native'
       uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
       with:
         app-id: ${{ inputs.app-id }}
@@ -124,7 +94,6 @@ runs:
         repositories: standards
         permission-contents: read
     - name: Route the standards clone through the token
-      if: steps.model.outputs.config_model == 'native'
       shell: bash
       env:
         TOKEN: ${{ steps.token.outputs.token }}
@@ -136,7 +105,6 @@ runs:
           "https://github.com/${OWNER}/standards"
     # Image builds need the checkout, not a second toolchain on the runner
     - name: Install mise and bootstrap the Shared Config Checkout
-      if: steps.model.outputs.config_model == 'native'
       uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       env:
         MISE_GITHUB_TOKEN: ${{ github.token }}
@@ -154,7 +122,6 @@ runs:
     # the hook or the checkout declaration still fails here instead of letting
     # Lefthook's `extends` skip the shared hooks silently.
     - name: Require the Shared Config Checkout
-      if: steps.model.outputs.config_model == 'native'
       shell: bash
       env:
         MISE_GITHUB_TOKEN: ${{ github.token }}
@@ -174,7 +141,7 @@ runs:
     # Removes only this action's route: a caller's own token routes, such as
     # private module reads, are not this action's to remove.
     - name: Remove the standards read route
-      if: always() && steps.model.outputs.config_model == 'native' && inputs.keep-route != 'true'
+      if: always() && inputs.keep-route != 'true'
       shell: bash
       env:
         OWNER: ${{ github.repository_owner }}

@@ -1,11 +1,4 @@
-"""Contracts for the `standards-bootstrap` composite action (standards ADR-0033).
-
-The action sets up a `config_model: native` repository: it mints a read-only
-standards-reader token, routes the private Shared Config Checkout clone through
-it, runs `mise bootstrap --only repos,tools` through jdx/mise-action, requires
-the checkout, and removes the route. It does nothing for a rendered repository.
-The shell steps run here under the default bash and macOS's bash 3.2.
-"""
+"""The bootstrap shell contract runs under default bash and macOS bash 3.2."""
 
 from __future__ import annotations
 
@@ -22,15 +15,13 @@ from test_ruby_workflows import ROOT, extract_run_block, extract_step
 
 ACTION = (ROOT / "actions" / "standards-bootstrap" / "action.yml").read_text(encoding="utf-8")
 
-MODEL = "Read the config model"
 PREREQUISITES = "Check the native prerequisites"
 MINT = "Mint the standards read token"
 ROUTE = "Route the standards clone through the token"
 BOOTSTRAP = "Install mise and bootstrap the Shared Config Checkout"
 READY = "Require the Shared Config Checkout"
 UNROUTE = "Remove the standards read route"
-STEPS = [MODEL, PREREQUISITES, MINT, ROUTE, BOOTSTRAP, READY, UNROUTE]
-NATIVE = "steps.model.outputs.config_model == 'native'"
+STEPS = [PREREQUISITES, MINT, ROUTE, BOOTSTRAP, READY, UNROUTE]
 OWNER = "Rubio-Enterprises"
 ROUTE_KEY = f"url.https://x-access-token:ghs_secret@github.com/{OWNER}/standards.insteadof"
 BASHES = ["bash"] + (["/bin/bash"] if Path("/bin/bash").exists() else [])
@@ -38,7 +29,7 @@ BASHES = ["bash"] + (["/bin/bash"] if Path("/bin/bash").exists() else [])
 
 def action_inputs() -> dict[str, str]:
     """Map each declared input to its default (empty when none)."""
-    block = ACTION.split("\ninputs:\n", 1)[1].split("\noutputs:\n", 1)[0]
+    block = ACTION.split("\ninputs:\n", 1)[1].split("\nruns:\n", 1)[0]
     inputs: dict[str, str] = {}
     for match in re.finditer(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\s*\n)*)", block + "\n"):
         default = re.search(r"(?m)^    default: (.*)$", match.group(2))
@@ -69,12 +60,13 @@ def outputs(path: Path) -> dict[str, str]:
 class InterfaceTests(unittest.TestCase):
     def test_inputs_and_defaults(self) -> None:
         self.assertEqual(action_inputs(), {
-            "app-id": "", "private-key": "", "config-model": "", "mise-version": "",
+            "app-id": "", "private-key": "", "mise-version": "",
             "cache-key-prefix": "mise-v1", "bootstrap-parts": "repos,tools", "keep-route": "false",
         })
 
-    def test_config_model_output_comes_from_the_model_step(self) -> None:
-        self.assertIn("value: ${{ steps.model.outputs.config_model }}", ACTION)
+    def test_no_model_api_or_pin_is_exported(self) -> None:
+        for token in ("config-model", "config_model", "outputs:", "STANDARDS_PIN"):
+            self.assertNotIn(token, ACTION)
         self.assertIn("using: composite", ACTION)
 
     def test_steps_run_in_order(self) -> None:
@@ -90,43 +82,13 @@ class InterfaceTests(unittest.TestCase):
                 self.assertRegex(comment, r"^ # v\d")
 
 
-class ConfigModelTests(unittest.TestCase):
-    def test_input_wins_and_an_empty_input_reads_the_answers(self) -> None:
-        for given, answers, expected in (
-            ("", None, "rendered"),
-            ("", "has_python: true\n", "rendered"),
-            ("", "config_model: rendered\n", "rendered"),
-            ("", "config_model: native\n", "native"),
-            ("", 'config_model: "native"\n', "native"),
-            ("", "# config_model: native\n", "rendered"),
-            ("", "config_model: Native\n", None),
-            ("native", None, "native"),
-            ("rendered", "config_model: native\n", "rendered"),
-            ("Native", None, None),
-        ):
-            for shell in BASHES:
-                with self.subTest(given=given, answers=answers, shell=shell), \
-                        tempfile.TemporaryDirectory() as tmp:
-                    repo = Path(tmp)
-                    if answers is not None:
-                        (repo / ".copier-answers.yml").write_text(answers)
-                    result = run(MODEL, repo, shell=shell, GIVEN_MODEL=given,
-                                 GITHUB_OUTPUT=str(repo / "out"))
-                    if expected is None:
-                        self.assertNotEqual(result.returncode, 0)
-                        self.assertIn("unsupported config_model", result.stderr)
-                        self.assertNotIn("config_model", outputs(repo / "out"))
-                    else:
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        self.assertEqual(outputs(repo / "out")["config_model"], expected)
-
-    def test_rendered_repositories_run_nothing_else(self) -> None:
-        self.assertEqual(condition(MODEL), "")
-        for step in STEPS[1:-1]:
+class BootstrapConditionTests(unittest.TestCase):
+    def test_bootstrap_is_unconditional_and_cleanup_is_always_attempted(self) -> None:
+        for step in STEPS[:-1]:
             with self.subTest(step=step):
-                self.assertEqual(condition(step), NATIVE)
+                self.assertEqual(condition(step), "")
         self.assertEqual(
-            condition(UNROUTE), f"always() && {NATIVE} && inputs.keep-route != 'true'"
+            condition(UNROUTE), "always() && inputs.keep-route != 'true'"
         )
 
 

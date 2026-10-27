@@ -1,12 +1,4 @@
-"""Contracts for the standards ADR-0033 native config model in the central workflows.
-
-A repository answering `config_model: native` provisions its Shared Config
-Checkout through the shared `standards-bootstrap` action in every workflow that
-runs mise in the consumer: the lint-hooks, typecheck and build Gate Families and
-the e2e and cloud-setup-smoke reusables. Every other repository keeps the
-rendered model's mise-action step. The action's own behaviour is covered by
-test_standards_bootstrap_action.py.
-"""
+"""Consumer contracts preserve trust, routing and token cleanup without model selection."""
 
 from __future__ import annotations
 
@@ -30,9 +22,9 @@ SMOKE = (WORKFLOWS / "cloud-setup-smoke.yml").read_text(encoding="utf-8")
 GATES = (WORKFLOWS / "standards-gates.yml").read_text(encoding="utf-8")
 TEMPLATE = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
 
-BOOTSTRAP_STEP = "Bootstrap the Shared Config Checkout (native config model)"
+BOOTSTRAP_STEP = "Bootstrap the Shared Config Checkout"
 ACTION_REF = re.compile(
-    r"uses: (Rubio-Enterprises/\.github/actions/standards-bootstrap@[0-9a-f]{40}) # v4\n"
+    r"uses: (Rubio-Enterprises/\.github/actions/standards-bootstrap@main)\n"
 )
 # Step names the workflows carried before the shared action existed.
 INLINE_STEPS = (
@@ -50,11 +42,11 @@ MISE_STEP_NAMES = {
     "cloud-setup-smoke": "Install the consumer's pinned toolchain",
 }
 NATIVE_WORKFLOWS = {
-    "lint-hooks": (LINT, "needs.detect.outputs.config_model"),
-    "typecheck-ts": (TYPECHECK, "needs.route.outputs.config_model"),
-    "build": (BUILD, "needs.detect.outputs.config_model"),
-    "e2e": (E2E, "steps.config-model.outputs.config_model"),
-    "cloud-setup-smoke": (SMOKE, "steps.probe.outputs.config_model"),
+    "lint-hooks": LINT,
+    "typecheck-ts": TYPECHECK,
+    "build": BUILD,
+    "e2e": E2E,
+    "cloud-setup-smoke": SMOKE,
 }
 # Workflows a consumer can call, so org secrets arrive only when forwarded.
 CALLABLE = ("typecheck-ts", "e2e", "cloud-setup-smoke")
@@ -74,7 +66,6 @@ RUNNERS = dict(LIGHT_RUNNER='["small"]', HEAVY_RUNNER='["medium"]',
 PICK_STEPS = {
     "lint-hooks": (LINT, "Pick runner from the language facets"),
     "typecheck-ts": (TYPECHECK, "Pick the runner from the declared Workload Class"),
-    "e2e": (E2E, "Read the config model"),
     "cloud-setup-smoke": (SMOKE, "Resolve whether this repo has a smoke-capable cloud-setup chain"),
 }
 
@@ -111,31 +102,25 @@ def outputs(path: Path) -> dict[str, str]:
     return dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line)
 
 
-class ConfigModelSelectionTests(unittest.TestCase):
-    def test_only_an_explicit_native_answer_selects_the_native_model(self) -> None:
+class AnswerIndependenceTests(unittest.TestCase):
+    def test_config_metadata_has_no_effect(self) -> None:
         for name, (text, step) in PICK_STEPS.items():
             script = extract_run_block(text, step)
-            for answers, expected in (
-                (None, "rendered"),
-                ("has_python: true\n", "rendered"),
-                ("config_model: rendered\n", "rendered"),
-                ("config_model: native\n", "native"),
-                ('config_model: "native"\n', "native"),
-                ("# config_model: native\n", "rendered"),
-                ("config_model: Native\n", None),
-            ):
+            baseline = None
+            for answers in (None, "has_python: true\n", "config_model: native\n",
+                            "config_model: rendered\n", "config_model: unknown\n"):
                 with self.subTest(workflow=name, answers=answers), \
                         tempfile.TemporaryDirectory() as tmp:
                     repo = Path(tmp)
                     if answers is not None:
                         (repo / ".copier-answers.yml").write_text(answers)
                     result = run(script, repo, GITHUB_OUTPUT=str(repo / "out"), **RUNNERS)
-                    if expected is None:
-                        self.assertNotEqual(result.returncode, 0)
-                        self.assertIn("unsupported config_model", result.stderr)
-                    else:
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        self.assertEqual(outputs(repo / "out")["config_model"], expected)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    out = outputs(repo / "out")
+                    self.assertNotIn("config_model", out)
+                    if baseline is None:
+                        baseline = out
+                    self.assertEqual(out, baseline)
 
     def test_lint_hooks_reads_the_knowledgebase_facet(self) -> None:
         script = extract_run_block(LINT, PICK_STEPS["lint-hooks"][1])
@@ -153,11 +138,8 @@ class ConfigModelSelectionTests(unittest.TestCase):
                 self.assertEqual(outputs(repo / "out")["has_knowledgebase"], expected)
 
 
-def native_guard(name: str, model: str, op: str) -> str:
-    guard = f"{model} {op} 'native'"
-    if name == "cloud-setup-smoke":
-        return f"steps.probe.outputs.runnable == 'true' && {guard}"
-    return guard
+def bootstrap_guard(name: str) -> str:
+    return "steps.probe.outputs.runnable == 'true'" if name == "cloud-setup-smoke" else ""
 
 
 def with_inputs(step: str) -> dict[str, str]:
@@ -166,50 +148,54 @@ def with_inputs(step: str) -> dict[str, str]:
 
 
 class NativeBootstrapContractTests(unittest.TestCase):
-    def test_every_workflow_calls_one_pinned_action_for_native_repositories(self) -> None:
+    def test_every_workflow_calls_the_action_on_main(self) -> None:
         refs = set()
-        for name, (text, model) in NATIVE_WORKFLOWS.items():
+        for name, text in NATIVE_WORKFLOWS.items():
             with self.subTest(workflow=name):
                 step = extract_step(text, BOOTSTRAP_STEP)
                 match = ACTION_REF.search(step)
                 self.assertIsNotNone(match, step)
                 refs.add(match.group(1))
-                self.assertEqual(condition(text, BOOTSTRAP_STEP), native_guard(name, model, "=="))
+                self.assertEqual(condition(text, BOOTSTRAP_STEP), bootstrap_guard(name))
                 self.assertEqual(len(ACTION_REF.findall(text)), 1)
-        # One ref, so landing the action rewrites a single SHA everywhere.
-        self.assertEqual(len(refs), 1, refs)
+        self.assertEqual(refs, {"Rubio-Enterprises/.github/actions/standards-bootstrap@main"})
+
+    def test_bootstrap_exception_is_exact(self) -> None:
+        for ref in (
+            "Rubio-Enterprises/.github/actions/standards-bootstrap@stable",
+            "Rubio-Enterprises/.github/actions/standards-bootstrap@v4",
+            "Rubio-Enterprises/.github/actions/other@main",
+            "Rubio-Enterprises/.github-private/actions/standards-bootstrap@main",
+            "other/.github/actions/standards-bootstrap@main",
+            "jdx/mise-action@main",
+        ):
+            with self.subTest(ref=ref):
+                self.assertIsNone(ACTION_REF.fullmatch(f"uses: {ref}\n"))
+
+    def test_workflows_have_no_model_api_or_pin_export(self) -> None:
+        for name, text in NATIVE_WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                for token in ("config_model", "config-model", "STANDARDS_PIN"):
+                    self.assertNotIn(token, text)
 
     def test_action_inputs(self) -> None:
         declared = set(action_inputs())
-        for name, (text, model) in NATIVE_WORKFLOWS.items():
+        for name, text in NATIVE_WORKFLOWS.items():
             with self.subTest(workflow=name):
                 given = with_inputs(extract_step(text, BOOTSTRAP_STEP))
                 self.assertLessEqual(set(given), declared)
-                rendered = extract_step(text, MISE_STEP_NAMES[name])
                 expected = {
-                    "config-model": f"${{{{ {model} }}}}",
                     "app-id": "${{ secrets.STANDARDS_READER_APP_ID }}",
                     "private-key": "${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}",
                     "mise-version": "${{ steps.mise-version.outputs.version }}",
-                    "cache-key-prefix": re.search(r"cache_key_prefix: (.*)", rendered).group(1),
+                    "cache-key-prefix": "mise-v1-uvpy${{ steps.uv-python.outputs.version }}",
                 }
                 if name in KEEP_ROUTE:
                     expected["keep-route"] = '"true"'
                 self.assertEqual(given, expected)
 
-    def test_rendered_repositories_keep_plain_mise_action(self) -> None:
-        for name, (text, model) in NATIVE_WORKFLOWS.items():
-            with self.subTest(workflow=name):
-                step = extract_step(text, MISE_STEP_NAMES[name])
-                self.assertEqual(condition(text, MISE_STEP_NAMES[name]),
-                                 native_guard(name, model, "!="))
-                self.assertIn("uses: jdx/mise-action@", step)
-                self.assertIn("version: ${{ steps.mise-version.outputs.version }}", step)
-                for absent in ("bootstrap", "GIT_TERMINAL_PROMPT", "install_args"):
-                    self.assertNotIn(absent, step)
-
     def test_no_inline_native_setup_remains(self) -> None:
-        for name, (text, _) in NATIVE_WORKFLOWS.items():
+        for name, text in NATIVE_WORKFLOWS.items():
             for step in INLINE_STEPS:
                 with self.subTest(workflow=name, step=step):
                     self.assertNotIn(f"- name: {step}\n", text)
@@ -217,19 +203,16 @@ class NativeBootstrapContractTests(unittest.TestCase):
 
     def test_bootstrap_precedes_repository_code(self) -> None:
         for name, later in REPOSITORY_CODE.items():
-            text, _ = NATIVE_WORKFLOWS[name]
+            text = NATIVE_WORKFLOWS[name]
             with self.subTest(workflow=name):
                 self.assertLess(text.index(f"- name: {BOOTSTRAP_STEP}\n"),
                                 text.index(f"- name: {later}\n"))
-                self.assertLess(text.index(f"- name: {MISE_STEP_NAMES[name]}\n"),
-                                text.index(f"- name: {later}\n"))
 
-    def test_lint_hooks_mints_its_own_route_only_for_rendered_repositories(self) -> None:
+    def test_lint_hooks_has_no_separate_legacy_route(self) -> None:
         for step in ("Mint standards read token (lefthook remotes fetch)",
                      "Route the lefthook standards remote through the App token"):
             with self.subTest(step=step):
-                self.assertEqual(condition(LINT, step),
-                                 "needs.detect.outputs.config_model != 'native'")
+                self.assertNotIn(f"- name: {step}\n", LINT)
 
 
 class CallerCredentialTests(unittest.TestCase):
@@ -237,7 +220,7 @@ class CallerCredentialTests(unittest.TestCase):
 
     def test_callable_workflows_declare_the_optional_reader_secrets(self) -> None:
         for name in CALLABLE:
-            text, _ = NATIVE_WORKFLOWS[name]
+            text = NATIVE_WORKFLOWS[name]
             call = text.split("workflow_call:", 1)[1].split("permissions:", 1)[0]
             for secret in ("STANDARDS_READER_APP_ID", "STANDARDS_READER_APP_PRIVATE_KEY"):
                 with self.subTest(workflow=name, secret=secret):
@@ -247,21 +230,17 @@ class CallerCredentialTests(unittest.TestCase):
 
 
 class ReusableOrderingTests(unittest.TestCase):
-    def test_config_model_is_known_before_any_native_step(self) -> None:
-        for text, reader in ((E2E, "Read the config model"),
-                             (SMOKE, "Resolve whether this repo has a smoke-capable cloud-setup chain")):
-            with self.subTest(reader=reader):
-                self.assertLess(text.index(f"- name: {reader}"), text.index(f"- name: {BOOTSTRAP_STEP}"))
+    def test_smoke_probe_precedes_bootstrap(self) -> None:
+        reader = PICK_STEPS["cloud-setup-smoke"][1]
+        self.assertLess(SMOKE.index(f"- name: {reader}"), SMOKE.index(f"- name: {BOOTSTRAP_STEP}"))
 
-    def test_smoke_probe_reports_the_model_even_without_a_chain(self) -> None:
+    def test_smoke_probe_is_a_noop_without_a_chain(self) -> None:
         script = extract_run_block(SMOKE, PICK_STEPS["cloud-setup-smoke"][1])
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / ".copier-answers.yml").write_text("config_model: native\n")
             result = run(script, repo, GITHUB_OUTPUT=str(repo / "out"))
             self.assertEqual(result.returncode, 0, result.stderr)
-            out = outputs(repo / "out")
-        self.assertEqual((out["config_model"], out["runnable"]), ("native", "false"))
+            self.assertEqual(outputs(repo / "out"), {"has_ruby": "false", "runnable": "false"})
 
 
 class LintHooksExecutionTests(unittest.TestCase):
@@ -273,8 +252,7 @@ class LintHooksExecutionTests(unittest.TestCase):
         step = extract_step(LINT, "Run the full knowledgebase check")
         self.assertEqual(
             condition(LINT, "Run the full knowledgebase check"),
-            "needs.detect.outputs.has_knowledgebase == 'true' && "
-            "needs.detect.outputs.config_model == 'native'",
+            "needs.detect.outputs.has_knowledgebase == 'true'",
         )
         self.assertIn("run: mise exec -- lefthook run kb-check", step)
         self.assertNotIn("continue-on-error", step)
@@ -286,7 +264,7 @@ class LintHooksExecutionTests(unittest.TestCase):
         ]
         self.assertEqual(positions, sorted(positions))
 
-    def test_hook_runs_are_shared_by_both_config_models(self) -> None:
+    def test_hook_runs_do_not_select_a_config_model(self) -> None:
         for step in ("Run lefthook pre-commit across all files",
                      "Run lefthook pre-commit on changed fork files"):
             with self.subTest(step=step):
@@ -349,14 +327,13 @@ class OrganizationTemplateTests(unittest.TestCase):
         self.assertIn("PR_TEMPLATE_OUTCOME: ${{ steps.pr_template.outcome }}", setup)
         self.assertIn('require_success "organization PR template fetch"', setup)
 
-    def test_channel_reaches_the_gates_that_check_it(self) -> None:
-        # MD-12 compares the Shared Config Checkout's ref with STANDARDS_CHANNEL.
-        for name in ("Gate — audit", "lint-config", "Gate — PR conventions"):
-            with self.subTest(step=name):
-                self.assertIn(
-                    "STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}",
-                    extract_step(GATES, name),
-                )
+    def test_standards_content_follows_main_without_channel_environment(self) -> None:
+        checkout = extract_step(GATES, "Check out standards main")
+        self.assertIn("repository: Rubio-Enterprises/standards", checkout)
+        self.assertIn("ref: main", checkout)
+        for token in ("STANDARDS_CHANNEL", "standards_channel", "property_value ring",
+                      "outputs.channel", "config_model", "STANDARDS_PIN"):
+            self.assertNotIn(token, GATES)
 
     def test_template_is_the_single_source_of_the_checked_rules(self) -> None:
         match = re.search(r"<!-- pr-conventions: (\{.*?\}) -->", TEMPLATE)

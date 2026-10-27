@@ -31,7 +31,7 @@ jobs:
       # renovate: datasource=github-releases depName=jdx/mise
       MISE_VERSION: "2026.10.19"
     steps:
-      - name: Resolve gate selection and standards channel
+      - name: Resolve gate selection
         id: selection
         env:
           GH_TOKEN: ${{ github.token }}
@@ -48,16 +48,12 @@ jobs:
               "$properties"
           }
 
-          ring="$(property_value ring)"
           audit="$(property_value gate-audit)"
           lint_config="$(property_value gate-lint-config)"
           pr_conventions="$(property_value gate-pr-conventions)"
           secret_scan="$(property_value gate-secret-scan)"
 
-          # This unpublished source workflow must not make an ordinary .github
-          # branch/PR run depend on gate scripts that have not reached stable.
-          # A required-workflow injection is published at a tag or exact SHA, so
-          # it remains property-selected even when the consumer is .github.
+          # Source-repository branch/PR runs cannot satisfy the consumer contract
           case "$WORKFLOW_REF" in
             Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@refs/heads/*|Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@refs/pull/*)
               if [ "$GITHUB_REPOSITORY" = "Rubio-Enterprises/.github" ]; then
@@ -76,12 +72,6 @@ jobs:
             fi
           done
 
-          if [ "$ring" = "canary" ]; then
-            channel=canary
-          else
-            channel=stable
-          fi
-
           any_selected=false
           if [ "$audit" = true ] || [ "$lint_config" = true ] || \
             [ "$pr_conventions" = true ] || [ "$secret_scan" = true ]; then
@@ -94,9 +84,8 @@ jobs:
             echo "pr_conventions=$pr_conventions"
             echo "secret_scan=$secret_scan"
             echo "any_selected=$any_selected"
-            echo "channel=$channel"
           } >> "$GITHUB_OUTPUT"
-          echo "::notice::standards channel '$channel' (ring='${ring:-<unset>}'); selected: audit=$audit lint-config=$lint_config pr-conventions=$pr_conventions secret-scan=$secret_scan"
+          echo "::notice::standards main; selected: audit=$audit lint-config=$lint_config pr-conventions=$pr_conventions secret-scan=$secret_scan"
 
       - name: Check out the consumer repository
         id: consumer_checkout
@@ -232,13 +221,13 @@ jobs:
           repositories: standards
           permission-contents: read
 
-      - name: Check out standards at the selected channel
+      - name: Check out standards main
         id: standards_checkout
         if: steps.applicability.outputs.setup_needed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/standards
-          ref: ${{ steps.selection.outputs.channel }}
+          ref: main
           path: .standards
           token: ${{ steps.standards_token.outputs.token }}
           persist-credentials: false
@@ -251,7 +240,7 @@ jobs:
           set -euo pipefail
           sha="$(git -C .standards rev-parse HEAD)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "standards \`${{ steps.selection.outputs.channel }}\` resolved to \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "standards \`main\` resolved to \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install uv
         id: setup_uv
@@ -329,12 +318,7 @@ jobs:
           add_shims_to_path: false
           version: ${{ steps.mise_version.outputs.version }}
 
-      # Config rendering needs yq and copier, not the consumer lint toolchain.
-      # A native repository's lint-config reads its stubs with yq and Lefthook
-      # instead (standards ADR-0033). Their pins come from its Shared Config
-      # Checkout, which this job never bootstraps, so the selected channel
-      # checkout stands in for it while mise resolves them, exactly as the
-      # lint-config gate links it.
+      # Keep policy-tool installation separate from the consumer's linter toolchain
       - name: Install consumer config tools
         id: consumer_lint_tools
         if: steps.applicability.outputs.lint_config == 'true'
@@ -343,14 +327,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-          wanted='["yq", "copier"]'
-          if [ "$config_model" = native ]; then
-            wanted='["yq", "lefthook"]'
-            if [ ! -e .standards-config ] && [ ! -L .standards-config ]; then
-              ln -s "$STANDARDS_ROOT" .standards-config
-              trap 'rm -f .standards-config' EXIT
-            fi
+          wanted='["yq", "lefthook"]'
+          if [ ! -e .standards-config ] && [ ! -L .standards-config ]; then
+            ln -s "$STANDARDS_ROOT" .standards-config
+            trap 'rm -f .standards-config' EXIT
           fi
           listing="$(mise ls --current --json)"
           selected="$(jq -r --argjson wanted "$wanted" '
@@ -364,17 +344,6 @@ jobs:
           fi
           mapfile -t tools <<<"$selected"
           echo "consumer config tools: ${tools[*]}"
-          # pipx installs require the consumer's selected uv and Python pins,
-          # which may differ from the standards-side tools already installed.
-          # The native selection has no pipx tool.
-          if [ "$config_model" != native ]; then
-            if jq -e 'has("uv")' <<<"$listing" >/dev/null; then
-              mise install uv
-            fi
-            if jq -e 'has("python")' <<<"$listing" >/dev/null; then
-              mise install python
-            fi
-          fi
           mise install "${tools[@]}"
 
       - name: Confirm common setup
@@ -454,7 +423,6 @@ jobs:
           APPLICABLE: ${{ steps.applicability.outputs.audit }}
           COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
-          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
           STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
         shell: bash
         run: |
@@ -482,7 +450,6 @@ jobs:
           APPLICABLE: ${{ steps.applicability.outputs.lint_config }}
           COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
-          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
           STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
         shell: bash
         run: |
@@ -510,7 +477,6 @@ jobs:
           APPLICABLE: ${{ steps.applicability.outputs.pr_conventions }}
           COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
-          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
           STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
           # The script must use `mise exec node -- ...` from .standards
           # (including node/), never the consumer's mise config.
@@ -545,7 +511,6 @@ jobs:
           APPLICABLE: ${{ steps.applicability.outputs.secret_scan }}
           COMMON_SETUP_OUTCOME: ${{ steps.common_setup.outcome }}
           STANDARDS_ROOT: ${{ github.workspace }}/.standards
-          STANDARDS_CHANNEL: ${{ steps.selection.outputs.channel }}
           STANDARDS_SHA: ${{ steps.standards_ref.outputs.sha }}
         shell: bash
         run: |

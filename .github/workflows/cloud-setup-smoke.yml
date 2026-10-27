@@ -74,8 +74,8 @@ name: cloud-setup smoke (reusable)
         required: false
       STANDARDS_READER_APP_ID:
         description: >-
-          Required from a config_model: native caller (standards ADR-0033) to
-          clone the private Shared Config Checkout; rendered callers omit it.
+          Required from a consumer caller (standards ADR-0033) to
+          clone the private Shared Config Checkout.
         required: false
       STANDARDS_READER_APP_PRIVATE_KEY:
         description: >-
@@ -144,14 +144,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # standards ADR-0033: only an explicit native answer selects the
-          # Shared Config Checkout bootstrap; an unknown value fails.
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-          case "${config_model:=rendered}" in
-            rendered|native) ;;
-            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
-          esac
-          echo "config_model=$config_model" >> "$GITHUB_OUTPUT"
           # Transitional consumers may not have the answer yet. Only the
           # explicit facet value enables Ruby setup; absence and false preserve
           # the existing smoke path.
@@ -213,7 +205,7 @@ jobs:
         id: uv-python
         # Native cache seeds ignore consumer project bounds, matching uvx
         env:
-          UV_NO_PROJECT: ${{ steps.probe.outputs.config_model == 'native' }}
+          UV_NO_PROJECT: "true"
         if: steps.probe.outputs.runnable == 'true'
         shell: bash
         run: |
@@ -259,30 +251,16 @@ jobs:
       # checkout. The token is the same accepted trade as GH_PAT above:
       # read-only, scoped to standards, expiring after about an hour, and
       # present only for a native caller that forwarded the secrets.
-      # Rendered repositories keep mise-action.
-      - name: Bootstrap the Shared Config Checkout (native config model)
+      - name: Bootstrap the Shared Config Checkout
         if: >-
-          steps.probe.outputs.runnable == 'true' &&
-          steps.probe.outputs.config_model == 'native'
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+          steps.probe.outputs.runnable == 'true'
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
-          config-model: ${{ steps.probe.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
           keep-route: "true"
-      - name: Install the consumer's pinned toolchain
-        if: >-
-          steps.probe.outputs.runnable == 'true' &&
-          steps.probe.outputs.config_model != 'native'
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
-        env:
-          MISE_GITHUB_TOKEN: ${{ github.token }}
-        with:
-          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-          version: ${{ steps.mise-version.outputs.version }}
-
       - name: Mint private-modules-reader token
         id: private-modules-token
         if: >-

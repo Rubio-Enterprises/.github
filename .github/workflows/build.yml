@@ -39,7 +39,6 @@ jobs:
       artifact: ${{ steps.pick.outputs.artifact }}
       image: ${{ steps.pick.outputs.image }}
       artifact_runner: ${{ steps.pick.outputs.artifact_runner }}
-      config_model: ${{ steps.pick.outputs.config_model }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -86,19 +85,13 @@ jobs:
           fi
           runner="$(jq -ce . <<<"$runner")" || exit 1
 
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-          case "${config_model:=rendered}" in
-            rendered|native) ;;
-            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
-          esac
 
           {
             echo "artifact=$artifact"
             echo "image=$image"
             echo "artifact_runner=$runner"
-            echo "config_model=$config_model"
           } >> "$GITHUB_OUTPUT"
-          echo "BD-01=$artifact CT-01=$image config_model=$config_model"
+          echo "BD-01=$artifact CT-01=$image"
 
   bd-01:
     name: BD-01 release artifact build
@@ -141,7 +134,7 @@ jobs:
         id: uv-python
         # Native cache seeds ignore consumer project bounds, matching uvx
         env:
-          UV_NO_PROJECT: ${{ needs.detect.outputs.config_model == 'native' }}
+          UV_NO_PROJECT: "true"
         shell: bash
         run: |
           set -euo pipefail
@@ -174,27 +167,14 @@ jobs:
       # pins from the private standards checkout at `.standards-config/`, so
       # no mise command works until it is cloned. The shared action clones it
       # through a read-only standards-reader token and removes the token route
-      # before any repository code runs. Rendered repositories keep mise-action.
-      - name: Bootstrap the Shared Config Checkout (native config model)
-        if: needs.detect.outputs.config_model == 'native'
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+      # before any repository code runs.
+      - name: Bootstrap the Shared Config Checkout
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
-          config-model: ${{ needs.detect.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-      - name: Install consumer-repo runtimes
-        if: needs.detect.outputs.config_model != 'native'
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-        env:
-          MISE_GITHUB_TOKEN: ${{ github.token }}
-        with:
-          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-          version: ${{ steps.mise-version.outputs.version }}
-      # Same pnpm provisioning as the lint-hooks and typecheck gates (reads
-      # packageManager; avoids corepack's keyring drift). Installing the
-      # workspace stays the build task's job.
       - name: Install pnpm
         if: hashFiles('pnpm-lock.yaml') != ''
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6

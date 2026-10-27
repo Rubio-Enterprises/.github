@@ -30,8 +30,8 @@ name: typecheck-ts (gate)
         default: false
     secrets:
       # Org secrets reach a called workflow only when its caller forwards
-      # them. A config_model: native caller must, so the Shared Config
-      # Checkout can be cloned (standards ADR-0033); rendered callers need not.
+      # them. A consumer caller must, so the Shared Config
+      # Checkout can be cloned (standards ADR-0033).
       STANDARDS_READER_APP_ID:
         required: false
       STANDARDS_READER_APP_PRIVATE_KEY:
@@ -58,6 +58,7 @@ concurrency:
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
   route:
+    if: github.repository != 'Rubio-Enterprises/.github'
     # Resolve the runner from the consumer's DECLARED Workload Class
     # (`typecheck_workload_class`, standards ADR-0022) instead of routing every
     # selected repo to glue-heavy.
@@ -81,7 +82,6 @@ jobs:
     timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
-      config_model: ${{ steps.pick.outputs.config_model }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -110,14 +110,6 @@ jobs:
           # one line. Reject invalid JSON rather than writing a broken output.
           runner="$(jq -ce . <<<"$runner")" || exit 1
           printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"
-          # standards ADR-0033: only an explicit native answer selects the
-          # Shared Config Checkout bootstrap; an unknown value fails.
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-          case "${config_model:=rendered}" in
-            rendered|native) ;;
-            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
-          esac
-          printf 'config_model=%s\n' "$config_model" >> "$GITHUB_OUTPUT"
 
   typecheck:
     needs: route
@@ -152,7 +144,7 @@ jobs:
         id: uv-python
         # Native cache seeds ignore consumer project bounds, matching uvx
         env:
-          UV_NO_PROJECT: ${{ needs.route.outputs.config_model == 'native' }}
+          UV_NO_PROJECT: "true"
         shell: bash
         run: |
           set -euo pipefail
@@ -187,27 +179,14 @@ jobs:
       # pins from the private standards checkout at `.standards-config/`, so
       # no mise command works until it is cloned. The shared action clones it
       # through a read-only standards-reader token and removes the token route
-      # before any repository code runs. Rendered repositories keep mise-action.
-      - name: Bootstrap the Shared Config Checkout (native config model)
-        if: needs.route.outputs.config_model == 'native'
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+      # before any repository code runs.
+      - name: Bootstrap the Shared Config Checkout
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
-          config-model: ${{ needs.route.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-      - name: Install consumer-repo runtimes
-        if: needs.route.outputs.config_model != 'native'
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-        env:
-          MISE_GITHUB_TOKEN: ${{ github.token }}
-        with:
-          # Key the mise cache to the uv-resolved python (standards#331): a python
-          # bump changes the prefix and invalidates rather than poisons the cache.
-          cache_key_prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-          version: ${{ steps.mise-version.outputs.version }}
-
       - name: Detect the typecheck task
         # `mise tasks info` exits non-zero when the task is absent (non-ts repo,
         # or a repo with no .mise.toml at all — e.g. .github itself). Defensive:

@@ -15,8 +15,8 @@ outputs. The pilot consumer is `bookmark-scraper`.
 
 | Optional secret | Required when |
 | --- | --- |
-| `STANDARDS_READER_APP_ID` | The caller answers `config_model: native` |
-| `STANDARDS_READER_APP_PRIVATE_KEY` | The caller answers `config_model: native` |
+| `STANDARDS_READER_APP_ID` | Every full consumer |
+| `STANDARDS_READER_APP_PRIVATE_KEY` | Every full consumer |
 
 Rendered callers need no secrets and keep the same build path. Native callers
 must explicitly forward both secrets as shown below; missing credentials fail
@@ -30,11 +30,11 @@ and `packages: read`, publishing build jobs `contents: read` and
 
 ## Caller
 
-Pin the pilot to the candidate PR head SHA. After release, use the ordinary
-release-please reusable-workflow SHA stream, not `gates/wf-v1`. This workflow
-is not an injected Gate Family and needs no GitHub settings changes.
+Call the reusable at `@main`. It is not an injected Gate Family and needs no
+GitHub settings changes. The shared Renovate preset leaves first-party
+`.github` references alone.
 
-A caller owns its triggers, for example (replace `<commit-sha>` with a full SHA):
+A caller owns its triggers, for example:
 
 ```yaml
 name: devcontainer image
@@ -65,7 +65,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: Rubio-Enterprises/.github/.github/workflows/devcontainer-image.yml@<commit-sha>
+    uses: Rubio-Enterprises/.github/.github/workflows/devcontainer-image.yml@main
 ```
 
 Use the repository's actual default branch and complete build inputs (including
@@ -84,12 +84,12 @@ Native callers add only these named secrets to the image job (never
       STANDARDS_READER_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
 ```
 
-After checkout, the pinned `standards-bootstrap` action provisions and verifies
+After checkout, `standards-bootstrap@main` provisions and verifies
 `.standards-config/` on the runner using `bootstrap-parts: repos` and
 `keep-route: false`. It does not install the caller's toolchain on the runner,
 cache those tools, or export their environment; the Dockerfile installs them.
-Rendered callers skip every native bootstrap step. The action removes and
-verifies removal of its standards token URL route before Docker runs. Git stores
+Bootstrap does not read classification metadata. The action removes and verifies
+removal of its standards token URL route before Docker runs. Git stores
 the original credential-free remote URL, not its rewritten authenticated URL.
 No reader credentials are passed as Docker arguments, environment or secrets.
 
