@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.10.0](https://github.com/Rubio-Enterprises/.github/compare/v4.9.0...v4.10.0) (2026-10-27)
+
+
+### Features
+
+* **devcontainer:** provision native shared config before builds ([#431](https://github.com/Rubio-Enterprises/.github/issues/431)) ([2e2e0fa](https://github.com/Rubio-Enterprises/.github/commit/2e2e0fa2ddc9ad9305fd8ef69fce1ac72a38fe13))
+
 ## [4.9.0](https://github.com/Rubio-Enterprises/.github/compare/v4.8.1...v4.9.0) (2026-10-27)
 
 
