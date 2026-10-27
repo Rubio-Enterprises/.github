@@ -1,7 +1,7 @@
 # `standards-bootstrap` action
 
 `actions/standards-bootstrap` is a composite action that sets up mise in a
-repository answering `config_model: native` (standards ADR-0033). Such a
+repository using the Shared Config Checkout (standards ADR-0033). Such a
 repository's `.mise.toml` includes shared pins from a gitignored Shared Config
 Checkout at `.standards-config/`, a clone of the private `standards` repository.
 No mise command works in CI until that checkout exists, so every job that runs
@@ -9,8 +9,8 @@ mise in a native repository must call this action first.
 
 The action:
 
-1. Reads the config model. For `rendered` it stops, and every later step is
-   skipped.
+1. Accepts an absent or legacy `native` transition answer; retired `rendered`
+   and unknown values fail.
 2. Checks for the standards-reader credentials and a mise version of at least
    2026.10.19.
 3. Mints a read-only standards-reader token scoped to `standards`, and routes
@@ -68,21 +68,6 @@ jobs:
 - **Replace the mise step.** In a native repository the action installs mise.
   Do not also run `jdx/mise-action` with its default `install: true`. That
   action loads the repository's config, so it fails before the checkout exists.
-- **Rendered repositories.** The action does nothing for them, so they still
-  need their own `jdx/mise-action` step. A template that renders one workflow
-  for both models chooses at render time:
-
-  ```jinja
-  {% if config_model == 'native' %}
-        - uses: Rubio-Enterprises/.github/actions/standards-bootstrap@<sha> # v4
-          with:
-            app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
-            private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-  {% else %}
-        - uses: jdx/mise-action@<sha> # v4
-  {% endif %}
-  ```
-
 - **Reusable workflows.** A called workflow sees organization secrets only when
   its caller forwards them, with `secrets: inherit` or by name. Declare both as
   optional `workflow_call` secrets, as `e2e.yml` does.
@@ -92,9 +77,9 @@ jobs:
 - `app-id`: pass `secrets.STANDARDS_READER_APP_ID`. Required for `native`.
 - `private-key`: pass `secrets.STANDARDS_READER_APP_PRIVATE_KEY`. Required
   for `native`.
-- `config-model`: `native` or `rendered`. The default reads `config_model`
-  from `.copier-answers.yml`, where an absent answer is `rendered`. Any other
-  value fails.
+- `config-model`: compatibility input, `native` or empty. Empty reads a legacy
+  answer when present; absent means native. Explicit `rendered` and unknown
+  values fail.
 - `mise-version`: 2026.10.19 or later. The default is the runner's installed
   mise, or 2026.10.19 when none is installed, so the action never
   self-updates a warm runner's mise; on a runner whose mise is older, it fails.
@@ -109,7 +94,7 @@ jobs:
 - `keep-route`: `true` keeps the token route for the rest of the job. Default
   `false`.
 
-The `config-model` output is the resolved model.
+The compatibility `config-model` output is always `native`.
 
 Leave `keep-route` at `false` unless a later step must reach `standards` again.
 `cloud-setup-smoke` keeps the route because the cloud setup chain it runs may
@@ -124,12 +109,12 @@ into the mise cache key to protect cached pipx/uvx tools from stale shebangs.
 This is a toolchain seed, not the Python used for consumer tests or linting.
 [uv tool environments ignore consumer project Python requests](https://docs.astral.sh/uv/concepts/tools/#python-versions).
 
-For native repositories only, the fingerprint step sets `UV_NO_PROJECT=true`
+The fingerprint step sets `UV_NO_PROJECT=true`
 so `uv python find` also ignores consumer `requires-python`. A native checkout
 pinned to Python 3.13 with `requires-python <3.14` can therefore fingerprint a
 3.14 tool interpreter before mise loads its runtime pin. The setting is scoped
 to that step; bootstrap and later consumer commands retain their own Python
-selection. Rendered repositories keep project discovery unchanged.
+selection.
 
 ## Secret reachability
 

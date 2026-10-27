@@ -116,12 +116,12 @@ class ConfigModelSelectionTests(unittest.TestCase):
         for name, (text, step) in PICK_STEPS.items():
             script = extract_run_block(text, step)
             for answers, expected in (
-                (None, "rendered"),
-                ("has_python: true\n", "rendered"),
-                ("config_model: rendered\n", "rendered"),
+                (None, "native"),
+                ("has_python: true\n", "native"),
+                ("config_model: rendered\n", None),
                 ("config_model: native\n", "native"),
                 ('config_model: "native"\n', "native"),
-                ("# config_model: native\n", "rendered"),
+                ("# config_model: native\n", "native"),
                 ("config_model: Native\n", None),
             ):
                 with self.subTest(workflow=name, answers=answers), \
@@ -154,10 +154,7 @@ class ConfigModelSelectionTests(unittest.TestCase):
 
 
 def native_guard(name: str, model: str, op: str) -> str:
-    guard = f"{model} {op} 'native'"
-    if name == "cloud-setup-smoke":
-        return f"steps.probe.outputs.runnable == 'true' && {guard}"
-    return guard
+    return "steps.probe.outputs.runnable == 'true'" if name == "cloud-setup-smoke" else ""
 
 
 def with_inputs(step: str) -> dict[str, str]:
@@ -185,28 +182,16 @@ class NativeBootstrapContractTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 given = with_inputs(extract_step(text, BOOTSTRAP_STEP))
                 self.assertLessEqual(set(given), declared)
-                rendered = extract_step(text, MISE_STEP_NAMES[name])
                 expected = {
                     "config-model": f"${{{{ {model} }}}}",
                     "app-id": "${{ secrets.STANDARDS_READER_APP_ID }}",
                     "private-key": "${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}",
                     "mise-version": "${{ steps.mise-version.outputs.version }}",
-                    "cache-key-prefix": re.search(r"cache_key_prefix: (.*)", rendered).group(1),
+                    "cache-key-prefix": "mise-v1-uvpy${{ steps.uv-python.outputs.version }}",
                 }
                 if name in KEEP_ROUTE:
                     expected["keep-route"] = '"true"'
                 self.assertEqual(given, expected)
-
-    def test_rendered_repositories_keep_plain_mise_action(self) -> None:
-        for name, (text, model) in NATIVE_WORKFLOWS.items():
-            with self.subTest(workflow=name):
-                step = extract_step(text, MISE_STEP_NAMES[name])
-                self.assertEqual(condition(text, MISE_STEP_NAMES[name]),
-                                 native_guard(name, model, "!="))
-                self.assertIn("uses: jdx/mise-action@", step)
-                self.assertIn("version: ${{ steps.mise-version.outputs.version }}", step)
-                for absent in ("bootstrap", "GIT_TERMINAL_PROMPT", "install_args"):
-                    self.assertNotIn(absent, step)
 
     def test_no_inline_native_setup_remains(self) -> None:
         for name, (text, _) in NATIVE_WORKFLOWS.items():
@@ -221,15 +206,12 @@ class NativeBootstrapContractTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertLess(text.index(f"- name: {BOOTSTRAP_STEP}\n"),
                                 text.index(f"- name: {later}\n"))
-                self.assertLess(text.index(f"- name: {MISE_STEP_NAMES[name]}\n"),
-                                text.index(f"- name: {later}\n"))
 
     def test_lint_hooks_mints_its_own_route_only_for_rendered_repositories(self) -> None:
         for step in ("Mint standards read token (lefthook remotes fetch)",
                      "Route the lefthook standards remote through the App token"):
             with self.subTest(step=step):
-                self.assertEqual(condition(LINT, step),
-                                 "needs.detect.outputs.config_model != 'native'")
+                self.assertNotIn(f"- name: {step}\n", LINT)
 
 
 class CallerCredentialTests(unittest.TestCase):
@@ -273,8 +255,7 @@ class LintHooksExecutionTests(unittest.TestCase):
         step = extract_step(LINT, "Run the full knowledgebase check")
         self.assertEqual(
             condition(LINT, "Run the full knowledgebase check"),
-            "needs.detect.outputs.has_knowledgebase == 'true' && "
-            "needs.detect.outputs.config_model == 'native'",
+            "needs.detect.outputs.has_knowledgebase == 'true'",
         )
         self.assertIn("run: mise exec -- lefthook run kb-check", step)
         self.assertNotIn("continue-on-error", step)

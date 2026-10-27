@@ -93,15 +93,15 @@ class InterfaceTests(unittest.TestCase):
 class ConfigModelTests(unittest.TestCase):
     def test_input_wins_and_an_empty_input_reads_the_answers(self) -> None:
         for given, answers, expected in (
-            ("", None, "rendered"),
-            ("", "has_python: true\n", "rendered"),
-            ("", "config_model: rendered\n", "rendered"),
+            ("", None, "native"),
+            ("", "has_python: true\n", "native"),
+            ("", "config_model: rendered\n", None),
             ("", "config_model: native\n", "native"),
             ("", 'config_model: "native"\n', "native"),
-            ("", "# config_model: native\n", "rendered"),
+            ("", "# config_model: native\n", "native"),
             ("", "config_model: Native\n", None),
             ("native", None, "native"),
-            ("rendered", "config_model: native\n", "rendered"),
+            ("rendered", "config_model: native\n", None),
             ("Native", None, None),
         ):
             for shell in BASHES:
@@ -120,13 +120,13 @@ class ConfigModelTests(unittest.TestCase):
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual(outputs(repo / "out")["config_model"], expected)
 
-    def test_rendered_repositories_run_nothing_else(self) -> None:
+    def test_bootstrap_has_no_model_gated_steps(self) -> None:
         self.assertEqual(condition(MODEL), "")
         for step in STEPS[1:-1]:
             with self.subTest(step=step):
-                self.assertEqual(condition(step), NATIVE)
+                self.assertEqual(condition(step), "")
         self.assertEqual(
-            condition(UNROUTE), f"always() && {NATIVE} && inputs.keep-route != 'true'"
+            condition(UNROUTE), "always() && inputs.keep-route != 'true'"
         )
 
 

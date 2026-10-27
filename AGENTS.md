@@ -51,7 +51,7 @@ channel.
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
 | `build.yml` | `gate-build` | BD-01 non-publishing `mise run build` (`has_release_artifact`; Swift on `RUNNERS.macos`, unsigned) and CT-01 `compose.ci.yml` smoke with healthy and non-root assertions (`has_container_image`). A declared check with no task or descriptor fails. See [`docs/build-gate.md`](docs/build-gate.md) | — |
 
-**Native config model (standards ADR-0033).** A consumer answering `config_model: native`
+**Native config model (standards ADR-0033).** A full consumer
 inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Checkout at
 `.standards-config/`. Every workflow that runs mise in a consumer (`lint-hooks`,
 `typecheck-ts`, `build`, and the `e2e` and `cloud-setup-smoke` reusables) sets the checkout
@@ -60,16 +60,14 @@ up with the shared composite action
 workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
 mints the standards-reader token and routes the private clone through it. It runs
 mise-action's built-in `bootstrap: true` with `bootstrap_args: --only repos,tools`, then
-removes its route. It does nothing for rendered repositories, which keep their own
-mise-action step.
+removes its route. The rendered model is retired; this action always bootstraps.
 
 - The action then runs `mise bootstrap repos status --missing` and requires
   `.standards-config/config/lefthook/base.yml`. A missing checkout fails instead of letting
   Lefthook skip the shared hooks.
 - `typecheck-ts`, `build` and `e2e` let the action remove the token route before
   repository code runs. `cloud-setup-smoke` passes `keep-route: "true"` for the setup chain,
-  which must be able to refresh the checkout. `lint-hooks` passes it too, matching its
-  rendered path, which keeps the route for Lefthook's `remotes:` fetch.
+  which must be able to refresh the checkout. `lint-hooks` passes it too, for its knowledgebase remote fetch.
 - **Pin.** The workflows call the action as
   `Rubio-Enterprises/.github/actions/standards-bootstrap@<sha> # v4`, one SHA in all five. A
   local `./` path would resolve against the consumer's checkout, not this repo. A gate's
@@ -83,8 +81,9 @@ mise-action step.
   installs only `yq` and `lefthook` and removes the link afterwards. The job sets
   `MISE_EXEC_AUTO_INSTALL=false`, so the gate's `mise exec` cannot install them itself.
 
-Any other answer keeps the rendered model's `mise install`; an unknown value fails. The
-`config_model` answer is transitional and goes away when the rendered model is retired.
+An absent `config_model` means native, as does the legacy `native` value. An explicit
+`rendered` or unknown value fails. Publish this plumbing and converge every SHA-pinned
+bootstrap/reusable caller before the starter release removes the transition answer.
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
 `gate-tests` org ruleset requires each enforcing repository's own repo-local
@@ -101,8 +100,8 @@ and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
 `plumbing-ref-publish.yml` (this repo's own ops, not reusables).
 
 **`lint-hooks.yml`** — `lefthook run pre-commit --all-files`, plus `lefthook run kb-check`
-(the full knowledgebase check, KB-01) for native-model repositories declaring
-`has_knowledgebase` (rendered ones keep today's staged-only check), the sole CI executor of the
+(the full knowledgebase check, KB-01) for repositories declaring
+`has_knowledgebase`, the sole CI executor of the
 standards Fixers and Checkers. The commit-msg smoke test is retired: PR Conventions and the
 local commit-msg hook own PR-01. It is an injected Required Governance
 Workflow (the `gate-lint-hooks` org ruleset, published at `gates/wf-v1`, standards#627), not a

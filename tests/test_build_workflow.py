@@ -185,8 +185,8 @@ class SelectionTests(unittest.TestCase):
 
     def test_config_model_answer(self) -> None:
         for answers, expected in (
-            ("has_release_artifact: true\n", "rendered"),
-            ("config_model: rendered\n", "rendered"),
+            ("has_release_artifact: true\n", "native"),
+            ("config_model: rendered\n", None),
             ("config_model: native\n", "native"),
             ("config_model: 'native'  \n", "native"),
             ("config_model: nativ\n", None),
@@ -236,7 +236,7 @@ class ArtifactBuildTests(unittest.TestCase):
         self.assertNotIn("keep-route", extract_step(TEXT, BOOTSTRAP_STEP))
         order = [
             BOOTSTRAP_STEP,
-            "Install consumer-repo runtimes",
+            "Bootstrap the Shared Config Checkout (native config model)",
             "Install pnpm",
             TASK_STEP,
             "Build the release artifact (mise run build)",

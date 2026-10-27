@@ -328,4 +328,4 @@ class PrivateGoModuleTokenTests(unittest.TestCase):
             for step in steps
             if "secrets.STANDARDS_READER_APP_ID" in step
         )
-        self.assertEqual(scopes, ["knowledgebase-framework", "standards", "standards"])
+        self.assertEqual(scopes, ["knowledgebase-framework", "standards"])
