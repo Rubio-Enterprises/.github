@@ -12,10 +12,10 @@ name: devcontainer image (reusable)
         default: ""
     secrets:
       STANDARDS_READER_APP_ID:
-        description: Standards-reader App ID; required only for native config callers
+        description: Standards-reader App ID; required for shared config bootstrap
         required: false
       STANDARDS_READER_APP_PRIVATE_KEY:
-        description: Standards-reader App key; required only for native config callers
+        description: Standards-reader App key; required for shared config bootstrap
         required: false
 permissions: {}
 concurrency:
@@ -85,7 +85,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Provision native shared config
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@8778933af3659ad06d3e0d73620d01ad0f0fff39 # v4
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}

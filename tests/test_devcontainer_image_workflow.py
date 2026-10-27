@@ -102,23 +102,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(checkout, bootstrap)
         self.assertLess(bootstrap, build)
         bootstrap_step = steps[bootstrap:steps.index("- name: Verify native Docker architecture")]
-        self.assertRegex(bootstrap_step, r"uses: Rubio-Enterprises/\.github/actions/standards-bootstrap@[a-f0-9]{40} # v4")
+        self.assertIn("uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main\n", bootstrap_step)
         self.assertIn("bootstrap-parts: repos", bootstrap_step)
         self.assertIn('keep-route: "false"', bootstrap_step)
         self.assertNotIn("--secret", script("Build the architecture image"))
         self.assertNotIn("STANDARDS_READER", script("Build the architecture image"))
         self.assertIn("steps: *build-steps", job("build"))
 
-    def test_rendered_callers_fail_before_provisioning(self) -> None:
-        from test_standards_bootstrap_action import MODEL, run
-
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            (repo / ".copier-answers.yml").write_text("config_model: rendered\n")
-            result = run(MODEL, repo, GIVEN_MODEL="", GITHUB_OUTPUT=str(repo / "output"))
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("unsupported config_model answer: rendered", result.stderr)
-            self.assertFalse((repo / "output").exists())
+    def test_bootstrap_has_no_metadata_selector(self) -> None:
+        self.assertNotIn("config-model:", TEXT)
+        self.assertNotIn("config_model", TEXT)
 
     def test_native_routes_and_shared_steps(self) -> None:
         self.assertIn(".docker || fromJSON('[\"ubuntu-latest\"]')", TEXT)
@@ -131,10 +124,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", TEXT)
         self.assertNotIn("group: ${{ github.workflow", TEXT)
 
-    def test_pins_checkout_and_registry_hygiene(self) -> None:
-        for ref, comment in re.findall(r"uses: (\S+)(.*)", TEXT):
+    def assert_pinned_actions(self, text: str) -> None:
+        for ref, comment in re.findall(r"uses: (\S+)(.*)", text):
+            if ref == "Rubio-Enterprises/.github/actions/standards-bootstrap@main":
+                continue
             self.assertRegex(ref, r"@[a-f0-9]{40}$")
             self.assertRegex(comment, r" # v[0-9]")
+
+    def test_action_pin_exception_is_exact(self) -> None:
+        self.assert_pinned_actions("uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main")
+        self.assert_pinned_actions("uses: actions/checkout@" + "a" * 40 + " # v7")
+        for ref in (
+            "Rubio-Enterprises/.github/actions/standards-bootstrap@stable",
+            "Rubio-Enterprises/.github/actions/standards-bootstrap@v4",
+            "Rubio-Enterprises/.github/actions/other@main",
+            "Rubio-Enterprises/.github-private/actions/standards-bootstrap@main",
+            "other/.github/actions/standards-bootstrap@main",
+            "actions/checkout@main", "docker/login-action@v4",
+        ):
+            with self.subTest(ref=ref), self.assertRaises(AssertionError):
+                self.assert_pinned_actions(f"uses: {ref}")
+
+    def test_pins_checkout_and_registry_hygiene(self) -> None:
+        self.assert_pinned_actions(TEXT)
         self.assertIn("persist-credentials: false", TEXT)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", TEXT)
         self.assertIn("@devcontainers/cli@0.89.0", TEXT)

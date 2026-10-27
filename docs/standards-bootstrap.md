@@ -9,26 +9,30 @@ mise in a native repository must call this action first.
 
 The action:
 
-1. Accepts an absent or legacy `native` transition answer; retired `rendered`
-   and unknown values fail.
-2. Checks for the standards-reader credentials and a mise version of at least
+1. Checks for the standards-reader credentials and a mise version of at least
    2026.10.19.
-3. Mints a read-only standards-reader token scoped to `standards`, and routes
+2. Mints a read-only standards-reader token scoped to `standards`, and routes
    `https://github.com/<owner>/standards` through it with Git's `insteadOf`.
-4. Runs `jdx/mise-action` with `bootstrap: true`. This runs `mise bootstrap
-   --only repos,tools` in place of `mise install`: it clones the checkout, runs
-   the repository's `post-repos` hook, installs the shared and repository pins,
-   and exports mise's environment to later steps. With `bootstrap-parts: repos`,
-   it provisions only the checkout and runs the readiness hook, without tool
-   installation, tool caching or environment export.
-5. Fails unless `mise bootstrap repos status --missing` passes and
-   `.standards-config/config/lefthook/base.yml` exists. It writes the
-   checkout's ref and commit to the step summary.
-6. Removes the token route, even when an earlier step failed, so later steps
-   that run repository code cannot use it. It removes only its own route.
+3. Runs `jdx/mise-action` with `bootstrap: true`. This runs `mise bootstrap
+   --only repos,tools` in place of `mise install`: it clones the checkout at
+   the ref declared in the consumer's `.mise.toml`, runs its `post-repos` hook,
+   installs its tools, and exports mise's environment. With
+   `bootstrap-parts: repos`, it provisions only the checkout and runs the
+   readiness hook, without tool installation, caching or environment export.
+4. Fails unless `mise bootstrap repos status --missing` passes and
+   `.standards-config/config/lefthook/base.yml` exists. It records the
+   checkout's ref and commit in the step summary.
+5. Removes its token route even when an earlier step failed, unless
+   `keep-route: "true"` is requested.
+
+Bootstrap is unconditional: no classification answer selects a different path.
+This is the branch-following bootstrap; it neither exports nor supplies
+`STANDARDS_PIN`. Existing stable/canary declarations and main declarations
+continue to follow their declared branches until the separate pin provisioner
+is activated after fleet convergence.
 
 The central workflows use it: the `lint-hooks`, `typecheck-ts` and `build` gates
-and the `e2e` and `cloud-setup-smoke` reusables.
+and the `e2e`, `cloud-setup-smoke` and `devcontainer-image` reusables.
 
 ## Calling it from a repository workflow
 
@@ -38,7 +42,7 @@ permissions:
 jobs:
   test:
     runs-on: >-
-      ${{ fromJSON(vars.RUNNERS || '{}').light ||
+      ${{ fromJSON(vars.RUNNERS || '{}').small ||
       fromJSON('["ubuntu-slim"]') }}
     steps:
       - uses: actions/checkout@<sha> # v7
@@ -48,19 +52,17 @@ jobs:
       - uses: astral-sh/setup-uv@<sha> # v10.1.0
         with:
           version: "0.12.17"
-      - uses: Rubio-Enterprises/.github/actions/standards-bootstrap@<sha> # v4
+      - uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
       - run: mise run test
 ```
 
-- **Ref.** Pin the 40-hex commit that the floating `v4` tag points at, with a
-  trailing `# v4` comment, as for the reusable workflows. Renovate's
-  `github-actions` manager reports the dependency as `Rubio-Enterprises/.github`
-  and advances the digest when a `.github` release moves `v4`. In
-  template-rendered workflows, the `default.json` rule that re-enables that
-  dependency covers the pin.
+- **Ref.** First-party `.github` workflows and actions follow `@main` directly.
+  The shared Renovate preset disables updates and digest pinning for the exact
+  `Rubio-Enterprises/.github` dependency in every filename. Third-party actions
+  remain SHA-pinned.
 - **Secrets.** Pass the `STANDARDS_READER_APP_ID` and
   `STANDARDS_READER_APP_PRIVATE_KEY` organization secrets as inputs. A composite
   action cannot read `secrets` itself. A native repository that omits them fails
@@ -72,14 +74,11 @@ jobs:
   its caller forwards them, with `secrets: inherit` or by name. Declare both as
   optional `workflow_call` secrets, as `e2e.yml` does.
 
-## Inputs and output
+## Inputs
 
-- `app-id`: pass `secrets.STANDARDS_READER_APP_ID`. Required for `native`.
-- `private-key`: pass `secrets.STANDARDS_READER_APP_PRIVATE_KEY`. Required
-  for `native`.
-- `config-model`: compatibility input, `native` or empty. Empty reads a legacy
-  answer when present; absent means native. Explicit `rendered` and unknown
-  values fail.
+- `app-id`: pass `secrets.STANDARDS_READER_APP_ID`.
+- `private-key`: pass `secrets.STANDARDS_READER_APP_PRIVATE_KEY`.
+  Both credentials are required.
 - `mise-version`: 2026.10.19 or later. The default is the runner's installed
   mise, or 2026.10.19 when none is installed, so the action never
   self-updates a warm runner's mise; on a runner whose mise is older, it fails.
@@ -90,11 +89,11 @@ jobs:
   [Dev Container image builds](reusable-workflows/devcontainer-image.md). It
   skips mise-action's tool cache and environment export; no preceding setup-uv
   step is needed because no pipx tools are installed. Unknown values fail before
-  token minting. Retired rendered repositories fail during validation.
+  token minting.
 - `keep-route`: `true` keeps the token route for the rest of the job. Default
   `false`.
 
-The compatibility `config-model` output is always `native`.
+The action declares no outputs.
 
 Leave `keep-route` at `false` unless a later step must reach `standards` again.
 `cloud-setup-smoke` keeps the route because the cloud setup chain it runs may

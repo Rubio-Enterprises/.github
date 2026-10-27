@@ -48,7 +48,7 @@ class PrConventionsTests(unittest.TestCase):
             with self.subTest(value=value):
                 properties = json.dumps([{"property_name": "gate-pr-conventions", "value": value}])
                 result, output, _ = self.run_step(
-                    "Resolve gate selection and standards channel",
+                    "Resolve gate selection",
                     {"GITHUB_REPOSITORY": "Rubio-Enterprises/consumer", "WORKFLOW_REF": "published",
                      "PROPERTIES": properties},
                     {"gh": '#!/bin/sh\nprintf "%s\\n" "$PROPERTIES"\n'},
@@ -65,7 +65,7 @@ class PrConventionsTests(unittest.TestCase):
     def test_unpublished_source_run_disables_selection(self):
         for ref in ["refs/heads/feature", "refs/pull/1/merge"]:
             result, output, _ = self.run_step(
-                "Resolve gate selection and standards channel",
+                "Resolve gate selection",
                 {"GITHUB_REPOSITORY": "Rubio-Enterprises/.github",
                  "WORKFLOW_REF": f"Rubio-Enterprises/.github/.github/workflows/standards-gates.yml@{ref}",
                  "PROPERTIES": '[{"property_name":"gate-pr-conventions","value":true}]'},
@@ -74,6 +74,39 @@ class PrConventionsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("pr_conventions=false\n", output)
             self.assertIn("any_selected=false\n", output)
+
+    def test_ring_metadata_does_not_affect_gate_selection(self):
+        baseline = None
+        for ring in ("stable", "canary", "unknown", ""):
+            properties = json.dumps([
+                {"property_name": "gate-pr-conventions", "value": True},
+                {"property_name": "ring", "value": ring},
+            ])
+            result, output, _ = self.run_step(
+                "Resolve gate selection",
+                {"GITHUB_REPOSITORY": "Rubio-Enterprises/consumer", "WORKFLOW_REF": "published",
+                 "PROPERTIES": properties},
+                {"gh": '#!/bin/sh\nprintf "%s\\n" "$PROPERTIES"\n'},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("channel=", output)
+            if baseline is None:
+                baseline = output
+            self.assertEqual(output, baseline)
+
+    def test_minimal_consumers_do_not_bootstrap_lint_tools(self):
+        for answers in (None, "repo_type: governance_repo\n", "repo_type: pristine_fork\n"):
+            scripts = {".copier-answers.yml": answers} if answers is not None else {}
+            result, output, _ = self.run_step(
+                "Determine event and repository applicability",
+                {"AUDIT_SELECTED": "false", "LINT_SELECTED": "true",
+                 "PR_CONVENTIONS_SELECTED": "false", "SECRET_SELECTED": "false",
+                 "GITHUB_EVENT_NAME": "pull_request"}, scripts,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("lint_config=false\n", output)
+            self.assertIn("setup_needed=false\n", output)
+            self.assertIn("standards_tools=\n", output)
 
     def test_applicability_installs_only_node_and_skips_merge_queue(self):
         for event, applicable, tools in [("pull_request", "true", "node"), ("merge_group", "false", "")]:
@@ -134,7 +167,7 @@ class PrConventionsTests(unittest.TestCase):
         gate = step("Gate — PR conventions")
         for expected in ["id: gate_pr_conventions", "if: always()", "continue-on-error: true",
                          "GITHUB_TOKEN: ${{ github.token }}", "MISE_CEILING_PATHS: ${{ github.workspace }}",
-                         "STANDARDS_CHANNEL:", "STANDARDS_SHA:"]:
+                         "STANDARDS_SHA:"]:
             self.assertIn(expected, gate)
         self.assertIn('MISE_EXEC_AUTO_INSTALL: "false"', text)
         self.assertIn("add_shims_to_path: false", text)

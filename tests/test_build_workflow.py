@@ -16,7 +16,7 @@ TEXT = WORKFLOW.read_text(encoding="utf-8")
 PICK_STEP = "Select the declared checks"
 TASK_STEP = "Require the build task"
 SMOKE_STEP = "Build, start and assert the release image"
-BOOTSTRAP_STEP = "Bootstrap the Shared Config Checkout (native config model)"
+BOOTSTRAP_STEP = "Bootstrap the Shared Config Checkout"
 
 
 def job(name: str) -> str:
@@ -183,22 +183,17 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(out["artifact_runner"]), runner)
 
-    def test_config_model_answer(self) -> None:
-        for answers, expected in (
-            ("has_release_artifact: true\n", "native"),
-            ("config_model: rendered\n", None),
-            ("config_model: native\n", "native"),
-            ("config_model: 'native'  \n", "native"),
-            ("config_model: nativ\n", None),
-        ):
-            with self.subTest(answers=answers), tempfile.TemporaryDirectory() as tmp:
-                result, out = pick(answers_repo(tmp, answers))
-                if expected is None:
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("unsupported config_model", result.stderr)
-                else:
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(out["config_model"], expected)
+    def test_config_metadata_does_not_change_build_selection(self) -> None:
+        baseline = None
+        for metadata in ("", "config_model: rendered\n", "config_model: native\n",
+                         "config_model: 'native'\n", "config_model: unknown\n"):
+            with self.subTest(metadata=metadata), tempfile.TemporaryDirectory() as tmp:
+                result, out = pick(answers_repo(tmp, "has_release_artifact: true\n" + metadata))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("config_model", out)
+                if baseline is None:
+                    baseline = out
+                self.assertEqual(out, baseline)
 
 
 class ArtifactBuildTests(unittest.TestCase):
@@ -236,7 +231,7 @@ class ArtifactBuildTests(unittest.TestCase):
         self.assertNotIn("keep-route", extract_step(TEXT, BOOTSTRAP_STEP))
         order = [
             BOOTSTRAP_STEP,
-            "Bootstrap the Shared Config Checkout (native config model)",
+            BOOTSTRAP_STEP,
             "Install pnpm",
             TASK_STEP,
             "Build the release artifact (mise run build)",

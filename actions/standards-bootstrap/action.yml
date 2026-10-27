@@ -19,13 +19,6 @@ inputs:
       repository.
     required: false
     default: ""
-  config-model:
-    description: >-
-      Compatibility input: `native` or empty. Empty reads a legacy `config_model`
-      answer when present; an absent answer means `native`. The retired
-      `rendered` model and unknown values fail.
-    required: false
-    default: ""
   mise-version:
     description: >-
       The mise version for jdx/mise-action, at least 2026.10.19. Empty uses the
@@ -51,30 +44,9 @@ inputs:
       the route is removed before repository code runs.
     required: false
     default: "false"
-outputs:
-  config-model:
-    description: Compatibility output, always `native`.
-    value: ${{ steps.model.outputs.config_model }}
 runs:
   using: composite
   steps:
-    - name: Read the config model
-      id: model
-      shell: bash
-      env:
-        GIVEN_MODEL: ${{ inputs.config-model }}
-      run: |
-        set -euo pipefail
-        config_model="$GIVEN_MODEL"
-        if [ -z "$config_model" ]; then
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-        fi
-        case "${config_model:=native}" in
-          native) ;;
-          *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
-        esac
-        printf 'config_model=%s\n' "$config_model" >> "$GITHUB_OUTPUT"
-        echo "config_model: $config_model"
     - name: Check the native prerequisites
       id: prerequisites
       shell: bash
@@ -90,7 +62,7 @@ runs:
           *) echo "::error::bootstrap-parts must be repos or repos,tools" >&2; exit 1 ;;
         esac
         if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
-          echo "::error::config_model native needs the standards-reader App: pass secrets.STANDARDS_READER_APP_ID and secrets.STANDARDS_READER_APP_PRIVATE_KEY as app-id and private-key; a reusable workflow's caller must forward them" >&2
+          echo "::error::shared config bootstrap needs the standards-reader App: pass secrets.STANDARDS_READER_APP_ID and secrets.STANDARDS_READER_APP_PRIVATE_KEY as app-id and private-key; a reusable workflow's caller must forward them" >&2
           exit 1
         fi
         floor=2026.10.19
@@ -108,7 +80,7 @@ runs:
           exit 1
         fi
         if [ $((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]})) -lt 2026010019 ]; then
-          echo "::error::config_model native needs mise $floor or later, got $version" >&2
+          echo "::error::shared config bootstrap needs mise $floor or later, got $version" >&2
           exit 1
         fi
         printf 'mise_version=%s\n' "$version" >> "$GITHUB_OUTPUT"

@@ -39,7 +39,6 @@ jobs:
       artifact: ${{ steps.pick.outputs.artifact }}
       image: ${{ steps.pick.outputs.image }}
       artifact_runner: ${{ steps.pick.outputs.artifact_runner }}
-      config_model: ${{ steps.pick.outputs.config_model }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -86,19 +85,13 @@ jobs:
           fi
           runner="$(jq -ce . <<<"$runner")" || exit 1
 
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-          case "${config_model:=native}" in
-            native) ;;
-            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
-          esac
 
           {
             echo "artifact=$artifact"
             echo "image=$image"
             echo "artifact_runner=$runner"
-            echo "config_model=$config_model"
           } >> "$GITHUB_OUTPUT"
-          echo "BD-01=$artifact CT-01=$image config_model=$config_model"
+          echo "BD-01=$artifact CT-01=$image"
 
   bd-01:
     name: BD-01 release artifact build
@@ -175,10 +168,9 @@ jobs:
       # no mise command works until it is cloned. The shared action clones it
       # through a read-only standards-reader token and removes the token route
       # before any repository code runs.
-      - name: Bootstrap the Shared Config Checkout (native config model)
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+      - name: Bootstrap the Shared Config Checkout
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
-          config-model: ${{ needs.detect.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}

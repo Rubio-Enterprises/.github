@@ -75,7 +75,7 @@ class PythonCacheFingerprintTests(unittest.TestCase):
         *,
         requires_python: str | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], str]:
-        text, model_expression = NATIVE_WORKFLOWS[name]
+        text = NATIVE_WORKFLOWS[name]
         step = extract_step(text, STEP)
         env = self.env.copy()
         self.assertIn('UV_NO_PROJECT: "true"', step)

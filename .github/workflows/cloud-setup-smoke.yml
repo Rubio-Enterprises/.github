@@ -144,13 +144,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # An absent transition answer remains native after Copier prunes it.
-          config_model="$(awk '/^config_model:/ { sub(/^config_model:[[:space:]]*/, ""); gsub(/["\047[:space:]]/, ""); print; exit }' .copier-answers.yml 2>/dev/null || true)"
-          case "${config_model:=native}" in
-            native) ;;
-            *) echo "::error::unsupported config_model answer: $config_model" >&2; exit 1 ;;
-          esac
-          echo "config_model=$config_model" >> "$GITHUB_OUTPUT"
           # Transitional consumers may not have the answer yet. Only the
           # explicit facet value enables Ruby setup; absence and false preserve
           # the existing smoke path.
@@ -258,12 +251,11 @@ jobs:
       # checkout. The token is the same accepted trade as GH_PAT above:
       # read-only, scoped to standards, expiring after about an hour, and
       # present only for a native caller that forwarded the secrets.
-      - name: Bootstrap the Shared Config Checkout (native config model)
+      - name: Bootstrap the Shared Config Checkout
         if: >-
           steps.probe.outputs.runnable == 'true'
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@792ecabfbb67a2d28f288c7c7c41bd8d24e4710a # v4
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
-          config-model: ${{ steps.probe.outputs.config_model }}
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}

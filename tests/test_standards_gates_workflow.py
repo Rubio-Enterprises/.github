@@ -190,7 +190,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
         "pipx:ruff": [{"version": "0.15.0"}],
     }
 
-    def test_native_pins_resolve_through_the_channel_checkout(self) -> None:
+    def test_native_pins_resolve_through_the_standards_checkout(self) -> None:
         result, calls = self.run_step(self.NATIVE_LISTING, answers="config_model: native\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [
