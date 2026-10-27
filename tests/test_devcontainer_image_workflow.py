@@ -87,41 +87,7 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("      packages: write", job(name))
             self.assertNotIn("contents:", job(name))
         self.assertIn("permissions: {}", TEXT)
-
-    def test_native_bootstrap_secrets_are_optional_and_stop_at_the_action(self) -> None:
-        interface = TEXT.split("permissions: {}", 1)[0]
-        for secret in ("STANDARDS_READER_APP_ID", "STANDARDS_READER_APP_PRIVATE_KEY"):
-            self.assertIn(f"      {secret}:\n", interface)
-            block = interface.split(f"      {secret}:\n", 1)[1].split("\n      STANDARDS_", 1)[0]
-            self.assertIn("        required: false", block)
-            self.assertEqual(TEXT.count(f"secrets.{secret}"), 1)
-        steps = job("validate")
-        checkout = steps.index("- name: Check out the caller")
-        bootstrap = steps.index("- name: Provision native shared config")
-        build = steps.index("- name: Build the architecture image")
-        self.assertLess(checkout, bootstrap)
-        self.assertLess(bootstrap, build)
-        bootstrap_step = steps[bootstrap:steps.index("- name: Verify native Docker architecture")]
-        self.assertRegex(bootstrap_step, r"uses: Rubio-Enterprises/\.github/actions/standards-bootstrap@[a-f0-9]{40} # v4")
-        self.assertIn("bootstrap-parts: repos", bootstrap_step)
-        self.assertIn('keep-route: "false"', bootstrap_step)
-        self.assertNotIn("--secret", script("Build the architecture image"))
-        self.assertNotIn("STANDARDS_READER", script("Build the architecture image"))
-        self.assertIn("steps: *build-steps", job("build"))
-
-    def test_rendered_callers_without_reader_secrets_only_detect_the_model(self) -> None:
-        from test_standards_bootstrap_action import MODEL, STEPS, NATIVE, condition, run
-
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            (repo / ".copier-answers.yml").write_text("config_model: rendered\n")
-            result = run(MODEL, repo, GIVEN_MODEL="", GITHUB_OUTPUT=str(repo / "output"))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((repo / "output").read_text(), "config_model=rendered\n")
-        for step in STEPS[1:-1]:
-            self.assertEqual(condition(step), NATIVE)
-        self.assertIn(NATIVE, condition(STEPS[-1]))
-        self.assertIn("required: false", TEXT.split("secrets:", 1)[1].split("permissions:", 1)[0])
+        self.assertNotIn("secrets:", TEXT)
 
     def test_native_routes_and_shared_steps(self) -> None:
         self.assertIn(".docker || fromJSON('[\"ubuntu-latest\"]')", TEXT)

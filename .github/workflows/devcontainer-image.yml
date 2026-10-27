@@ -10,13 +10,6 @@ name: devcontainer image (reusable)
         description: GHCR image without a tag; defaults to ghcr.io/<owner>/<repo>/devcontainer
         type: string
         default: ""
-    secrets:
-      STANDARDS_READER_APP_ID:
-        description: Standards-reader App ID; required only for native config callers
-        required: false
-      STANDARDS_READER_APP_PRIVATE_KEY:
-        description: Standards-reader App key; required only for native config callers
-        required: false
 permissions: {}
 concurrency:
   group: devcontainer-image-${{ inputs.image-name || github.repository }}-${{ github.ref }}
@@ -84,13 +77,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Provision native shared config
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@c46ed8f9039461d98613ab0c3d1326c4de247d1f # v4
-        with:
-          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
-          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-          bootstrap-parts: repos
-          keep-route: "false"
       - name: Verify native Docker architecture
         shell: bash
         env:
