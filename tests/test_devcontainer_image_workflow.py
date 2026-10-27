@@ -114,7 +114,7 @@ class WorkflowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            (repo / ".copier-answers.yml").write_text("config_model: rendered\\n")
+            (repo / ".copier-answers.yml").write_text("config_model: rendered\n")
             result = run(MODEL, repo, GIVEN_MODEL="", GITHUB_OUTPUT=str(repo / "output"))
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("unsupported config_model answer: rendered", result.stderr)
