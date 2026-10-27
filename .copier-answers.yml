@@ -1,6 +1,6 @@
 # Changes here will be overwritten by Copier; NEVER edit this file manually.
-_commit: template/v1.55.153
-_rubio_template_version: template/v1.55.153
+_commit: template/v1.55.154
+_rubio_template_version: template/v1.55.154
 _src_path: https://github.com/Rubio-Enterprises/standards.git
 config_model: rendered
 default_branch: main
@@ -33,6 +33,7 @@ is_public: true
 lint_hooks_workload_class: light
 project_name: .github
 repo_type: governance_repo
+standards_channel: stable
 supported_platforms: []
 typecheck_workload_class: light
 upstream_branch: ''
