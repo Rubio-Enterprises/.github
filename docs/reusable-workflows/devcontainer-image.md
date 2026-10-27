@@ -10,8 +10,17 @@
 | `image-name` | string | `ghcr.io/<owner>/<repo>/devcontainer`, lowercased |
 
 Image overrides must be untagged GHCR paths under the caller's owner. Config
-paths must be repository-relative without parent traversal. No additional secrets
-or workflow outputs are required. The pilot consumer is `bookmark-scraper`.
+paths must be repository-relative without parent traversal. There are no workflow
+outputs. The pilot consumer is `bookmark-scraper`.
+
+| Optional secret | Required when |
+| --- | --- |
+| `STANDARDS_READER_APP_ID` | The caller answers `config_model: native` |
+| `STANDARDS_READER_APP_PRIVATE_KEY` | The caller answers `config_model: native` |
+
+Rendered callers need no secrets and keep the same build path. Native callers
+must explicitly forward both secrets as shown below; missing credentials fail
+before building. Fork PRs do not receive them and fail closed for native callers.
 
 The caller grants `contents: read` and `packages: write` to the calling job;
 fork PRs retain GitHub's read-only token. Do not use `secrets: inherit` or
@@ -63,6 +72,74 @@ Use the repository's actual default branch and complete build inputs (including
 setup tasks, other language manifests/lockfiles, and any files they consume).
 Source-only changes need not rebuild: the workspace mount hides the image's
 source snapshot.
+
+## Native shared config
+
+Native callers add only these named secrets to the image job (never
+`secrets: inherit`):
+
+```yaml
+    secrets:
+      STANDARDS_READER_APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
+      STANDARDS_READER_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+```
+
+After checkout, the pinned `standards-bootstrap` action provisions and verifies
+`.standards-config/` on the runner using `bootstrap-parts: repos` and
+`keep-route: false`. It does not install the caller's toolchain on the runner,
+cache those tools, or export their environment; the Dockerfile installs them.
+Rendered callers skip every native bootstrap step. The action removes and
+verifies removal of its standards token URL route before Docker runs. Git stores
+the original credential-free remote URL, not its rewritten authenticated URL.
+No reader credentials are passed as Docker arguments, environment or secrets.
+
+Copy only the included pin fragments and any files they read into the toolchain
+layer, beside `.mise.toml`. For a caller with CodeWiki and no other pin Facets:
+
+```dockerfile
+COPY .standards-config/config/mise/base.toml .standards-config/config/mise/codewiki.toml /tmp/mise-pins/.standards-config/config/mise/
+COPY .standards-config/config/codewiki-uv-excludes.txt /tmp/mise-pins/.standards-config/config/
+```
+
+Use mise **2026.10.19 or later** and baseline **3.0.1 or later**. Keep the existing
+repository config/manifest COPYs and `mise install --system` toolchain layer.
+Add the fragments selected by the caller's actual `.mise.toml` includes, rather
+than copying all standards files into this layer. Changes to unrelated standards
+files then cannot invalidate the toolchain cache.
+
+The source layer copies the repository plus the shared `config/` subtree.
+Exclude all other checkout contents and nested Git metadata using Docker's
+native ignore rules:
+
+```dockerignore
+.standards-config/*
+!.standards-config/config/
+**/.git
+```
+
+Apply these rules to the Dockerfile-specific ignore file and any root fallback
+ignore file used by the CLI. Do not ignore the whole `.standards-config/`
+directory: the local includes would fall back to private Git URLs. Audit/test
+fixtures elsewhere in standards do not belong in the image; no checkout Git
+metadata is needed. Keep both architecture image secret scans enabled.
+
+The Dockerfile's plain `CI=true mise run setup` must be build-safe on the
+caller's standards Channel. At `template/v1.55.154`, shared `setup:tools` still
+runs `mise bootstrap --only repos,tools`, which rejects an existing Git-free
+checkout. Runner provisioning alone does not resolve that setup dependency.
+[standards#758](https://github.com/Rubio-Enterprises/standards/pull/758) proposed
+recognizing a provisioned Git-free snapshot and using `mise install` instead,
+but is closed and unpublished. Native image adoption remains blocked until a
+reviewed build-safe setup contract or an alternative provisioning design is
+published; do not bypass setup or add per-repository task overrides. Rendered
+callers are unaffected. Local context preparation otherwise follows the same
+runner-side pattern after `mise bootstrap --only repos,tools`.
+
+Channel-only promotions do not push a consumer commit, so they do not trigger
+a push rebuild. The caller's weekly schedule or a manual dispatch refreshes the
+image; a mounted runtime workspace still runs normal setup to reconcile any
+intervening tool/dependency changes: slower, never wrong. Runtime checkout and
+authentication provisioning are the runtime configuration's responsibility.
 
 ## Build and publication
 
