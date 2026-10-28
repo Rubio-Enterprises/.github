@@ -39,6 +39,7 @@ jobs:
       artifact: ${{ steps.pick.outputs.artifact }}
       image: ${{ steps.pick.outputs.image }}
       artifact_runner: ${{ steps.pick.outputs.artifact_runner }}
+      has_ruby: ${{ steps.pick.outputs.has_ruby }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -85,11 +86,19 @@ jobs:
           fi
           runner="$(jq -ce . <<<"$runner")" || exit 1
 
+          # A Ruby build task (Bundler, Fastlane) needs the consumer's
+          # .ruby-version, which mise does not provision. Only this change's
+          # literal true counts, as in lint-hooks.yml.
+          has_ruby=false
+          if grep -qE '^has_ruby:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            has_ruby=true
+          fi
 
           {
             echo "artifact=$artifact"
             echo "image=$image"
             echo "artifact_runner=$runner"
+            echo "has_ruby=$has_ruby"
           } >> "$GITHUB_OUTPUT"
           echo "BD-01=$artifact CT-01=$image"
 
@@ -120,6 +129,32 @@ jobs:
           # An Apple build needs the selected Xcode toolchain
           xcodebuild -version
           xcrun --find swift
+      # Ruby release builds are provisioned on the macOS route only, where
+      # Tart matches setup-ruby's Darwin prebuilds; the self-hosted Linux
+      # routes cannot run its hosted-toolcache binaries.
+      - name: Prepare macOS Ruby dependencies and tool cache
+        if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install openssl@3 libyaml gmp
+          # setup-ruby's Darwin prebuilds embed this path, not RUNNER_TOOL_CACHE
+          if [ ! -w /Users/runner/hostedtoolcache ]; then
+            sudo mkdir -p /Users/runner/hostedtoolcache
+            sudo chown "$(id -u):$(id -g)" /Users/runner/hostedtoolcache
+          fi
+      - name: Report unprovisioned Ruby
+        if: runner.os != 'macOS' && needs.detect.outputs.has_ruby == 'true'
+        shell: bash
+        run: |
+          echo "::warning::has_ruby is declared, but BD-01 provisions .ruby-version only on the macOS route; a build task that needs Bundler runs here without it (docs/build-gate.md)"
+      # ruby/setup-ruby reads the consumer-owned `.ruby-version`; bundler-cache
+      # installs the exact Gemfile.lock set before the build task runs.
+      - name: Install Ruby and locked bundle
+        if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'
+        uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
+        with:
+          bundler-cache: true
       # uv on PATH routes mise's pipx-backend installs through uvx; without it
       # mise >= 2026.6.2 falls back to pip's --uploaded-prior-to, which cold
       # runners' bootstrap pip (< 26) rejects.

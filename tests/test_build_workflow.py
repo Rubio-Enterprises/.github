@@ -179,6 +179,19 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(out["artifact_runner"]), runner)
 
+    def test_only_a_literal_true_declares_ruby(self) -> None:
+        for answers, expected in (
+            ("has_release_artifact: true\nhas_ruby: true\nhas_swift: true\n", "true"),
+            ("has_release_artifact: true\nhas_ruby: true\n", "true"),
+            ("has_release_artifact: true\nhas_ruby: 'true'\n", "false"),
+            ("has_release_artifact: true\n# has_ruby: true\n", "false"),
+            ("has_release_artifact: true\n", "false"),
+        ):
+            with self.subTest(answers=answers), tempfile.TemporaryDirectory() as tmp:
+                result, out = pick(answers_repo(tmp, answers))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(out["has_ruby"], expected)
+
     def test_config_metadata_does_not_change_build_selection(self) -> None:
         baseline = None
         for metadata in ("", "config_model: rendered\n", "config_model: native\n",
@@ -234,6 +247,33 @@ class ArtifactBuildTests(unittest.TestCase):
         ]
         positions = [bd.index(f"- name: {name}") for name in order]
         self.assertEqual(positions, sorted(positions))
+
+    def test_ruby_is_provisioned_on_the_macos_route_before_the_build(self) -> None:
+        bd = job("bd-01")
+        self.assertIn("has_ruby: ${{ steps.pick.outputs.has_ruby }}", job("detect"))
+        condition = "if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'"
+        prepare = extract_step(TEXT, "Prepare macOS Ruby dependencies and tool cache")
+        self.assertIn(condition, prepare)
+        self.assertIn("brew install openssl@3 libyaml gmp", prepare)
+        self.assertIn("/Users/runner/hostedtoolcache", prepare)
+        install = extract_step(TEXT, "Install Ruby and locked bundle")
+        self.assertIn(condition, install)
+        self.assertIn("bundler-cache: true", install)
+        self.assertNotIn("ruby-version:", install)
+        order = [
+            "Prepare the macOS build toolchain",
+            "Prepare macOS Ruby dependencies and tool cache",
+            "Install Ruby and locked bundle",
+            BOOTSTRAP_STEP,
+            "Build the release artifact (mise run build)",
+        ]
+        positions = [bd.index(f"- name: {name}") for name in order]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_ruby_off_the_macos_route_is_reported(self) -> None:
+        step = extract_step(TEXT, "Report unprovisioned Ruby")
+        self.assertIn("if: runner.os != 'macOS' && needs.detect.outputs.has_ruby == 'true'", step)
+        self.assertIn("::warning::", step)
 
     def test_apple_builds_require_xcode(self) -> None:
         step = extract_step(TEXT, "Prepare the macOS build toolchain")
