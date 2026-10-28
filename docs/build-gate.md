@@ -41,6 +41,9 @@ task, BD-01 fails.
 - Runner: `RUNNERS.medium`/`heavy` (hosted `ubuntu-latest` fallback).
   Repositories declaring `has_swift` build on `RUNNERS.macos` (hosted
   `macos-26` fallback). The workflow checks for Xcode first.
+- A repository declaring `has_ruby` on the macOS route gets its
+  `.ruby-version` and locked bundle from `ruby/setup-ruby` before the task
+  runs, as in `lint-hooks.yml`, so a Fastlane or Bundler build works.
 - Apple builds are unsigned and never publish. The job has no signing, App
   Store Connect or registry credentials, so the task must not need them. For
   example, pass `CODE_SIGNING_ALLOWED=NO` to `xcodebuild`. Signed releases stay
@@ -84,6 +87,9 @@ locally built images. It never logs in to a registry or pushes.
   `test-gate` already builds the exact release artifact, the Check Catalog
   makes that `test-gate` the BD-01 owner. Record that exception in the
   selector, not here.
-- Ruby release builds. BD-01 does not provision `.ruby-version` the way
-  `lint-hooks.yml` does.
+- Ruby on the Linux routes. `setup-ruby`'s prebuilds need the hosted tool
+  cache, which the self-hosted `medium` pool lacks, so BD-01 provisions Ruby
+  only on the macOS route. A non-Swift repository declaring `has_ruby` gets a
+  warning and a build without `.ruby-version`; routing it to a hosted runner
+  is an open decision.
 - Platform matrices (TS-03) belong to each repository's `test-gate`.

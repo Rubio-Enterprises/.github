@@ -87,7 +87,7 @@ class LintRubyRoutingTests(unittest.TestCase):
 
     def test_ruby_action_is_consistent_across_expected_workflows(self) -> None:
         workflow_dir = ROOT / ".github" / "workflows"
-        expected = {"lint-hooks.yml", "cloud-setup-smoke.yml", "testflight.yml"}
+        expected = {"lint-hooks.yml", "cloud-setup-smoke.yml", "testflight.yml", "build.yml"}
         actual = {
             path.name
             for path in workflow_dir.glob("*.yml")
