@@ -105,6 +105,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main\n", bootstrap_step)
         self.assertIn("bootstrap-parts: repos", bootstrap_step)
         self.assertNotIn("keep-route", bootstrap_step)
+        pin = steps.index("- name: Require the image build pin")
+        self.assertLess(bootstrap, pin)
+        self.assertLess(pin, build)
         self.assertNotIn("--secret", script("Build the architecture image"))
         self.assertNotIn("STANDARDS_READER", script("Build the architecture image"))
         self.assertIn("steps: *build-steps", job("build"))
@@ -207,6 +210,7 @@ class ShellTests(unittest.TestCase):
             "IMAGE_INPUT": "",
             "CONFIG": ".github/.devcontainer/devcontainer.json",
             "PUBLISH": "true",
+            "STANDARDS_PIN": "a" * 40,
             "IMAGE": "ghcr.io/rubio-enterprises/bookmark-scraper/devcontainer",
             "ARCH": "arm64",
             "CAPTURE": str(self.root / "capture"),
@@ -260,9 +264,19 @@ class ShellTests(unittest.TestCase):
                     "Resolve image and publication policy", CONFIG=config,
                 ).returncode, 0)
 
+    def test_image_build_pin_is_required_and_strict(self) -> None:
+        self.assertEqual(self.run_script("Require the image build pin").returncode, 0)
+        for pin in ("", "main", "A" * 40, "a" * 39, "g" * 40, "a" * 40 + "\nother=value"):
+            with self.subTest(pin=pin):
+                result = self.run_script("Require the image build pin", STANDARDS_PIN=pin)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("STANDARDS_PIN", result.stderr)
+        del self.env["STANDARDS_PIN"]
+        self.assertNotEqual(self.run_script("Require the image build pin").returncode, 0)
+
     def test_build_loads_local_image_and_never_pushes(self) -> None:
         cli = self.root / "devcontainer-cli/node_modules/.bin/devcontainer"
-        self.stub(cli, 'printf "%s\\0" "$@" > "$CAPTURE"\n')
+        self.stub(cli, 'printf "%s\\0" "$@" > "$CAPTURE"\nprintf "%s" "$STANDARDS_PIN" > "$RUNNER_TEMP/build-pin"\n')
         config = "path with spaces/$(not-a-command).json"
         for publish in ("true", "false"):
             with self.subTest(publish=publish):
@@ -277,8 +291,11 @@ class ShellTests(unittest.TestCase):
                 self.assertIn("org.opencontainers.image.source=https://github.com/Rubio-Enterprises/Bookmark-Scraper", args)
                 self.assertNotIn("--push", args)
                 self.assertEqual(args[args.index("--output") + 1], "type=docker")
+                self.assertEqual((self.root / "build-pin").read_text(), self.env["STANDARDS_PIN"])
 
     def configuration(self, build: dict | None) -> None:
+        if build is not None:
+            build.setdefault("args", {}).setdefault("STANDARDS_PIN", self.env["STANDARDS_PIN"])
         configuration = {"build": build} if build is not None else {"image": "base:tag"}
         (self.root / "resolved.json").write_text(json.dumps({"configuration": configuration}))
         self.stub(
@@ -304,8 +321,31 @@ class ShellTests(unittest.TestCase):
                 "build", "--check", "--platform", f"linux/{arch}", "--file",
                 str(self.root / "workspace/.github/.devcontainer/Docker file"),
                 "--target", "dependencies", "--build-arg", "VERSION=value with spaces;$(not-a-command)",
-                str(self.root / "workspace"),
+                "--build-arg", "STANDARDS_PIN=" + "a" * 40, str(self.root / "workspace"),
             ])
+
+    def test_docker_check_passes_named_context_options_without_shell_evaluation(self) -> None:
+        options = ["--build-context", "standards=/path with spaces/$(not-a-command)"]
+        self.configuration({"dockerfile": "Dockerfile", "options": options})
+        self.docker_capture()
+        result = self.run_script("Check the Dockerfile without building")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = Path(self.env["CAPTURE"]).read_bytes().decode().split("\0")[:-1]
+        self.assertEqual(args[-3:-1], options)
+
+    def test_docker_check_rejects_a_missing_or_different_build_pin(self) -> None:
+        self.docker_capture()
+        for pin in ("", "b" * 40, "${localEnv:STANDARDS_PIN}"):
+            self.configuration({"dockerfile": "Dockerfile", "args": {"STANDARDS_PIN": pin}})
+            result = self.run_script("Check the Dockerfile without building")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(Path(self.env["CAPTURE"]).exists())
+        self.configuration({"dockerfile": "Dockerfile"})
+        data = json.loads((self.root / "resolved.json").read_text())
+        del data["configuration"]["build"]["args"]["STANDARDS_PIN"]
+        (self.root / "resolved.json").write_text(json.dumps(data))
+        self.assertNotEqual(self.run_script("Check the Dockerfile without building").returncode, 0)
+        self.assertFalse(Path(self.env["CAPTURE"]).exists())
 
     def test_docker_check_defaults_context_and_skips_image_only_config(self) -> None:
         self.docker_capture()
