@@ -204,19 +204,19 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   `org-ops ci mode` owns live values. Each key has an independent hosted
   fallback, so public consumers (which cannot see private org variables)
   remain runnable. Use
-  `runs-on: ${{ fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}`
-  for light work. Route by actual capability:
+  `runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}`
+  for small work. Route by actual capability:
 
   | Key | Self-hosted | Hosted fallback | Work |
   | --- | --- | --- | --- |
-  | `light` | `glue-x64` | `ubuntu-slim` | small work without Docker |
-  | `heavy` | `linux-x64` | `ubuntu-latest` | multi-GiB work without Docker |
+  | `small` | `linux-x64-small` | `ubuntu-slim` | small work without Docker |
+  | `medium` | `linux-x64-medium` | `ubuntu-latest` | multi-GiB work without Docker |
   | `docker` | `linux-x64` | `ubuntu-latest` | x64 Docker/Compose/builds |
   | `kvm` | `linux-x64` | `ubuntu-latest` | nested x86 virtualization |
   | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
-  | `e2e` (legacy) | `linux-arm64` | `ubuntu-latest` | Retiring; use `arm` |
-  | `vrt` | `linux-x64` | `linux-x64` (self-only) | pinned visual rendering |
-  | `macos` | `macos-tart` | `macos-15` | Xcode and signing |
+  | `e2e` | `linux-arm64` | `ubuntu-latest` | multi-GiB Playwright work |
+  | `vrt` | `linux-x64-medium` | `linux-x64-medium` (self-only) | pinned visual rendering |
+  | `macos` | `macos-tart` | `macos-26` | Xcode and signing |
 
   This repo's `e2e.yml` uses `arm` with the `ubuntu-24.04-arm` fallback,
   keeping self-hosted and hosted execution on ARM64 per standards
@@ -233,18 +233,19 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   macOS and with `setup-ruby` directly on its self-hosted Linux route.
   Long Xcode builds such as `testflight` use `macos`. Cloud smoke stays on
   literal hosted `ubuntu-latest`, not a configurable route.
-- **The heavy tier is DECLARED by the consumer, never derived.** `lint-hooks` and
+- **The resource size is DECLARED by the consumer, never derived.** `lint-hooks` and
   `typecheck-ts` route Linux work by the repo's `lint_hooks_workload_class` /
   `typecheck_workload_class` answer (standards
   [ADR-0022](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0022-glue-heavy-workload-class.md)),
   read from a sparse-checkout of `.copier-answers.yml` in a `detect`
-  job because `runs-on:` is evaluated before checkout. `light` selects
-  `RUNNERS.light`; `heavy` selects `RUNNERS.heavy`.
-  Absent answers select light. The two answers are workload-specific rather than
+  job because `runs-on:` is evaluated before checkout. `small` selects
+  `RUNNERS.small`; `medium` selects `RUNNERS.medium`. Older `light`/`heavy`
+  and `glue`/`glue-heavy` answers remain compatible; they do not require map aliases.
+  Absent answers select small. The two answers are workload-specific rather than
   a repo-wide language proxy; selecting heavy from `has_typescript` once put
   15 repos on a 3-slot pool. **Capability outranks resource:** Swift/Homebrew
-  needs macOS even if the answer says heavy. The heavy route falls back to
-  hosted `ubuntu-latest` (8 GB), never the 5 GB light fallback. The old
+  needs macOS even if the answer says medium. The medium route falls back to
+  hosted `ubuntu-latest` (8 GB), never the small fallback. The old
   separate-variable aliasing guards are unnecessary with one JSON route map.
 - **Private Go modules in `lint-hooks`.** A consumer that needs private Go module
   forks sets `GO_PRIVATE_MODULE_REPOS` to their comma-separated repository names.

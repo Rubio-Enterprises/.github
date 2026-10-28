@@ -44,7 +44,7 @@ jobs:
       contents: read
     # Small, Docker-free work: the light route. Public callers cannot read the
     # private RUNNERS map and fall back to hosted ubuntu-slim.
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     outputs:
       publish: ${{ steps.stage.outputs.publish }}
@@ -124,7 +124,7 @@ jobs:
     concurrency:
       group: pages
       cancel-in-progress: false
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
       - name: Deploy to GitHub Pages

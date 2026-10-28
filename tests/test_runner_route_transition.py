@@ -31,25 +31,21 @@ class RouteTransitionTests(unittest.TestCase):
                     )
                     self.assertEqual(json.loads(result["runner"]), [expected])
 
-    def test_transitional_expressions_prefer_new_then_old_then_hosted(self) -> None:
+    def test_size_routes_use_canonical_keys_and_matching_hosted_fallbacks(self) -> None:
         expressions = []
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             for line in path.read_text().splitlines():
-                if not line.lstrip().startswith("#") and "fromJSON(vars.RUNNERS" in line:
-                    if ".light ||" in line or ".heavy ||" in line:
-                        expressions.append(line)
-        self.assertTrue(expressions)
-        for expression in expressions:
+                if line.lstrip().startswith("#") or "fromJSON(vars.RUNNERS" not in line:
+                    continue
+                keys = re.findall(r"fromJSON\(vars.RUNNERS \|\| '\{\}'\)\.(\w+)", line)
+                self.assertFalse({"light", "heavy"} & set(keys), (path, line))
+                if "small" in keys or "medium" in keys:
+                    expressions.append((keys, line))
+        self.assertGreaterEqual(len(expressions), 16)
+        for keys, expression in expressions:
             with self.subTest(expression=expression):
-                keys = re.findall(r"fromJSON\(vars.RUNNERS \|\| '\{\}'\)\.(\w+)", expression)
-                old, new, hosted = ("light", "small", "ubuntu-slim") if "light" in keys else (
-                    "heavy", "medium", "ubuntu-latest"
+                route, hosted = ("small", "ubuntu-slim") if "small" in keys else (
+                    "medium", "ubuntu-latest"
                 )
-                self.assertEqual(keys, [new, old])
+                self.assertEqual(keys, [route])
                 self.assertIn(f"""fromJSON('["{hosted}"]')""", expression)
-                for routes, expected in (
-                    ({}, [hosted]), ({old: ["old"]}, ["old"]),
-                    ({old: ["old"], new: ["new"]}, ["new"]), ({new: ["new"]}, ["new"]),
-                ):
-                    actual = next((routes[key] for key in keys if routes.get(key)), [hosted])
-                    self.assertEqual(actual, expected)

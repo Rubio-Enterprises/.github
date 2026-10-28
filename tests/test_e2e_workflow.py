@@ -89,7 +89,7 @@ class E2ERouteTests(unittest.TestCase):
     def test_detect_job_is_light_and_the_suite_follows_it(self) -> None:
         self.assertIn(
             "runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || "
-            "fromJSON(vars.RUNNERS || '{}').light || fromJSON('[\"ubuntu-slim\"]') }}",
+            "fromJSON('[\"ubuntu-slim\"]') }}",
             job("detect"),
         )
         suite = job("e2e")
