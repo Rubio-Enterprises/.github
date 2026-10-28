@@ -48,9 +48,9 @@ def pick(answers: str | None) -> tuple[subprocess.CompletedProcess[str], dict[st
         return result, values
 
 
-def detect_script() -> str:
+def command_script() -> str:
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip() == "- id: detect")
+    start = next(i for i, line in enumerate(lines) if line.strip() == "id: command")
     run = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |")
     indent = len(lines[run]) - len(lines[run].lstrip())
     body = []
@@ -75,7 +75,7 @@ def run_detector(*, tasks: list[str], package: dict | None = None) -> tuple[int,
         output = root / "github-output"
         env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output)}
         result = subprocess.run(
-            ["bash", "-c", detect_script()],
+            ["bash", "-c", command_script()],
             cwd=root,
             env=env,
             capture_output=True,
@@ -86,15 +86,15 @@ def run_detector(*, tasks: list[str], package: dict | None = None) -> tuple[int,
 
 
 class E2ERouteTests(unittest.TestCase):
-    def test_route_job_is_light_and_the_suite_follows_it(self) -> None:
+    def test_detect_job_is_light_and_the_suite_follows_it(self) -> None:
         self.assertIn(
             "runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || "
             "fromJSON(vars.RUNNERS || '{}').light || fromJSON('[\"ubuntu-slim\"]') }}",
-            job("route"),
+            job("detect"),
         )
         suite = job("e2e")
-        self.assertIn("needs: route\n", suite)
-        self.assertIn("runs-on: ${{ fromJSON(needs.route.outputs.runner) }}", suite)
+        self.assertIn("needs: detect\n", suite)
+        self.assertIn("runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}", suite)
 
     def test_routes_keep_their_hosted_fallbacks(self) -> None:
         step = extract_step(TEXT, PICK_STEP)
@@ -114,7 +114,7 @@ class E2ERouteTests(unittest.TestCase):
         suite = job("e2e")
         self.assertNotRegex(suite, r"(?m)^    name:")
         self.assertEqual(re.findall(r"(?m)^  ([a-z][a-z0-9-]*):$", TEXT.split("\njobs:\n", 1)[1]),
-                         ["route", "e2e"])
+                         ["detect", "e2e"])
 
     def test_swift_suites_route_to_macos_and_others_to_arm(self) -> None:
         for answers, runner in (
@@ -136,7 +136,7 @@ class E2ERouteTests(unittest.TestCase):
         step = extract_step(TEXT, MACOS_STEP)
         self.assertIn("if: runner.os == 'macOS'", step)
         self.assertIn("xcodebuild -version", step)
-        self.assertLess(TEXT.index(f"- name: {MACOS_STEP}\n"), TEXT.index("- id: detect\n"))
+        self.assertLess(TEXT.index(f"- name: {MACOS_STEP}\n"), TEXT.index("id: command\n"))
 
     def test_no_signing_or_publishing_credentials(self) -> None:
         secrets = {

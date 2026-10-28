@@ -112,7 +112,7 @@ consumer's rendered `standards.yml` (or a release workflow):
 | --- | --- | --- |
 | `devcontainer-image.yml` | Native amd64/arm64 Dev Container prebuilds, GHCR multi-arch publication and untagged pruning; read [`docs/reusable-workflows/devcontainer-image.md`](docs/reusable-workflows/devcontainer-image.md) before editing its publication or retention contract | — |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-time gitleaks scan runs in `standards-gates.yml` | — |
-| `e2e.yml` | E2E Contract harness; accepts apex `scripts.e2e` or repo-owned `mise run e2e` for nested roots and non-browser suites, requires nonempty JUnit, and supports optional `scripts.e2e:setup` or mise setup. Does **not** start a dev server (see its header). A `route` job sends `has_swift` suites to `RUNNERS.macos`; the suite job must stay `e2e` (required context `e2e / e2e`) | — |
+| `e2e.yml` | E2E Contract harness; accepts apex `scripts.e2e` or repo-owned `mise run e2e` for nested roots and non-browser suites, requires nonempty JUnit, and supports optional `scripts.e2e:setup` or mise setup. Does **not** start a dev server (see its header). A `detect` job sends `has_swift` suites to `RUNNERS.macos`; the suite job must stay `e2e` (required context `e2e / e2e`) | — |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
 | `codewiki-pages.yml` | Push-to-default deploy of a committed CodeWiki (`docs/codewiki/` minus `temp/`, requires the `index.html` viewer) to Pages, for repos declaring `has_codewiki`. Caller grants `contents: read`, `pages: write`, `id-token: write`; Pages enablement/visibility is `.github-private` Terraform's. See [`docs/reusable-workflows/codewiki-pages.md`](docs/reusable-workflows/codewiki-pages.md) | — |
 | `cloud-setup-smoke.yml` | Runs the consumer's Claude Code on the web setup chain (`cloud-setup-shim.sh` → `common/cloud-setup.sh` → `repo-local/cloud-setup.sh`) on Linux under `CLOUD_SETUP_SMOKE`, so a cloud-environment defect fails the PR that introduces it | — |
@@ -279,7 +279,7 @@ reread contract in the runbook.
   `typecheck-ts` route Linux work by the repo's `lint_hooks_workload_class` /
   `typecheck_workload_class` answer (standards
   [ADR-0022](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0022-glue-heavy-workload-class.md)),
-  read from a sparse-checkout of `.copier-answers.yml` in a `detect` / `route`
+  read from a sparse-checkout of `.copier-answers.yml` in a `detect`
   job because `runs-on:` is evaluated before checkout. `light` selects
   `RUNNERS.light`; `heavy` selects `RUNNERS.heavy`.
   Absent answers select light. The two answers are workload-specific rather than

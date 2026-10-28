@@ -6,7 +6,7 @@
 #
 # RUNNER ROUTING
 # --------------
-# A cheap `route` job reads the consumer's `.copier-answers.yml`, because
+# A cheap `detect` job reads the consumer's `.copier-answers.yml`, because
 # `runs-on:` is evaluated before checkout. CAPABILITY outranks resource, as in
 # build.yml and lint-hooks.yml: a repository declaring `has_swift` runs its
 # suite on RUNNERS.macos (hosted macos-26 fallback), which has Xcode and the
@@ -59,7 +59,7 @@ permissions:
 # a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
-  route:
+  detect:
     # Resolve the suite's runner from the consumer's declared Facets (see
     # RUNNER ROUTING above).
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
@@ -93,12 +93,12 @@ jobs:
           echo "e2e runner: $runner"
 
   e2e:
-    needs: route
+    needs: detect
     # Publishing the JUnit Check needs this grant from the calling job too.
     permissions:
       contents: read
       checks: write
-    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -184,7 +184,8 @@ jobs:
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-      - id: detect
+      - name: Find the suite command
+        id: command
         shell: bash
         run: |
           set -euo pipefail
@@ -227,7 +228,7 @@ jobs:
       - name: e2e-setup (package-pinned browser install, fixtures, etc.)
         run: |
           set -euo pipefail
-          if [ "${{ steps.detect.outputs.setup }}" = script ]; then
+          if [ "${{ steps.command.outputs.setup }}" = script ]; then
             npm run e2e:setup
           elif mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
             mise run e2e-setup
@@ -240,7 +241,7 @@ jobs:
           PW_SHARD: ${{ inputs.shard }}
         run: |
           mkdir -p reports/e2e
-          ${{ steps.detect.outputs.cmd }}
+          ${{ steps.command.outputs.cmd }}
         timeout-minutes: ${{ inputs.timeout-minutes }}
       - name: Require executed E2E tests
         if: always()
