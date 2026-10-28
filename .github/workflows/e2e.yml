@@ -62,7 +62,7 @@ jobs:
   detect:
     # Resolve the suite's runner from the consumer's declared Facets (see
     # RUNNER ROUTING above).
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}

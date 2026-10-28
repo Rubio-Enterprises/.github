@@ -33,7 +33,7 @@ jobs:
     # `.github` ships no build; its own direct pull_request and merge_group
     # runs are a no-op. Injected runs in consumer repositories pass this guard.
     if: github.repository != 'Rubio-Enterprises/.github'
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       artifact: ${{ steps.pick.outputs.artifact }}
@@ -54,7 +54,7 @@ jobs:
         env:
           MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]')) }}
           # Release builds are multi-GiB work; never degrade to the light route.
-          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').medium || fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
+          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').medium || fromJSON('["ubuntu-latest"]')) }}
         shell: bash
         run: |
           set -euo pipefail

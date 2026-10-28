@@ -56,7 +56,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.repository != 'Rubio-Enterprises/.github'
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
@@ -74,11 +74,11 @@ jobs:
         env:
           RUBY_RUNNER: '["ubuntu-24.04"]'
           MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]')) }}
-          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]')) }}
+          LIGHT_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]')) }}
           # Heavy work must not degrade to the undersized light route.
           # Public consumers cannot read private org variables; hosted
           # ubuntu-latest provides the required memory when RUNNERS is absent.
-          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').medium || fromJSON(vars.RUNNERS || '{}').heavy || fromJSON('["ubuntu-latest"]')) }}
+          HEAVY_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').medium || fromJSON('["ubuntu-latest"]')) }}
         shell: bash
         run: |
           # Only an explicit true enables the facet, so transitional answers
