@@ -54,16 +54,19 @@ inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config 
 up with the shared composite action
 [`actions/standards-bootstrap`](actions/standards-bootstrap/action.yml), which repository
 workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
-mints the standards-reader token and routes the private clone through it. It runs
-mise-action's built-in `bootstrap: true` with `bootstrap_args: --only repos,tools`, then
-removes its route. It follows the consumer's declared branch and exports no pin.
+resolves standards `main` once, checks out that full-history SHA with the reader
+App token and no persisted credentials, then exports `STANDARDS_PIN` for the job.
+It validates the clean checkout and credential-free origin before loading consumer config.
 
-- The action then runs `mise bootstrap repos status --missing` and requires
-  `.standards-config/config/lefthook/base.yml`. A missing checkout fails instead of letting
-  Lefthook skip the shared hooks.
-- `typecheck-ts`, `build` and `e2e` let the action remove the token route before
-  repository code runs. `cloud-setup-smoke` passes `keep-route: "true"` for the setup chain,
-  which must be able to refresh the checkout. `lint-hooks` passes it too, for its knowledgebase remote fetch.
+- Installation-only mise-action runs from `runner.temp`: even with installation and
+  environment export disabled it invokes `mise ls`, which must not load cold includes.
+- Before bootstrap, native `mise bootstrap repos status --missing --json` must report
+  `.standards-config` at the pin. Empty/skipped declarations fail, as does a missing
+  `.standards-config/config/lefthook/base.yml`.
+- No standards token route is installed; legacy standards routes are removed before
+  any consumer mise command. Setup and hooks use the pin without Git transport.
+- `bootstrap-parts: repos` keeps checkout verification and pin export but skips tool
+  installation, caching and consumer-environment export.
 - **Ref.** Internal calls use
   `Rubio-Enterprises/.github/actions/standards-bootstrap@main`. A local `./` path
   would resolve against the consumer's checkout, not this repo. Third-party
@@ -77,9 +80,9 @@ removes its route. It follows the consumer's declared branch and exports no pin.
   installs only `yq` and `lefthook` and removes the link afterwards. The job sets
   `MISE_EXEC_AUTO_INSTALL=false`, so the gate's `mise exec` cannot install them itself.
 
-Execution does not inspect a config-model answer or expose a compatibility input
-or output. Land only after the remaining full consumers convert. Caller convergence
-and pin provisioning are parent-held rollout barriers.
+Execution is unconditional. Every consumer stub must interpolate `STANDARDS_PIN`
+with `main` as its unset default, without a depth limit. Older PR branches must
+incorporate the converged stub before using the pin provisioner.
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
 `gate-tests` org ruleset requires each enforcing repository's own repo-local

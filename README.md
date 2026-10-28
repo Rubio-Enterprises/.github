@@ -71,9 +71,10 @@ existing policy. The runtime lockfile-refresh task remains scoped to
 
 A repository workflow that runs mise in a full standards consumer
 calls the [`standards-bootstrap`](./actions/standards-bootstrap/action.yml)
-composite action first. It clones the Shared Config Checkout with the
-standards-reader token, then removes the token route. The ref to use and the
-secrets to pass are in [`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md).
+composite action first. It provisions a full-history Shared Config Directory
+at one resolved standards `main` commit, exports `STANDARDS_PIN`, and runs mise
+without a standards token route. See [`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md)
+for the stub and secrets contract.
 
 Canonical non-E2E tests are not centrally executed: each enforcing repository
 gates landing through its own `.github/workflows/test-gate.yml` required status

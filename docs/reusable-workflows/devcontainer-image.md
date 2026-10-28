@@ -85,13 +85,13 @@ Native callers add only these named secrets to the image job (never
 ```
 
 After checkout, `standards-bootstrap@main` provisions and verifies
-`.standards-config/` on the runner using `bootstrap-parts: repos` and
-`keep-route: false`. It does not install the caller's toolchain on the runner,
-cache those tools, or export their environment; the Dockerfile installs them.
-Bootstrap does not read classification metadata. The action removes and verifies
-removal of its standards token URL route before Docker runs. Git stores
-the original credential-free remote URL, not its rewritten authenticated URL.
-No reader credentials are passed as Docker arguments, environment or secrets.
+`.standards-config/` on the runner using `bootstrap-parts: repos`, exporting
+`STANDARDS_PIN` for later steps. It does not install the caller's toolchain on the
+runner, cache those tools, or export their environment; the Dockerfile installs
+them. The checkout is full-history, clean and at the resolved pin, with the
+credential-free standards origin. No standards token route is installed and
+legacy standards routes are removed before verification. No reader credentials
+are passed as Docker arguments, environment or secrets.
 
 Copy only the included pin fragments and any files they read into the toolchain
 layer, beside `.mise.toml`. For a caller with CodeWiki and no other pin Facets:
