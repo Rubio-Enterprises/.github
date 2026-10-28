@@ -95,7 +95,8 @@ route has its own hosted fallback for public callers:
 | Route | Self-hosted | Hosted fallback |
 | --- | --- | --- |
 | `light` | `glue-x64` | `ubuntu-slim` |
-| `heavy`, `docker`, `kvm` | `linux-x64` | `ubuntu-latest` |
+| `heavy` | `linux-x64` | `ubuntu-latest` |
+| `docker`, `kvm` | `linux-x64-large` | `ubuntu-latest` |
 | `arm` | `linux-arm64` | `ubuntu-24.04-arm` |
 | `e2e` | `linux-arm64` | `ubuntu-latest` |
 | `vrt` | `linux-x64` | self-only `linux-x64` |

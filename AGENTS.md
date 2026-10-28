@@ -211,8 +211,8 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   | --- | --- | --- | --- |
   | `small` | `linux-x64-small` | `ubuntu-slim` | small work without Docker |
   | `medium` | `linux-x64-medium` | `ubuntu-latest` | multi-GiB work without Docker |
-  | `docker` | `linux-x64` | `ubuntu-latest` | x64 Docker/Compose/builds |
-  | `kvm` | `linux-x64` | `ubuntu-latest` | nested x86 virtualization |
+  | `docker` | `linux-x64-large` | `ubuntu-latest` | x64 Docker/Compose/builds |
+  | `kvm` | `linux-x64-large` | `ubuntu-latest` | nested x86 virtualization |
   | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
   | `e2e` | `linux-arm64` | `ubuntu-latest` | multi-GiB Playwright work |
   | `vrt` | `linux-x64-medium` | `linux-x64-medium` (self-only) | pinned visual rendering |
