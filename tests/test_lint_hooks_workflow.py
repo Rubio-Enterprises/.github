@@ -7,7 +7,6 @@ formatter rewrites; a required status cannot report warnings as success.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import tempfile
@@ -236,13 +235,6 @@ class InjectionContractTests(unittest.TestCase):
             self.assertIn(f"  {trigger}", on_block)
         # Not a reusable any more: only the injected path may run it.
         self.assertNotIn("workflow_call", on_block)
-
-    def test_published_with_the_gate_families(self) -> None:
-        manifest = json.loads(
-            (ROOT / ".github" / "plumbing-ref" / "gate-family-workflows.json").read_text()
-        )
-        self.assertEqual(manifest.get("gate-lint-hooks"), ".github/workflows/lint-hooks.yml")
-
 
 KNOWLEDGEBASE_DETECT_STEP = "Detect the Knowledgebase Framework remote"
 FRAMEWORK_REMOTE = "https://github.com/Rubio-Enterprises/knowledgebase-framework.git"

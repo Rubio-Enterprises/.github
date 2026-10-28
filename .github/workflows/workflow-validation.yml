@@ -1,8 +1,5 @@
 name: workflow validation
-# Static validation of this repo's workflows: actionlint plus the guard keeping
-# the retired rollback entrypoints absent. The contract tests under tests/ are
-# NOT run here — test-gate.yml is their single canonical runner (standards
-# ADR 0020), so this workflow no longer duplicates that execution.
+# Contract tests run only in test-gate.yml (standards ADR 0020)
 "on":
   pull_request:
 permissions:
@@ -22,15 +19,3 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Validate workflow syntax
         run: actionlint
-      - name: Guard retired rollback entrypoints
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -e .github/workflows/plumbing-ref-rollback.yml ]; then
-            printf '%s\n' 'automated rollback workflow must remain absent' >&2
-            exit 1
-          fi
-          if python3 .github/scripts/plumbing_ref.py rollback --help >/dev/null 2>&1; then
-            printf '%s\n' 'automated rollback command must remain absent' >&2
-            exit 1
-          fi

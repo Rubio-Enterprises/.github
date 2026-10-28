@@ -109,21 +109,12 @@ The shared Renovate preset in `default.json` schedules ordinary updates on
 weekends in `America/Chicago`; vulnerability alerts remain immediate. Existing
 package-specific schedules still apply.
 
-### Gate workflow publication
+### Workflow delivery
 
-Organization rulesets load Gate workflow files from the lightweight
-`gates/wf-v1` tag. This repository owns that tag through a guarded Publication
-Request and exact compare-and-swap publisher; Terraform owns only the consuming
-rulesets and ref name.
-
-Normal publication is a request-only PR changing
-`.github/plumbing-ref/publication-request.json`. After merge, the publisher
-validates commit ancestry and the complete Gate Family workflow manifest,
-requires the live ref to equal the recorded expected SHA, performs an exact Git
-lease update, and verifies the final remote ref. There is no automated rollback
-entrypoint; backward movement is reserved for last-resort direct owner recovery.
-See
-[`docs/plumbing-ref-publication.md`](./docs/plumbing-ref-publication.md).
+Organization rulesets load Gate workflow files from `main`; Terraform owns
+their consuming rulesets and ref. Reusable workflows and actions also follow
+`@main`. Reviewed merges take effect without release-please, floating tags or
+a separate publication request. Recover a regression with a reviewed revert.
 
 ## Standards dependency
 
@@ -138,8 +129,8 @@ TestFlight callers. Third-party actions retain SHA pins and normal updates.
 
 The rollout is staged: remaining full consumers convert before unconditional
 bootstrap lands; repository-owned callers and injected refs converge next.
-Existing publication tags and release workflows remain until their separately
-reviewed retirement. The branch bootstrap supplies no `STANDARDS_PIN`; pin
+Legacy tag refs remain frozen pending the active-entry-point audit; their
+writers are retired. The branch bootstrap supplies no `STANDARDS_PIN`; pin
 provisioning activates only after the starter wave converges.
 
 ## scripts/
@@ -184,9 +175,8 @@ python3 -m unittest discover -s tests
 ```
 
 CI runs workflow validation and the repository-local `test-gate`.
-Changes to Gate files require the candidate validation and publication process
-in [the publication runbook](docs/plumbing-ref-publication.md); changes to
-thin-called reusables use the release stream described above.
+All workflow and action changes ship on merge to `main`; review their consumer
+impact before landing.
 
 ## License
 
