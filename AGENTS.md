@@ -229,8 +229,8 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   Ruby-only lint on hosted x64 `ubuntu-24.04`, and other lint on its declared tier.
   macOS hook setup exposes Homebrew to non-login shells; mixed Ruby/macOS
   consumers also prepare the dependencies and fixed cache path required by
-  `ruby/setup-ruby`'s Darwin prebuilds. `build` provisions Ruby the same way,
-  on its macOS route only.
+  `ruby/setup-ruby`'s Darwin prebuilds. `build` provisions Ruby the same way on
+  macOS and with `setup-ruby` directly on its self-hosted Linux route.
   Long Xcode builds such as `testflight` use `macos`. Cloud smoke stays on
   literal hosted `ubuntu-latest`, not a configurable route.
 - **The heavy tier is DECLARED by the consumer, never derived.** `lint-hooks` and
