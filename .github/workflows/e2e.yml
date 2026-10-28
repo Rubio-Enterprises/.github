@@ -1,10 +1,26 @@
-# Reusable e2e workflow. A caller provides either an apex scripts.e2e or a
-# repo-owned mise e2e task (for nested/non-Node roots). Require a nonempty
-# Playwright JUnit report at reports/e2e/junit.xml; the consumer config owns
-# the reporter path. Optional scripts.e2e:setup installs the pinned browser.
+# Reusable e2e workflow — the standards E2E Contract (`enforce_e2e`). A caller
+# provides either an apex scripts.e2e or a repo-owned mise e2e task (for
+# nested/non-Node roots and non-browser suites). Require a nonempty JUnit
+# report at reports/e2e/junit.xml; the consumer config owns the reporter path.
+# Optional scripts.e2e:setup installs the pinned browser.
 #
-# DEV-SERVER CONTRACT
-# -------------------
+# RUNNER ROUTING
+# --------------
+# A cheap `route` job reads the consumer's `.copier-answers.yml`, because
+# `runs-on:` is evaluated before checkout. CAPABILITY outranks resource, as in
+# build.yml and lint-hooks.yml: a repository declaring `has_swift` runs its
+# suite on RUNNERS.macos (hosted macos-26 fallback), which has Xcode and the
+# iOS Simulator. An Apple suite drives an unsigned simulator build; this
+# workflow holds no signing or App Store Connect credentials. Every other
+# suite stays on ARM64 (RUNNERS.arm, hosted ubuntu-24.04-arm; standards
+# ADR-0030).
+#
+# The suite job keeps the id `e2e` and no `name:`. `.github-private` requires
+# the context `e2e / e2e` (caller job id / this job) wherever gate-e2e is
+# true, so renaming the job would strand every gated repository's check.
+#
+# DEV-SERVER CONTRACT (browser suites)
+# ------------------------------------
 # This workflow does NOT start a dev server before invoking `playwright test`.
 # Consumers must EITHER:
 #   (a) Wire `playwright.config.ts::webServer` to self-start the app under
@@ -43,16 +59,65 @@ permissions:
 # a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
+  route:
+    # Resolve the suite's runner from the consumer's declared Facets (see
+    # RUNNER ROUTING above).
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON(vars.RUNNERS || '{}').light || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 120
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - name: Sparse-checkout the consumer's .copier-answers.yml
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .copier-answers.yml
+          sparse-checkout-cone-mode: false
+      - name: Pick the runner from the Swift facet
+        id: pick
+        env:
+          MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]')) }}
+          # Keep hosted rendering on ARM64 too (standards ADR-0030)
+          ARM_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Capability outranks resource: an Apple suite needs Xcode and the
+          # Simulator. Only an explicit true selects macOS, as in build.yml.
+          if grep -qE '^has_swift:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            runner="$MACOS_RUNNER"
+          else
+            runner="$ARM_RUNNER"
+          fi
+          runner="$(jq -ce . <<<"$runner")" || exit 1
+          printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"
+          echo "e2e runner: $runner"
+
   e2e:
+    needs: route
     # Publishing the JUnit Check needs this grant from the calling job too.
     permissions:
       contents: read
       checks: write
-    # Keep hosted rendering on ARM64 too (standards ADR-0030)
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Prepare the macOS toolchain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Tart's non-login shell does not inherit Homebrew's PATH
+          for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+            if [ -x "$b" ]; then
+              eval "$("$b" shellenv)"
+              printf '%s\n' "$(brew --prefix)/bin" "$(brew --prefix)/sbin" >> "$GITHUB_PATH"
+              break
+            fi
+          done
+          # An Apple suite needs the selected Xcode and its simulator runtimes
+          xcodebuild -version
+          xcrun simctl list runtimes available
       # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
       # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
