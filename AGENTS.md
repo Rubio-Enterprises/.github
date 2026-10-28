@@ -216,7 +216,7 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
   | `e2e` | `linux-arm64` | `ubuntu-latest` | multi-GiB Playwright work |
   | `vrt` | `linux-x64-medium` | `linux-x64-medium` (self-only) | pinned visual rendering |
-  | `macos` | `macos-tart` | `macos-26` | Xcode and signing |
+  | `macos` | `macos-arm64` | `macos-26` | Xcode and signing |
 
   This repo's `e2e.yml` uses `arm` with the `ubuntu-24.04-arm` fallback,
   keeping self-hosted and hosted execution on ARM64 per standards

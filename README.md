@@ -99,7 +99,7 @@ route has its own hosted fallback for public callers:
 | `arm` | `linux-arm64` | `ubuntu-24.04-arm` |
 | `e2e` | `linux-arm64` | `ubuntu-latest` |
 | `vrt` | `linux-x64` | self-only `linux-x64` |
-| `macos` | `macos-tart` | `macos-15` |
+| `macos` | `macos-arm64` | `macos-26` |
 
 The `e2e.yml` reusable uses `arm`, including the `ubuntu-24.04-arm` fallback
 when the private map is unavailable. A caller declaring `has_swift` runs on

@@ -71,7 +71,7 @@ def pick(repo: Path) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
             **os.environ,
             "GITHUB_OUTPUT": str(output),
             "RUNNER_TEMP": str(repo.parent),
-            "MACOS_RUNNER": '[\n  "macos-tart"\n]',
+            "MACOS_RUNNER": '[\n  "macos-arm64"\n]',
             "HEAVY_RUNNER": '["medium"]',
         },
     )
@@ -171,7 +171,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_swift_builds_route_to_macos_and_others_to_the_heavy_tier(self) -> None:
         for answers, runner in (
-            ("has_release_artifact: true\nhas_swift: true\n", ["macos-tart"]),
+            ("has_release_artifact: true\nhas_swift: true\n", ["macos-arm64"]),
             ("has_release_artifact: true\nhas_python: true\n", ["medium"]),
         ):
             with self.subTest(answers=answers), tempfile.TemporaryDirectory() as tmp:
