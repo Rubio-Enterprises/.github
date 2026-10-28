@@ -59,9 +59,10 @@ REPOSITORY_CODE = {
     "cloud-setup-smoke": "Run the cloud setup chain under CLOUD_SETUP_SMOKE",
 }
 RUNNERS = dict(LIGHT_RUNNER='["small"]', HEAVY_RUNNER='["medium"]',
-               MACOS_RUNNER='["macos"]', RUBY_RUNNER='["ruby"]')
+               MACOS_RUNNER='["macos"]', RUBY_RUNNER='["ruby"]', ARM_RUNNER='["arm"]')
 PICK_STEPS = {
     "lint-hooks": (LINT, "Pick runner from the language facets"),
+    "e2e": (E2E, "Pick the runner from the Swift facet"),
     "typecheck-ts": (TYPECHECK, "Pick the runner from the declared Workload Class"),
     "cloud-setup-smoke": (SMOKE, "Resolve whether this repo has a smoke-capable cloud-setup chain"),
 }

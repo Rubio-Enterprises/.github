@@ -64,7 +64,7 @@ existing policy. The runtime lockfile-refresh task remains scoped to
 
 | Workflow | Purpose |
 | --- | --- |
-| [`e2e.yml`](./.github/workflows/e2e.yml) | Playwright end-to-end harness; runs an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server |
+| [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness; runs an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `has_swift` suites run on `RUNNERS.macos` |
 | [`devcontainer-image.yml`](./.github/workflows/devcontainer-image.yml) | Builds native amd64/arm64 Dev Container images, publishes a private GHCR multi-arch image, and prunes untagged versions; see [its contract](./docs/reusable-workflows/devcontainer-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages for repos declaring `has_codewiki`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
@@ -102,7 +102,9 @@ route has its own hosted fallback for public callers:
 | `macos` | `macos-tart` | `macos-15` |
 
 The `e2e.yml` reusable uses `arm`, including the `ubuntu-24.04-arm` fallback
-when the private map is unavailable. The legacy `e2e` key remains in the live
+when the private map is unavailable. A caller declaring `has_swift` runs on
+`macos` instead (hosted `macos-26` fallback), because an Apple suite needs Xcode
+and the iOS Simulator. The legacy `e2e` key remains in the live
 map only during retirement; new workflows should use `arm` instead
 ([standards ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md)).
 
