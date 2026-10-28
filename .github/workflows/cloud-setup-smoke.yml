@@ -243,14 +243,8 @@ jobs:
           [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || exit 1
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "mise action version: $version"
-      # standards ADR-0033: a native repository's .mise.toml includes shared
-      # pins from the private standards checkout at `.standards-config/`, so
-      # no mise command works until it is cloned. Same shared action as the
-      # gates, except that the token route stays for the chain below: the chain
-      # is the cloud session's own setup, which must be able to refresh the
-      # checkout. The token is the same accepted trade as GH_PAT above:
-      # read-only, scoped to standards, expiring after about an hour, and
-      # present only for a native caller that forwarded the secrets.
+      # Provision before the cloud chain loads shared mise includes
+      # STANDARDS_PIN survives into the chain without a standards token route
       - name: Bootstrap the Shared Config Checkout
         if: >-
           steps.probe.outputs.runnable == 'true'
@@ -260,7 +254,6 @@ jobs:
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-          keep-route: "true"
       - name: Mint private-modules-reader token
         id: private-modules-token
         if: >-

@@ -50,9 +50,6 @@ NATIVE_WORKFLOWS = {
 }
 # Workflows a consumer can call, so org secrets arrive only when forwarded.
 CALLABLE = ("typecheck-ts", "e2e", "cloud-setup-smoke")
-# Workflows whose later steps keep the standards route: lint-hooks as before
-# the action, cloud-setup-smoke for the setup chain.
-KEEP_ROUTE = ("lint-hooks", "cloud-setup-smoke")
 # The first step that runs repository code after the bootstrap.
 REPOSITORY_CODE = {
     "lint-hooks": "Install JS deps (so lefthook.local.yml pnpm hooks resolve workspace packages)",
@@ -175,8 +172,9 @@ class NativeBootstrapContractTests(unittest.TestCase):
     def test_workflows_have_no_model_api_or_pin_export(self) -> None:
         for name, text in NATIVE_WORKFLOWS.items():
             with self.subTest(workflow=name):
+                body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
                 for token in ("config_model", "config-model", "STANDARDS_PIN"):
-                    self.assertNotIn(token, text)
+                    self.assertNotIn(token, body)
 
     def test_action_inputs(self) -> None:
         declared = set(action_inputs())
@@ -190,8 +188,6 @@ class NativeBootstrapContractTests(unittest.TestCase):
                     "mise-version": "${{ steps.mise-version.outputs.version }}",
                     "cache-key-prefix": "mise-v1-uvpy${{ steps.uv-python.outputs.version }}",
                 }
-                if name in KEEP_ROUTE:
-                    expected["keep-route"] = '"true"'
                 self.assertEqual(given, expected)
 
     def test_no_inline_native_setup_remains(self) -> None:

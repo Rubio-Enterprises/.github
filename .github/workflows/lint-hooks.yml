@@ -27,9 +27,8 @@ name: lint-hooks
 #
 # Shared config (standards ADR-0033): consumers inherit lint configs, hooks
 # and lint-tool pins from `.standards-config/`. The shared `standards-bootstrap`
-# action runs `mise bootstrap --only repos,tools` through the standards-reader
-# route and
-# installs the pinned tools, and a missing checkout fails the job.
+# action provisions a full-history checkout and exports STANDARDS_PIN before
+# running mise without a standards credential. A missing checkout fails the job.
 #
 # Delivery: the `gate-lint-hooks` org ruleset injects this file as a Required
 # Governance Workflow (published at `gates/wf-v1`) into every repository whose
@@ -293,7 +292,6 @@ jobs:
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
-          keep-route: "true"
       # Consumers whose go.mod replaces a dependency with a private org fork
       # declare the fork repo name(s) in the repo variable
       # GO_PRIVATE_MODULE_REPOS (comma-separated, e.g. "scaleset").

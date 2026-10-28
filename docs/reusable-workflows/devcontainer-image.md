@@ -88,9 +88,9 @@ provisions a clean full-history checkout at that SHA in `.standards-config/`,
 and exports the validated lowercase 40-hex `STANDARDS_PIN` for later steps.
 `bootstrap-parts: repos` skips the caller's toolchain installation and caching;
 the Dockerfile installs it. Origin is the credential-free
-`https://github.com/Rubio-Enterprises/standards.git`, and bootstrap removes its
-read access before repository code runs. No standards credential is passed to
-Docker as an argument, environment variable or secret.
+`https://github.com/Rubio-Enterprises/standards.git`. No standards token route is
+installed; legacy standards routes are removed before verification. No standards
+credential is passed to Docker as an argument, environment variable or secret.
 
 Use mise **2026.10.19 or later** and baseline **3.0.1 or later**. The build
 definition uses the CLI's native argument substitution and named build context:
@@ -147,7 +147,7 @@ The named context bypasses those source-context exclusions only for the explicit
 bind mounts. Never COPY the checkout, its `config/` subtree or its Git database
 into an image layer. Keep both architecture secret scans enabled; scanning
 alone does not prove absence of the private bundle. The full checkout and pin
-must be provisioned again for runtime setup; the image carries neither.
+must be provisioned again for runtime setup; the image does not supply them at runtime.
 
 Standards changes do not push a consumer commit or fan out image rebuilds.
 The caller's weekly schedule or manual dispatch refreshes the image. Runtime

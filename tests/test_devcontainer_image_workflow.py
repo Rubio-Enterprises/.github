@@ -104,7 +104,7 @@ class WorkflowTests(unittest.TestCase):
         bootstrap_step = steps[bootstrap:steps.index("- name: Verify native Docker architecture")]
         self.assertIn("uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main\n", bootstrap_step)
         self.assertIn("bootstrap-parts: repos", bootstrap_step)
-        self.assertNotIn("keep-route:", bootstrap_step)
+        self.assertNotIn("keep-route", bootstrap_step)
         pin = steps.index("- name: Require the image build pin")
         self.assertLess(bootstrap, pin)
         self.assertLess(pin, build)

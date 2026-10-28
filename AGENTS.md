@@ -39,8 +39,7 @@ its checks (all set in `.github-private` Terraform). The org gate rulesets
 **inject** them into the consumer's PR checks. They are **not** thin-called
 from `standards.yml`. The content-bearing gate checks out `standards@main`
 at runtime without reading a ring property. Terraform owns the injected workflow
-ref. Existing publication tags remain held during the staged migration to main;
-retiring their writers is separate work.
+ref at `refs/heads/main`. Reusable workflows and actions also follow `@main`.
 
 | Gate workflow | Gate Family | What it does | Standards content |
 | --- | --- | --- | --- |
@@ -55,16 +54,19 @@ inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config 
 up with the shared composite action
 [`actions/standards-bootstrap`](actions/standards-bootstrap/action.yml), which repository
 workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
-mints the standards-reader token and routes the private clone through it. It runs
-mise-action's built-in `bootstrap: true` with `bootstrap_args: --only repos,tools`, then
-removes its route. It follows the consumer's declared branch and exports no pin.
+resolves standards `main` once, checks out that full-history SHA with the reader
+App token and no persisted credentials, then exports `STANDARDS_PIN` for the job.
+It validates the clean checkout and credential-free origin before loading consumer config.
 
-- The action then runs `mise bootstrap repos status --missing` and requires
-  `.standards-config/config/lefthook/base.yml`. A missing checkout fails instead of letting
-  Lefthook skip the shared hooks.
-- `typecheck-ts`, `build` and `e2e` let the action remove the token route before
-  repository code runs. `cloud-setup-smoke` passes `keep-route: "true"` for the setup chain,
-  which must be able to refresh the checkout. `lint-hooks` passes it too, for its knowledgebase remote fetch.
+- Installation-only mise-action runs from `runner.temp`: even with installation and
+  environment export disabled it invokes `mise ls`, which must not load cold includes.
+- Before bootstrap, native `mise bootstrap repos status --missing --json` must report
+  `.standards-config` at the pin. Empty/skipped declarations fail, as does a missing
+  `.standards-config/config/lefthook/base.yml`.
+- No standards token route is installed; legacy standards routes are removed before
+  any consumer mise command. Setup and hooks use the pin without Git transport.
+- `bootstrap-parts: repos` keeps checkout verification and pin export but skips tool
+  installation, caching and consumer-environment export.
 - **Ref.** Internal calls use
   `Rubio-Enterprises/.github/actions/standards-bootstrap@main`. A local `./` path
   would resolve against the consumer's checkout, not this repo. Third-party
@@ -78,9 +80,9 @@ removes its route. It follows the consumer's declared branch and exports no pin.
   installs only `yq` and `lefthook` and removes the link afterwards. The job sets
   `MISE_EXEC_AUTO_INSTALL=false`, so the gate's `mise exec` cannot install them itself.
 
-Execution does not inspect a config-model answer or expose a compatibility input
-or output. Land only after the remaining full consumers convert. Caller convergence
-and pin provisioning are parent-held rollout barriers.
+Execution is unconditional. Every consumer stub must interpolate `STANDARDS_PIN`
+with `main` as its unset default, without a depth limit. Older PR branches must
+incorporate the converged stub before using the pin provisioner.
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
 `gate-tests` org ruleset requires each enforcing repository's own repo-local
@@ -93,15 +95,15 @@ Beyond the gates and the thin-called reusables below, this repo also holds
 `testflight.yml` (the signed Apple build reusable — see
 [`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md)
 and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
-`test-gate.yml`, `copilot-setup-steps.yml`, `workflow-validation.yml`, and
-`plumbing-ref-publish.yml` (this repo's own ops, not reusables).
+`test-gate.yml`, `copilot-setup-steps.yml` and `workflow-validation.yml`
+(this repo's own ops, not reusables).
 
 **`lint-hooks.yml`** — `lefthook run pre-commit --all-files`, plus `lefthook run kb-check`
 (the full knowledgebase check, KB-01) for repositories declaring
 `has_knowledgebase`, the sole CI executor of the
 standards Fixers and Checkers. The commit-msg smoke test is retired: PR Conventions and the
 local commit-msg hook own PR-01. It is an injected Required Governance
-Workflow (the `gate-lint-hooks` org ruleset, published at `gates/wf-v1`, standards#627), not a
+Workflow (the `gate-lint-hooks` org ruleset following main, standards#627), not a
 thin-called reusable: consumers cannot edit or skip it, and it has no `workflow_call` trigger
 (standards#642).
 
@@ -136,15 +138,14 @@ Two things about it are load-bearing and easy to break:
   without mise it silently no-ops, every warm step is then skipped for want of a
   tool, and the smoke passes green while proving nothing.
 
-`bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
+`bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
 
 `standards-gates.yml` reads standards content from `main`. Inspect the actual
 workflow revision when diagnosing an older caller or an injected run.
 
 `copier-sync.yml` / `copier-check.yml` are **gone** — the consumer template-drift
 ritual is replaced by Renovate's native copier manager (auto-merged re-render
-PRs; see the Renovate section). `release-please.yml` and
-`floating-tag-floor-check.yml` are this repo's own ops, not reusables.
+PRs; see the Renovate section).
 
 There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
 The two starters that once lived there (`standards-audit-starter`, `e2e-starter`) were
@@ -153,49 +154,13 @@ went private (a picker-copied caller passes no `secrets: inherit`, so the standa
 token mint fails). Repositories join the onboarded set via Copier (`/onboard-repo`), which renders
 `standards.yml` directly. Don't reintroduce starters without wiring the secrets contract.
 
-## Legacy publication machinery during migration
+## Workflow delivery
 
-Internal calls follow `main`. Existing tag publishers below remain in the tree
-until caller convergence; their retirement is separate work. Do not publish or
-move these legacy refs as part of the native-execution migration.
-
-1. **Content follows `main`.** `standards-gates.yml` checks out `standards@main`
-   and runs its `ci/gate-*.sh` checks. No ring lookup or Channel environment
-   selects different content.
-2. **The gate workflow *files* are pinned by the org rulesets to `gates/wf-v1`.**
-   A change to a gate workflow's own code (steps/logic) is *plumbing*: land the
-   candidate here, perform proportional Candidate Validation (normally a
-   temporary Terraform-owned evaluate-mode duplicate ruleset at the exact
-   candidate), then merge a request-only PR changing
-   `.github/plumbing-ref/publication-request.json`. The push-triggered publisher
-   performs an exact expected-current compare-and-swap and verifies the final
-   remote ref. Terraform owns only the consuming rulesets/ref name;
-   release-please owns neither this tag nor its publisher. Backward movement is
-   reserved for last-resort direct owner recovery. Full runbook:
-   [`docs/plumbing-ref-publication.md`](docs/plumbing-ref-publication.md).
-3. **Thin-called reusables (`e2e`, `bump-brew`) still ride the
-   `.github` release + floating `v1`.** Consumers pin them by SHA with a trailing
-   `# v1`; Renovate bumps that SHA when the floating `v1` moves. Releases are
-   automated by **release-please** (`release-please.yml`, `release-type: simple`,
-   manifest `.release-please-manifest.json`): the release PR's **title** decides
-   the bump; on merge it tags `vX.Y.Z`, creates the release, then **moves `v1`
-   onto the release commit** and verifies the push landed.
-4. `floating-tag-floor-check.yml` (daily cron) is the backstop for point 3:
-   **every floating major tag `vN` present here MUST equal the latest
-   strict-semver `vN.Y.Z` release commit in its OWN major line.** Each major is
-   checked independently, so an older major that has stopped receiving releases
-   (`v1` once `v2.x` is shipping) stays guarded for as long as its tag exists
-   rather than going unchecked. (Its sister invariant in `standards` no longer
-   exists — `standards` releases by channel now, not by advancing a floating
-   tag.)
-
-**Never create or move a floating major tag (`v1`, `v2`, …) by hand.**
-Release-please owns the floating majors. The repository-owned Plumbing Ref
-publisher owns normal forward movement of `gates/wf-v1` through a request-only PR
-and exact compare-and-swap. There is intentionally no automated rollback
-workflow or CLI command. A backward move is last-resort direct owner recovery
-only and must follow the exact lease, Gate Family validation, and final remote
-reread contract in the runbook.
+Reviewed merges to `main` deliver Gate workflow files, reusables and actions.
+There is no separate publication request, floating-tag movement or release-please
+release for this repository. Recover regressions through reviewed reverts.
+Legacy refs remain frozen until the active-entry-point audit permits their
+separate retirement; this code cleanup does not delete refs or historical tags.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
 
@@ -204,13 +169,6 @@ reread contract in the runbook.
   consumer contracts. Guard direct `pull_request` and `merge_group` events from this source
   repository explicitly. The Rust workflow skips its workload and lets the bucket report the
   source no-op; consumer direct events and `workflow_call` remain strict.
-- **Plumbing Ref trust boundary.** Post-bootstrap Publication Request validation
-  and publication execute `plumbing_ref.py` from the protected base/before
-  revision, never from the proposed request commit. Only the request JSON may
-  change. The publisher runs hosted with the repo-scoped `GITHUB_TOKEN`; do not
-  add a PAT, App, environment, actor allowlist, or Terraform wrapper. Keep the
-  workflows free of Actions concurrency — an exact Git lease is the correctness
-  mechanism, while GitHub concurrency is not FIFO.
 - **`setup-uv` before `mise-action`.** Every mise-using job installs
   `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
   routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip
@@ -240,9 +198,8 @@ reread contract in the runbook.
   reads the executable at the same mise data directory path that mise-action checks
   and passes its observed version to the action; an absent binary uses the fallback,
   while a malformed present binary fails. The action receives `MISE_GITHUB_TOKEN`
-  before setup. Renovate bumps remain human-reviewed. The publisher does not
-  check the pin: before publishing a changed gate pin, the operator confirms that
-  the warm pools bake it and cites the run (see the publication runbook).
+  before setup. Renovate bumps remain human-reviewed. Before landing a changed
+  gate pin, confirm that warm pools bake it.
 - **Runner Route selection.** Private org variable `RUNNERS` is a JSON map;
   `org-ops ci mode` owns live values. Each key has an independent hosted
   fallback, so public consumers (which cannot see private org variables)
@@ -566,7 +523,6 @@ exist. See `docs/agents/domain.md`.
 
 ## Conventions
 
-Conventional Commits, enforced by review + release-please (release-please reads the **PR
-title** at squash-merge — the title, not individual commits, drives the version bump). There
-is no local commitlint/lefthook in this repo. Default branch is `main`; open PRs as drafts by
+Use Conventional Commits titles. There is no release-please, local commitlint or
+lefthook in this repo. Default branch is `main`; open PRs as drafts by
 default per the global git-workflow rules.
