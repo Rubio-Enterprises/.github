@@ -90,7 +90,6 @@ jobs:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           bootstrap-parts: repos
-          keep-route: "false"
       - name: Verify native Docker architecture
         shell: bash
         env:

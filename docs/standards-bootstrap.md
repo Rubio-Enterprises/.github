@@ -1,35 +1,45 @@
 # `standards-bootstrap` action
 
-`actions/standards-bootstrap` is a composite action that sets up mise in a
-repository using the Shared Config Checkout (standards ADR-0033). Such a
-repository's `.mise.toml` includes shared pins from a gitignored Shared Config
-Checkout at `.standards-config/`, a clone of the private `standards` repository.
-No mise command works in CI until that checkout exists, so every job that runs
-mise in a native repository must call this action first.
+`actions/standards-bootstrap` provisions a repository's gitignored Shared Config
+Directory, `.standards-config/`, before mise loads its shared includes. Standards
+stays private; only the trusted provisioner receives its reader credential.
 
 The action:
 
-1. Checks for the standards-reader credentials and a mise version of at least
-   2026.10.19.
-2. Mints a read-only standards-reader token scoped to `standards`, and routes
-   `https://github.com/<owner>/standards` through it with Git's `insteadOf`.
-3. Runs `jdx/mise-action` with `bootstrap: true`. This runs `mise bootstrap
-   --only repos,tools` in place of `mise install`: it clones the checkout at
-   the ref declared in the consumer's `.mise.toml`, runs its `post-repos` hook,
-   installs its tools, and exports mise's environment. With
-   `bootstrap-parts: repos`, it provisions only the checkout and runs the
-   readiness hook, without tool installation, caching or environment export.
-4. Fails unless `mise bootstrap repos status --missing` passes and
-   `.standards-config/config/lefthook/base.yml` exists. It records the
-   checkout's ref and commit in the step summary.
-5. Removes its token route even when an earlier step failed, unless
-   `keep-route: "true"` is requested.
+1. Checks for the reader credentials and mise 2026.10.19 or later.
+2. Mints a read-only App token scoped to `Rubio-Enterprises/standards`, resolves
+   `main` once to a validated lowercase 40-hex SHA, and uses `actions/checkout`
+   to provision that exact commit with full history and no persisted credentials.
+3. Removes legacy standards token routes, including on failure. It installs no
+   route; unrelated private-module and knowledgebase routes are untouched.
+4. Requires a real, clean, non-shallow checkout at the resolved SHA, normalizes
+   the credential-free origin to
+   `https://github.com/Rubio-Enterprises/standards.git`, and exports the validated
+   `STANDARDS_PIN` through `GITHUB_ENV` for later steps in the same job.
+5. Installs mise without tools, caching or consumer-environment export from
+   `runner.temp`. Even installation-only mise-action invokes `mise ls`, so its
+   directory must not load consumer includes before checkout validation.
+6. Runs `mise bootstrap repos status --missing --json` **before bootstrap or
+   setup**. Its JSON must contain `.standards-config` at the expected pin in
+   state `current`; an absent/skipped declaration cannot pass unchecked. The
+   shared `config/lefthook/base.yml` must exist too.
+7. Runs mise-action's native `bootstrap: true` with `--only repos,tools`,
+   including the readiness hook, tool installation and environment export.
+   `bootstrap-parts: repos` retains pin export and verification but skips tools,
+   tool caching and consumer-environment export.
 
-Bootstrap is unconditional: no classification answer selects a different path.
-This is the branch-following bootstrap; it neither exports nor supplies
-`STANDARDS_PIN`. Existing stable/canary declarations and main declarations
-continue to follow their declared branches until the separate pin provisioner
-is activated after fleet convergence.
+Bootstrap is unconditional. Every consumer must already carry the final stub:
+
+```toml
+[bootstrap.repos]
+".standards-config" = { url = "https://github.com/Rubio-Enterprises/standards.git", ref = "{{ env.STANDARDS_PIN | default(value='main') }}" }
+```
+
+There is no depth limit. Cold includes use `?ref=main`; a provisioned checkout
+avoids them. Older PR branches must incorporate the updated stub before running
+this action. An empty, malformed or wrong pin, dirty/shallow/missing checkout or
+wrong origin fails before setup. Bootstrap, repeated setup and later hooks use
+one pin without standards Git transport; they do not receive its App token.
 
 The central workflows use it: the `lint-hooks`, `typecheck-ts` and `build` gates
 and the `e2e`, `cloud-setup-smoke` and `devcontainer-image` reusables.
@@ -90,16 +100,10 @@ jobs:
   skips mise-action's tool cache and environment export; no preceding setup-uv
   step is needed because no pipx tools are installed. Unknown values fail before
   token minting.
-- `keep-route`: `true` keeps the token route for the rest of the job. Default
-  `false`.
-
-The action declares no outputs.
-
-Leave `keep-route` at `false` unless a later step must reach `standards` again.
-`cloud-setup-smoke` keeps the route because the cloud setup chain it runs may
-refresh the checkout. `lint-hooks` also keeps it for its native path, as it did
-before the action existed. Either way the token stays read-only, scoped to
-`standards`, and expires within an hour. Its revocation runs when the job ends.
+The action declares no outputs. `STANDARDS_PIN` persists for later steps through
+`GITHUB_ENV`, including the repos-only path. The reader token is used only for
+resolution and checkout, with revocation at job end; it is not put in the
+consumer environment or Git config.
 
 ## Tool-cache Python is not the consumer runtime
 

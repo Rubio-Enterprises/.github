@@ -1,22 +1,19 @@
 name: standards-bootstrap
 description: >-
-  Set up a repository (standards ADR-0033): clone its
-  Shared Config Checkout through a read-only standards-reader token, install
-  its mise tools when requested, require the checkout, then remove the token route.
+  Resolve standards main once and provision its full-history Shared Config
+  Directory before loading consumer mise config. Export STANDARDS_PIN, verify
+  readiness without a standards credential, then bootstrap the requested tools.
   Usage: docs/standards-bootstrap.md.
 author: Rubio-Enterprises
 inputs:
   app-id:
-    description: >-
-      The standards-reader App ID: pass `secrets.STANDARDS_READER_APP_ID`.
-      Required for a native repository.
+    description: The standards-reader App ID; pass secrets.STANDARDS_READER_APP_ID.
     required: false
     default: ""
   private-key:
     description: >-
-      The standards-reader App private key: pass
-      `secrets.STANDARDS_READER_APP_PRIVATE_KEY`. Required for a native
-      repository.
+      The standards-reader App private key; pass
+      secrets.STANDARDS_READER_APP_PRIVATE_KEY.
     required: false
     default: ""
   mise-version:
@@ -27,23 +24,16 @@ inputs:
     required: false
     default: ""
   cache-key-prefix:
-    description: The jdx/mise-action `cache_key_prefix`.
+    description: The jdx/mise-action cache_key_prefix.
     required: false
     default: mise-v1
   bootstrap-parts:
     description: >-
-      `repos,tools` installs the checkout and toolchain (default). `repos` only
-      provisions the checkout, without tool caching or environment export, for
-      jobs that build their toolchain elsewhere, such as Dev Container images.
+      repos,tools installs the checkout and toolchain (default). repos only
+      provisions and verifies the checkout, without tool caching or environment
+      export, for jobs that build their toolchain elsewhere.
     required: false
     default: repos,tools
-  keep-route:
-    description: >-
-      `true` keeps the token route to `standards` for the rest of the job.
-      Only for a job whose later steps must refresh the checkout; by default
-      the route is removed before repository code runs.
-    required: false
-    default: "false"
 runs:
   using: composite
   steps:
@@ -68,7 +58,7 @@ runs:
         floor=2026.10.19
         version="$MISE_VERSION"
         if [ -z "$version" ]; then
-          # The path jdx/mise-action checks before it would self-update.
+          # Match mise-action's binary lookup without self-updating a warm runner
           binary="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/bin/mise"
           version="$floor"
           if [ -e "$binary" ]; then
@@ -90,25 +80,121 @@ runs:
       with:
         app-id: ${{ inputs.app-id }}
         private-key: ${{ inputs.private-key }}
-        owner: ${{ github.repository_owner }}
+        owner: Rubio-Enterprises
         repositories: standards
         permission-contents: read
-    - name: Route the standards clone through the token
+    - name: Resolve standards main once
+      id: pin
       shell: bash
+      working-directory: ${{ runner.temp }}
       env:
-        TOKEN: ${{ steps.token.outputs.token }}
-        OWNER: ${{ github.repository_owner }}
+        GH_TOKEN: ${{ steps.token.outputs.token }}
       run: |
         set -euo pipefail
-        git config --global \
-          url."https://x-access-token:${TOKEN}@github.com/${OWNER}/standards".insteadOf \
-          "https://github.com/${OWNER}/standards"
-    # Image builds need the checkout, not a second toolchain on the runner
+        sha="$(gh api repos/Rubio-Enterprises/standards/commits/main --jq .sha)"
+        if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::standards main must resolve to a lowercase 40-hex commit" >&2
+          exit 1
+        fi
+        printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+    - name: Check out the Shared Config Directory
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        repository: Rubio-Enterprises/standards
+        ref: ${{ steps.pin.outputs.sha }}
+        path: .standards-config
+        token: ${{ steps.token.outputs.token }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Remove the standards read route
+      if: always()
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Remove legacy standards routes without touching private-module routes
+        routes() { git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null || true; }
+        while read -r key _; do
+          case "$key" in
+            "url.https://x-access-token:"*"@github.com/Rubio-Enterprises/standards.insteadof")
+              git config --global --remove-section "${key%.insteadof}" || true ;;
+          esac
+        done <<<"$(routes)"
+        while read -r key _; do
+          case "$key" in
+            "url.https://x-access-token:"*"@github.com/Rubio-Enterprises/standards.insteadof")
+              echo "::error::the standards token route survived removal" >&2
+              exit 1 ;;
+          esac
+        done <<<"$(routes)"
+    - name: Validate and export the standards pin
+      shell: bash
+      env:
+        STANDARDS_PIN: ${{ steps.pin.outputs.sha }}
+      run: |
+        set -euo pipefail
+        if ! [[ "$STANDARDS_PIN" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::STANDARDS_PIN must be a nonempty lowercase 40-hex commit" >&2
+          exit 1
+        fi
+        if [ ! -d .standards-config/.git ]; then
+          echo "::error::the Shared Config Directory must be a real Git checkout" >&2
+          exit 1
+        fi
+        url=https://github.com/Rubio-Enterprises/standards.git
+        # checkout uses the credential-free URL without its optional .git suffix
+        if [ "$(git -C .standards-config config --get remote.origin.url)" = "${url%.git}" ]; then
+          git -C .standards-config remote set-url origin "$url"
+        fi
+        if [ "$(git -C .standards-config config --get remote.origin.url)" != "$url" ] ||
+           [ "$(git -C .standards-config rev-parse HEAD)" != "$STANDARDS_PIN" ] ||
+           [ "$(git -C .standards-config rev-parse --is-shallow-repository)" != false ] ||
+           [ -n "$(git -C .standards-config status --porcelain --untracked-files=all)" ]; then
+          echo "::error::shared config must be clean, non-shallow, at STANDARDS_PIN and use the credential-free standards origin" >&2
+          exit 1
+        fi
+        printf 'STANDARDS_PIN=%s\n' "$STANDARDS_PIN" >> "$GITHUB_ENV"
+        echo "Shared Config Directory: standards at \`$STANDARDS_PIN\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "Shared Config Directory: standards at $STANDARDS_PIN"
+    - name: Install mise without loading repository config
+      uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      env:
+        MISE_GITHUB_TOKEN: ${{ github.token }}
+      with:
+        version: ${{ steps.prerequisites.outputs.mise_version }}
+        install: false
+        cache: false
+        env: false
+        # mise-action always runs mise ls, even with install/env disabled
+        working_directory: ${{ runner.temp }}
+    - name: Require the Shared Config Directory before bootstrap
+      shell: bash
+      env:
+        GIT_TERMINAL_PROMPT: "0"
+        GCM_INTERACTIVE: never
+      run: |
+        set -euo pipefail
+        if ! [[ "$STANDARDS_PIN" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::STANDARDS_PIN must be a nonempty lowercase 40-hex commit" >&2
+          exit 1
+        fi
+        status="$(mise bootstrap repos status --missing --json)"
+        # A skipped or absent declaration otherwise makes status succeed unchecked
+        if ! jq -e --arg pin "$STANDARDS_PIN" '
+          .repos | any(.path_raw == ".standards-config" and
+            .url == "https://github.com/Rubio-Enterprises/standards.git" and
+            .ref == $pin and .current_sha == $pin and .state == "current")
+        ' <<<"$status" >/dev/null; then
+          echo "::error::mise must declare .standards-config at STANDARDS_PIN with no depth" >&2
+          exit 1
+        fi
+        if [ ! -f .standards-config/config/lefthook/base.yml ]; then
+          echo "::error::shared config missing at .standards-config/config/lefthook/base.yml" >&2
+          exit 1
+        fi
     - name: Install mise and bootstrap the Shared Config Checkout
       uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       env:
         MISE_GITHUB_TOKEN: ${{ github.token }}
-        # A failed private clone must fail, not wait on a credential prompt.
         GIT_TERMINAL_PROMPT: "0"
         GCM_INTERACTIVE: never
       with:
@@ -118,46 +204,3 @@ runs:
         env: ${{ inputs.bootstrap-parts != 'repos' }}
         bootstrap: true
         bootstrap_args: --only ${{ inputs.bootstrap-parts }}
-    # Independent of the repository's own post-repos hook, so a stub that drops
-    # the hook or the checkout declaration still fails here instead of letting
-    # Lefthook's `extends` skip the shared hooks silently.
-    - name: Require the Shared Config Checkout
-      shell: bash
-      env:
-        MISE_GITHUB_TOKEN: ${{ github.token }}
-        GIT_TERMINAL_PROMPT: "0"
-        GCM_INTERACTIVE: never
-      run: |
-        set -euo pipefail
-        mise bootstrap repos status --missing
-        if [ ! -f .standards-config/config/lefthook/base.yml ]; then
-          echo "::error::shared config missing at .standards-config/config/lefthook/base.yml: declare the checkout in .mise.toml [bootstrap.repos] and run 'mise bootstrap --only repos,tools' (standards ADR-0033)" >&2
-          exit 1
-        fi
-        sha="$(git -C .standards-config rev-parse HEAD)"
-        ref="$(git -C .standards-config symbolic-ref -q --short HEAD || echo detached)"
-        echo "Shared Config Checkout: standards \`$ref\` at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
-        echo "Shared Config Checkout: standards $ref at $sha"
-    # Removes only this action's route: a caller's own token routes, such as
-    # private module reads, are not this action's to remove.
-    - name: Remove the standards read route
-      if: always() && inputs.keep-route != 'true'
-      shell: bash
-      env:
-        OWNER: ${{ github.repository_owner }}
-      run: |
-        set -euo pipefail
-        routes() { git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null || true; }
-        while read -r key _; do
-          case "$key" in
-            "url.https://x-access-token:"*"@github.com/${OWNER}/standards.insteadof")
-              git config --global --remove-section "${key%.insteadof}" || true ;;
-          esac
-        done <<<"$(routes)"
-        while read -r key _; do
-          case "$key" in
-            "url.https://x-access-token:"*"@github.com/${OWNER}/standards.insteadof")
-              echo "::error::the standards token route survived removal" >&2
-              exit 1 ;;
-          esac
-        done <<<"$(routes)"
