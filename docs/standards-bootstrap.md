@@ -1,47 +1,38 @@
 # `standards-bootstrap` action
 
 `actions/standards-bootstrap` is a composite action that sets up mise in a
-repository answering `config_model: native` (standards ADR-0033). Such a
+repository using the Shared Config Checkout (standards ADR-0033). Such a
 repository's `.mise.toml` includes shared pins from a gitignored Shared Config
 Checkout at `.standards-config/`, a clone of the private `standards` repository.
-Mise commands that resolve the consumer's includes need that checkout first.
-Every job that runs mise in a native repository must call this action first.
+No mise command works in CI until that checkout exists, so every job that runs
+mise in a native repository must call this action first.
 
 The action:
 
-1. Reads the config model. For `rendered` it stops, and every later step is
-   skipped.
-2. Checks for the standards-reader credentials and a mise version of at least
+1. Checks for the standards-reader credentials and a mise version of at least
    2026.10.19.
-3. Installs mise without installing tools, restoring the tool cache or exporting
-   the consumer environment. This installation-only mise-action runs from the
-   runner's temporary directory: it always invokes `mise ls`, even with install
-   and environment export disabled, so the consumer's includes must not be in
-   scope yet. Reads the stored
-   `.mise.toml` `[bootstrap.repos]` entry for `.standards-config` with
-   `mise config get --file`; this command does not resolve includes. The entry
-   must name the `Rubio-Enterprises/standards` HTTPS URL and a `stable` or `canary`
-   ref. A missing or invalid entry fails; the Copier channel answer is not used.
-4. Mints a read-only standards-reader token scoped to `standards`. Uses
-   GitHub's `actions/checkout` to provision `.standards-config` at the declared
-   ref with full history and without persisting credentials. This also refreshes
-   an existing checkout. The checkout precedes mise's first consumer include
-   resolution, eliminating the separate cold `git::` fragment clones.
-5. Routes later standards freshness reads through the token with Git's
-   `insteadOf`, then runs `jdx/mise-action` with `bootstrap: true`. This runs
-   `mise bootstrap --only repos,tools`: it verifies or refreshes the checkout,
-   runs the repository's `post-repos` hook, installs the shared and repository
-   pins, and exports mise's environment. With `bootstrap-parts: repos`, it runs
-   only repo bootstrap and the readiness hook, without tool installation, tool
-   caching or consumer-environment export.
-6. Fails unless `mise bootstrap repos status --missing` passes and
-   `.standards-config/config/lefthook/base.yml` exists. It writes the
-   checkout's ref and commit to the step summary.
-7. Removes the token route, even when an earlier step failed, so later steps
-   that run repository code cannot use it. It removes only its own route.
+2. Mints a read-only standards-reader token scoped to `standards`, and routes
+   `https://github.com/<owner>/standards` through it with Git's `insteadOf`.
+3. Runs `jdx/mise-action` with `bootstrap: true`. This runs `mise bootstrap
+   --only repos,tools` in place of `mise install`: it clones the checkout at
+   the ref declared in the consumer's `.mise.toml`, runs its `post-repos` hook,
+   installs its tools, and exports mise's environment. With
+   `bootstrap-parts: repos`, it provisions only the checkout and runs the
+   readiness hook, without tool installation, caching or environment export.
+4. Fails unless `mise bootstrap repos status --missing` passes and
+   `.standards-config/config/lefthook/base.yml` exists. It records the
+   checkout's ref and commit in the step summary.
+5. Removes its token route even when an earlier step failed, unless
+   `keep-route: "true"` is requested.
+
+Bootstrap is unconditional: no classification answer selects a different path.
+This is the branch-following bootstrap; it neither exports nor supplies
+`STANDARDS_PIN`. Existing stable/canary declarations and main declarations
+continue to follow their declared branches until the separate pin provisioner
+is activated after fleet convergence.
 
 The central workflows use it: the `lint-hooks`, `typecheck-ts` and `build` gates
-and the `e2e` and `cloud-setup-smoke` reusables.
+and the `e2e`, `cloud-setup-smoke` and `devcontainer-image` reusables.
 
 ## Calling it from a repository workflow
 
@@ -51,7 +42,7 @@ permissions:
 jobs:
   test:
     runs-on: >-
-      ${{ fromJSON(vars.RUNNERS || '{}').light ||
+      ${{ fromJSON(vars.RUNNERS || '{}').small ||
       fromJSON('["ubuntu-slim"]') }}
     steps:
       - uses: actions/checkout@<sha> # v7
@@ -61,54 +52,33 @@ jobs:
       - uses: astral-sh/setup-uv@<sha> # v10.1.0
         with:
           version: "0.12.17"
-      - uses: Rubio-Enterprises/.github/actions/standards-bootstrap@<sha> # v4
+      - uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
       - run: mise run test
 ```
 
-- **Ref.** Pin the 40-hex commit that the floating `v4` tag points at, with a
-  trailing `# v4` comment, as for the reusable workflows. Renovate's
-  `github-actions` manager reports the dependency as `Rubio-Enterprises/.github`
-  and advances the digest when a `.github` release moves `v4`. In
-  template-rendered workflows, the `default.json` rule that re-enables that
-  dependency covers the pin.
+- **Ref.** First-party `.github` workflows and actions follow `@main` directly.
+  The shared Renovate preset disables updates and digest pinning for the exact
+  `Rubio-Enterprises/.github` dependency in every filename. Third-party actions
+  remain SHA-pinned.
 - **Secrets.** Pass the `STANDARDS_READER_APP_ID` and
   `STANDARDS_READER_APP_PRIVATE_KEY` organization secrets as inputs. A composite
   action cannot read `secrets` itself. A native repository that omits them fails
   with an error naming both secrets.
 - **Replace the mise step.** In a native repository the action installs mise.
   Do not also run `jdx/mise-action` with its default `install: true`. That
-  action loads the repository's config and can fetch cold fragments before the
-  checkout exists.
-- **Rendered repositories.** The action does nothing for them, so they still
-  need their own `jdx/mise-action` step. A template that renders one workflow
-  for both models chooses at render time:
-
-  ```jinja
-  {% if config_model == 'native' %}
-        - uses: Rubio-Enterprises/.github/actions/standards-bootstrap@<sha> # v4
-          with:
-            app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
-            private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-  {% else %}
-        - uses: jdx/mise-action@<sha> # v4
-  {% endif %}
-  ```
-
+  action loads the repository's config, so it fails before the checkout exists.
 - **Reusable workflows.** A called workflow sees organization secrets only when
   its caller forwards them, with `secrets: inherit` or by name. Declare both as
   optional `workflow_call` secrets, as `e2e.yml` does.
 
-## Inputs and output
+## Inputs
 
-- `app-id`: pass `secrets.STANDARDS_READER_APP_ID`. Required for `native`.
-- `private-key`: pass `secrets.STANDARDS_READER_APP_PRIVATE_KEY`. Required
-  for `native`.
-- `config-model`: `native` or `rendered`. The default reads `config_model`
-  from `.copier-answers.yml`, where an absent answer is `rendered`. Any other
-  value fails.
+- `app-id`: pass `secrets.STANDARDS_READER_APP_ID`.
+- `private-key`: pass `secrets.STANDARDS_READER_APP_PRIVATE_KEY`.
+  Both credentials are required.
 - `mise-version`: 2026.10.19 or later. The default is the runner's installed
   mise, or 2026.10.19 when none is installed, so the action never
   self-updates a warm runner's mise; on a runner whose mise is older, it fails.
@@ -119,11 +89,11 @@ jobs:
   [Dev Container image builds](reusable-workflows/devcontainer-image.md). It
   skips mise-action's tool cache and environment export; no preceding setup-uv
   step is needed because no pipx tools are installed. Unknown values fail before
-  token minting. Rendered repositories still skip every native step.
+  token minting.
 - `keep-route`: `true` keeps the token route for the rest of the job. Default
   `false`.
 
-The `config-model` output is the resolved model.
+The action declares no outputs.
 
 Leave `keep-route` at `false` unless a later step must reach `standards` again.
 `cloud-setup-smoke` keeps the route because the cloud setup chain it runs may
@@ -138,12 +108,12 @@ into the mise cache key to protect cached pipx/uvx tools from stale shebangs.
 This is a toolchain seed, not the Python used for consumer tests or linting.
 [uv tool environments ignore consumer project Python requests](https://docs.astral.sh/uv/concepts/tools/#python-versions).
 
-For native repositories only, the fingerprint step sets `UV_NO_PROJECT=true`
+The fingerprint step sets `UV_NO_PROJECT=true`
 so `uv python find` also ignores consumer `requires-python`. A native checkout
 pinned to Python 3.13 with `requires-python <3.14` can therefore fingerprint a
 3.14 tool interpreter before mise loads its runtime pin. The setting is scoped
 to that step; bootstrap and later consumer commands retain their own Python
-selection. Rendered repositories keep project discovery unchanged.
+selection.
 
 ## Secret reachability
 

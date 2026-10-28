@@ -14,7 +14,7 @@ plus the handful of reusables a consumer's `.github/workflows/standards.yml` sti
 thin-calls. In the three-repo governance system it is the *delivery vehicle*:
 `standards` defines the rules, **this repo runs them in CI**, and
 `dot-github-private` enforces repo settings. The macro architecture (the three
-repos, the `standards` content layers, the channel release model, and the four
+repos, the `standards` content layers, the release model, and the four
 propagation paths) is documented canonically in the sibling `standards` repo's
 `docs/propagation-map.md` → "How changes propagate to the Org set"; this file covers only what is
 specific to working *inside* `dot-github`.
@@ -37,56 +37,50 @@ runs on every `standards-onboarded` repo and reads its `gate-audit`,
 `gate-lint-config`, `gate-pr-conventions`, and `gate-secret-scan` properties to pick
 its checks (all set in `.github-private` Terraform). The org gate rulesets
 **inject** them into the consumer's PR checks. They are **not** thin-called
-from `standards.yml`. The content-bearing gate resolves its `standards` content
-at runtime from the repo's channel — `canary` for Canary Ring repos, `stable` for
-other onboarded consumers (read from the
-`ring` custom property). The ruleset pins the workflow *file* to the `gates/wf-v1` tag; the tag object is
-published by this repository's guarded Publication Request/CAS workflow while
-Terraform owns the consuming rulesets and ref name. The *content* floats on the
-channel.
+from `standards.yml`. The content-bearing gate checks out `standards@main`
+at runtime without reading a ring property. Terraform owns the injected workflow
+ref. Existing publication tags remain held during the staged migration to main;
+retiring their writers is separate work.
 
 | Gate workflow | Gate Family | What it does | Standards content |
 | --- | --- | --- | --- |
-| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item; the rules come from this repo's `.github/PULL_REQUEST_TEMPLATE.md`, the organization default, read at the workflow's own commit and passed as `PR_TEMPLATE_PATH`), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | channel (`canary`/`stable`), runtime-resolved |
+| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item; the rules come from this repo's `.github/PULL_REQUEST_TEMPLATE.md`, the organization default, read at the workflow's own commit and passed as `PR_TEMPLATE_PATH`), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | `main`, runtime-resolved |
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
 | `build.yml` | `gate-build` | BD-01 non-publishing `mise run build` (`has_release_artifact`; Swift on `RUNNERS.macos`, unsigned) and CT-01 `compose.ci.yml` smoke with healthy and non-root assertions (`has_container_image`). A declared check with no task or descriptor fails. See [`docs/build-gate.md`](docs/build-gate.md) | — |
 
-**Native config model (standards ADR-0033).** A consumer answering `config_model: native`
+**Shared config (standards ADR-0033).** A full consumer
 inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Checkout at
 `.standards-config/`. Every workflow that runs mise in a consumer (`lint-hooks`,
 `typecheck-ts`, `build`, and the `e2e` and `cloud-setup-smoke` reusables) sets the checkout
 up with the shared composite action
 [`actions/standards-bootstrap`](actions/standards-bootstrap/action.yml), which repository
 workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
-installs mise without loading consumer includes, reads the authoritative ref from
-`.mise.toml` with explicit-file `mise config get`, then uses `actions/checkout` to
-provision the full-history checkout before resolving includes. It runs mise-action's
-built-in `bootstrap: true` with `bootstrap_args: --only repos,tools` and removes its
-standards-reader token route afterwards. It does nothing for rendered repositories,
-which keep their own mise-action step.
+mints the standards-reader token and routes the private clone through it. It runs
+mise-action's built-in `bootstrap: true` with `bootstrap_args: --only repos,tools`, then
+removes its route. It follows the consumer's declared branch and exports no pin.
 
 - The action then runs `mise bootstrap repos status --missing` and requires
   `.standards-config/config/lefthook/base.yml`. A missing checkout fails instead of letting
   Lefthook skip the shared hooks.
 - `typecheck-ts`, `build` and `e2e` let the action remove the token route before
   repository code runs. `cloud-setup-smoke` passes `keep-route: "true"` for the setup chain,
-  which must be able to refresh the checkout. `lint-hooks` passes it too, matching its
-  rendered path, which keeps the route for Lefthook's `remotes:` fetch.
-- **Pin.** The workflows call the action as
-  `Rubio-Enterprises/.github/actions/standards-bootstrap@<sha> # v4`, one SHA in all five. A
-  local `./` path would resolve against the consumer's checkout, not this repo. A gate's
-  action pin is plumbing: it reaches consumers only through a `gates/wf-v1` publication.
+  which must be able to refresh the checkout. `lint-hooks` passes it too, for its knowledgebase remote fetch.
+- **Ref.** Internal calls use
+  `Rubio-Enterprises/.github/actions/standards-bootstrap@main`. A local `./` path
+  would resolve against the consumer's checkout, not this repo. Third-party
+  actions remain SHA-pinned.
 - A called workflow sees org secrets only when its caller forwards them, so the callable ones
   (`typecheck-ts` in cache-seed mode, `e2e`, `cloud-setup-smoke`) declare
   `STANDARDS_READER_APP_ID` and `STANDARDS_READER_APP_PRIVATE_KEY` as optional. A native
   caller that does not forward them fails with a clear error.
-- `standards-gates` never bootstraps. Its lint-config tool install links the selected channel
+- `standards-gates` never bootstraps. Its lint-config tool install links the main
   checkout (`.standards`) as `.standards-config` while mise resolves the consumer's pins. It
   installs only `yq` and `lefthook` and removes the link afterwards. The job sets
   `MISE_EXEC_AUTO_INSTALL=false`, so the gate's `mise exec` cannot install them itself.
 
-Any other answer keeps the rendered model's `mise install`; an unknown value fails. The
-`config_model` answer is transitional and goes away when the rendered model is retired.
+Execution does not inspect a config-model answer or expose a compatibility input
+or output. Land only after the remaining full consumers convert. Caller convergence
+and pin provisioning are parent-held rollout barriers.
 
 Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
 `gate-tests` org ruleset requires each enforcing repository's own repo-local
@@ -103,8 +97,8 @@ and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
 `plumbing-ref-publish.yml` (this repo's own ops, not reusables).
 
 **`lint-hooks.yml`** — `lefthook run pre-commit --all-files`, plus `lefthook run kb-check`
-(the full knowledgebase check, KB-01) for native-model repositories declaring
-`has_knowledgebase` (rendered ones keep today's staged-only check), the sole CI executor of the
+(the full knowledgebase check, KB-01) for repositories declaring
+`has_knowledgebase`, the sole CI executor of the
 standards Fixers and Checkers. The commit-msg smoke test is retired: PR Conventions and the
 local commit-msg hook own PR-01. It is an injected Required Governance
 Workflow (the `gate-lint-hooks` org ruleset, published at `gates/wf-v1`, standards#627), not a
@@ -144,10 +138,8 @@ Two things about it are load-bearing and easy to break:
 
 `bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@v1`.
 
-**The content gate resolves `standards` content by channel, not by a frozen
-`audit/v1` pin.** `standards-gates.yml` clones `standards@<channel>` at runtime (a
-repo's `ring` property picks `canary` vs `stable`). Still read the actual `ref:`
-a gate resolves before reasoning about which `standards` content it runs.
+`standards-gates.yml` reads standards content from `main`. Inspect the actual
+workflow revision when diagnosing an older caller or an injected run.
 
 `copier-sync.yml` / `copier-check.yml` are **gone** — the consumer template-drift
 ritual is replaced by Renovate's native copier manager (auto-merged re-render
@@ -161,19 +153,15 @@ went private (a picker-copied caller passes no `secrets: inherit`, so the standa
 token mint fails). Repositories join the onboarded set via Copier (`/onboard-repo`), which renders
 `standards.yml` directly. Don't reintroduce starters without wiring the secrets contract.
 
-## The load-bearing release ritual
+## Legacy publication machinery during migration
 
-This is the single most important thing to get right in this repo. Three pins
-coexist, and they move differently.
+Internal calls follow `main`. Existing tag publishers below remain in the tree
+until caller convergence; their retirement is separate work. Do not publish or
+move these legacy refs as part of the native-execution migration.
 
-1. **Gate content resolves by channel, not by an `audit/v1` pin.** The
-   content-bearing gate workflow (`standards-gates.yml`) clones
-   `standards@<channel>` at runtime — `canary` for Canary Ring repos, `stable` for
-   other onboarded consumers (the repo's `ring` property picks) — and runs its
-   `ci/gate-*.sh` checks. So an audit-rule or gate-logic **content** change reaches onboarded consumers
-   when `standards` promotes `canary` → `stable` (see `standards`
-   `RELEASES.md`), with **no `.github` release**. There is no `audit/v1` tag to
-   move any more.
+1. **Content follows `main`.** `standards-gates.yml` checks out `standards@main`
+   and runs its `ci/gate-*.sh` checks. No ring lookup or Channel environment
+   selects different content.
 2. **The gate workflow *files* are pinned by the org rulesets to `gates/wf-v1`.**
    A change to a gate workflow's own code (steps/logic) is *plumbing*: land the
    candidate here, perform proportional Candidate Validation (normally a
@@ -307,8 +295,8 @@ reread contract in the runbook.
   `standards` + `knowledgebase-framework` (`.github-private` ADR 0003).
 - **Fork hook checks are fail-closed.** `lint-hooks` checks only PR-changed files
   in forks and all files in non-forks. Both paths fail on a hook error or a
-  tracked formatter rewrite. The consumer's SHA pin must advance to deliver
-  a change to this reusable; editing its source here does not update callers.
+  tracked formatter rewrite. Internal calls follow main; legacy pinned consumers
+  still need the parent-coordinated caller update.
 
 ## Renovate config — three files, three roles
 
@@ -320,8 +308,10 @@ reread contract in the runbook.
   Renovate's immediate default. Key rules: built-in **`mise` manager disabled** (consumer
   `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against the copier
   re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
-  (its action pins are template-owned too — same drift thrash; a re-enable rule keeps the ONE
-  exception, the `Rubio-Enterprises/.github` reusable-workflow `# v1` digest, Renovate-driven);
+  (its action pins are template-owned too); first-party `Rubio-Enterprises/.github`
+  workflow/action dependencies are disabled in every filename, including
+  TestFlight callers, with digest pinning disabled. Third-party updates retain
+  their existing policy;
   **Terraform core-version bumps disabled** (`terraform` manager, `required_version` depType only —
   providers and modules still update): Renovate raises the constraint in git while the *executing*
   version is the HCP workspace's own `terraform-version` setting, which lives outside git, so a
@@ -331,7 +321,7 @@ reread contract in the runbook.
   **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
   the global seven-day soak; **Dependency Dashboard approval before branch creation** for majors
   and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
-  them; human-merge-only for `go.mod` directive raises and, after approval, for TestFlight and the
+  them; human-merge-only for `go.mod` directive raises and, after approval, for the
   `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
   distinct groups so a manual member cannot disarm an otherwise-safe stable branch. One rule
   runs a post-upgrade task: on a branch that bumps the root `.devcontainer/devcontainer.json`,
@@ -372,8 +362,8 @@ reread contract in the runbook.
     and slugs. Stable members inherit the standing safe automerge rule and seven-day soak; pre-1.0
     members are explicitly unarmed. The broad grouping rules apply only when no earlier rule has
     already assigned `groupName`, preserving `config:best-practices`' narrower monorepo groups.
-    Later local groups (GitHub Actions, tool runtime dependencies, first-party tool pins and
-    TestFlight) set both name and slug so their safer coupled-update boundaries remain authoritative.
+    Later local groups (GitHub Actions, tool runtime dependencies and first-party tool pins)
+    set both name and slug so their safer coupled-update boundaries remain authoritative.
 
   The tool dependency policy is split deliberately. A semantic-only rule maps runtime updates to
   `rubio-cli-kit` or `typer` to `fix(deps)` so release-please cuts a tool release even when the
@@ -388,7 +378,7 @@ reread contract in the runbook.
   independently in each tool repo.
 
   **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
-  the first-party reusable digest, stable non-major tool runtime dependencies and registry pins,
+  stable non-major tool runtime dependencies and registry pins,
   and — in `copier.json` — the template re-render). It was off
   because GitHub-native auto-merge waits only on **required** checks while Renovate's own engine
   waits for **all** checks green, and the onboarded consumers had no required checks beyond the audit ruleset.
@@ -450,7 +440,7 @@ reread contract in the runbook.
   weekly refresh pulls new young releases that re-arm the clock, so the PR stays
   green-but-unmergeable forever (`standards#404`: 8 days, hand-merged 2026-08-03). This does
   NOT generalize to ordinary third-party updates: a *soaking* PR whose clock genuinely runs out
-  is working as designed and must not get an age-0 carve-out. The separate first-party reusable
+  is working as designed and must not get an age-0 carve-out. The separate first-party source
   and tool-dependency exemptions have a different justification: the org deliberately publishes
   and gates those releases itself, so the third-party supply-chain quarantine does not apply. For
   lockfile maintenance, the distinction is instead whether new content structurally re-arms the

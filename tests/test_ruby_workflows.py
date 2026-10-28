@@ -192,7 +192,7 @@ class LintRubyRoutingTests(unittest.TestCase):
         self.assertNotIn("ruby-version", step)
         self.assertLess(
             LINT_TEXT.index("- name: Install Ruby and locked bundle"),
-            LINT_TEXT.index("uses: jdx/mise-action@"),
+            LINT_TEXT.index("uses: Rubio-Enterprises/.github/actions/standards-bootstrap@"),
         )
 
 

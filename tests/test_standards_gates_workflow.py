@@ -135,7 +135,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
             self.directory_after = (consumer / ".standards-config").is_dir()
             return result, calls
 
-    def test_consumer_pipx_tools_wait_for_configured_uv_and_python(self) -> None:
+    def test_config_gate_no_longer_installs_copier_or_its_pipx_prerequisites(self) -> None:
         result, calls = self.run_step({
             "pipx:copier": [{"version": "9.18.1"}],
             "uv": [{"version": "0.12.15"}],
@@ -143,7 +143,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
             "node": [{"version": "22.12.0"}],
         })
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["install uv", "install python", "install pipx:copier"])
+        self.assertEqual(calls, ["ls with link to <standards>"])
 
     def test_linters_are_never_installed_by_config_gate(self) -> None:
         result, calls = self.run_step({
@@ -151,7 +151,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
             "npm:markdownlint-cli2": [], "pipx:yamllint": [], "node": [],
         })
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, [])
+        self.assertEqual(calls, ["ls with link to <standards>"])
 
     def test_producer_and_verdict_consumer_use_the_new_name(self) -> None:
         text = WORKFLOW.read_text()
@@ -167,7 +167,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
     def test_prerequisites_are_only_installed_if_selected_by_consumer(self) -> None:
         result, calls = self.run_step({"pipx:copier": [{"version": "9.18.1"}]})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["install pipx:copier"])
+        self.assertEqual(calls, ["ls with link to <standards>"])
 
     def test_missing_config_pins_preserve_gate_missing_tool_behavior(self) -> None:
         result, calls = self.run_step({
@@ -175,7 +175,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
             "python": [{"version": "3.14.6"}],
         })
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, [])
+        self.assertEqual(calls, ["ls with link to <standards>"])
         self.assertIn("the gate reports them missing", result.stdout)
 
 
@@ -190,7 +190,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
         "pipx:ruff": [{"version": "0.15.0"}],
     }
 
-    def test_native_pins_resolve_through_the_channel_checkout(self) -> None:
+    def test_native_pins_resolve_through_the_standards_checkout(self) -> None:
         result, calls = self.run_step(self.NATIVE_LISTING, answers="config_model: native\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [
@@ -212,7 +212,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
         self.assertEqual(calls, ["install aqua:evilmartians/lefthook aqua:mikefarah/yq"])
         self.assertTrue(self.directory_after)
 
-    def test_rendered_and_unknown_answers_keep_the_rendered_tools(self) -> None:
+    def test_answer_removal_does_not_change_tool_selection(self) -> None:
         for answers in (None, "has_python: true\n", "config_model: rendered\n",
                         "# config_model: native\n", "config_model: Native\n"):
             with self.subTest(answers=answers):
@@ -220,7 +220,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(
                     calls,
-                    ["install uv", "install python", "install aqua:mikefarah/yq pipx:copier"],
+                    ["ls with link to <standards>", "install aqua:evilmartians/lefthook aqua:mikefarah/yq"],
                 )
                 self.assertFalse(self.link_after)
 

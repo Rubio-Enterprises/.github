@@ -75,13 +75,11 @@ class PythonCacheFingerprintTests(unittest.TestCase):
         *,
         requires_python: str | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], str]:
-        text, model_expression = NATIVE_WORKFLOWS[name]
+        text = NATIVE_WORKFLOWS[name]
         step = extract_step(text, STEP)
         env = self.env.copy()
-        no_project = re.search(r"UV_NO_PROJECT: \$\{\{ (.*?) \}\}", step)
-        if no_project:
-            self.assertEqual(no_project.group(1), f"{model_expression} == 'native'")
-            env["UV_NO_PROJECT"] = str(model == "native").lower()
+        self.assertIn('UV_NO_PROJECT: "true"', step)
+        env["UV_NO_PROJECT"] = "true"
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             consumer = root / "consumer"
@@ -130,15 +128,6 @@ class PythonCacheFingerprintTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(output, f"version={self.version}\n")
 
-    def test_rendered_seed_keeps_consumer_project_discovery(self) -> None:
-        for name in NATIVE_WORKFLOWS:
-            with self.subTest(workflow=name):
-                result, output = self.run_fingerprint(name, "rendered")
-                self.assertEqual(result.returncode, 2)
-                self.assertIn(
-                    "No interpreter found for Python >=3.10, <3.14", result.stderr
-                )
-                self.assertEqual(output, "")
 
     def test_rendered_seed_still_resolves_a_compatible_interpreter(self) -> None:
         for name in NATIVE_WORKFLOWS:

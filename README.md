@@ -69,10 +69,10 @@ existing policy. The runtime lockfile-refresh task remains scoped to
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages for repos declaring `has_codewiki`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
-A repository workflow that runs mise in a `config_model: native` repository
+A repository workflow that runs mise in a full standards consumer
 calls the [`standards-bootstrap`](./actions/standards-bootstrap/action.yml)
 composite action first. It clones the Shared Config Checkout with the
-standards-reader token, then removes the token route. The ref to pin and the
+standards-reader token, then removes the token route. The ref to use and the
 secrets to pass are in [`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md).
 
 Canonical non-E2E tests are not centrally executed: each enforcing repository
@@ -127,29 +127,20 @@ See
 
 ## Standards dependency
 
-`standards-gates.yml` checks out `Rubio-Enterprises/standards` and runs its
-`ci/gate-*.sh` checks (audit, lint-config, PR conventions via Danger JS,
-gitleaks) there. Each run
-**resolves the ref at runtime for the calling repository** rather than using a
-fixed tag: `canary` for Canary Ring consumers and `stable` for others.
+The `standards-gates.yml` workflow checks out private `standards@main` for
+every applicable consumer; there is no ring selection or Channel environment.
+Audit content therefore follows reviewed standards merges without a `.github`
+release. Starter inputs still reach consumers through Copier updates.
 
-- Audit-side changes (`standards/scripts/`, `standards/schemas/`,
-  `standards/policy/`, `standards/data/`, or audit-side `.mise.toml`) reach
-  consumers through that resolved ref.
-- Template-side changes in `standards/template/` and `standards/copier.yml`
-  reach consumers via `copier update`, not via `.github`, and
-  **do not require a `.github` release**.
+Internal `.github` workflow/action calls follow `@main`; the shared Renovate
+preset disables updates and digest pinning for that exact dependency, including
+TestFlight callers. Third-party actions retain SHA pins and normal updates.
 
-See
-[`standards/RELEASES.md`](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md)
-for the full model.
-
-Because the ref is resolved per run, new audit-rule **content** reaches
-consumers as their standards channel advances — **no `.github` release needed**.
-A Gate workflow file change is evaluated at an exact candidate commit and then
-published through the guarded `gates/wf-v1` path. A thin-called reusable change
-instead rides a `.github` release (`vX.Y.Z` + release-please moves `v1`), after
-which Renovate bumps consumer-side SHA pins.
+The rollout is staged: remaining full consumers convert before unconditional
+bootstrap lands; repository-owned callers and injected refs converge next.
+Existing publication tags and release workflows remain until their separately
+reviewed retirement. The branch bootstrap supplies no `STANDARDS_PIN`; pin
+provisioning activates only after the starter wave converges.
 
 ## scripts/
 

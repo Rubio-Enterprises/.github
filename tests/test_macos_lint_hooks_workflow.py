@@ -55,7 +55,7 @@ class MacOSRoutingTests(unittest.TestCase):
         )
         self.assertLess(LINT_TEXT.index(PREPARE_STEP), LINT_TEXT.index(RUBY_STEP))
         self.assertLess(LINT_TEXT.index(RUBY_STEP), LINT_TEXT.index("uses: ruby/setup-ruby@"))
-        self.assertLess(LINT_TEXT.index(PREPARE_STEP), LINT_TEXT.index("uses: jdx/mise-action@"))
+        self.assertLess(LINT_TEXT.index(PREPARE_STEP), LINT_TEXT.index("uses: Rubio-Enterprises/.github/actions/standards-bootstrap@"))
         self.assertIn("steps.uv-python.outputs.version", LINT_TEXT)
         for hook in (
             "Run lefthook pre-commit across all files",

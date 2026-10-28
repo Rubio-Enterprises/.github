@@ -45,7 +45,7 @@ task, BD-01 fails.
   Store Connect or registry credentials, so the task must not need them. For
   example, pass `CODE_SIGNING_ALLOWED=NO` to `xcodebuild`. Signed releases stay
   in `testflight.yml`.
-- Repositories on the native config model (`config_model: native`, standards
+- Repositories using native configuration (standards
   ADR-0033) are set up by the [`standards-bootstrap`](standards-bootstrap.md)
   action before the build. It clones the private Shared Config Checkout
   through a read-only standards-reader token and removes that route before

@@ -136,6 +136,7 @@ def _resolve_dependency(
         "platformAutomerge",
         "rangeStrategy",
         "allowedVersions",
+        "pinDigests",
     }
     for rule in CONFIG["packageRules"]:
         if _rule_matches(rule, dependency, resolved):
@@ -171,7 +172,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             if rule.get("automerge") is True
             and rule.get("platformAutomerge") is False
         ]
-        self.assertEqual(len(side_merge_rules), 6)
+        self.assertEqual(len(side_merge_rules), 5)
         for rule in CONFIG["packageRules"]:
             with self.subTest(rule=rule.get("description", rule.get("groupName"))):
                 self.assertIsNot(rule.get("platformAutomerge"), True)
@@ -342,12 +343,52 @@ class RenovateConfigContractTests(unittest.TestCase):
         ):
             with self.subTest(file_name=file_name):
                 self.assertFalse(_resolve_dependency({**dependency, "fileName": file_name})["enabled"])
-                self.assertTrue(
+                self.assertFalse(
                     _resolve_dependency({**dependency, **first_party, "fileName": file_name})["enabled"]
                 )
 
         hand_authored = _resolve_dependency({**dependency, "fileName": ".github/workflows/deploy.yml"})
         self.assertTrue(hand_authored.get("enabled", True))
+
+    def test_first_party_actions_are_disabled_in_every_caller(self) -> None:
+        dependency = {
+            "manager": "github-actions",
+            "depName": "Rubio-Enterprises/.github",
+            "packageName": "Rubio-Enterprises/.github",
+            "currentVersion": "main",
+        }
+        for filename in (".github/workflows/testflight-release.yml",
+                         ".github/workflows/test-gate.yml",
+                         ".github/workflows/custom.yml", "actions/example/action.yml"):
+            for update in ("major", "minor", "digest", "pin", "pinDigest"):
+                with self.subTest(filename=filename, update=update):
+                    resolved = _resolve_dependency({
+                        **dependency, "fileName": filename, "updateType": update,
+                    }, {"pinDigests": True})
+                    self.assertFalse(resolved["enabled"])
+                    self.assertFalse(resolved["pinDigests"])
+
+    def test_first_party_exception_does_not_match_other_dependencies(self) -> None:
+        self.assertIn("helpers:pinGitHubActionDigests", CONFIG["extends"])
+        for dependency in ("actions/checkout", "jdx/mise-action",
+                           "Rubio-Enterprises/.github-private",
+                           "Rubio-Enterprises/other", "other/.github"):
+            with self.subTest(dependency=dependency):
+                resolved = _resolve_dependency({
+                    "manager": "github-actions",
+                    "depName": dependency, "packageName": dependency,
+                    "fileName": ".github/workflows/testflight-release.yml",
+                    "currentVersion": "4.0.0", "updateType": "digest",
+                }, {"pinDigests": True})
+                self.assertTrue(resolved.get("enabled", True))
+                self.assertTrue(resolved["pinDigests"])
+        resolved = _resolve_dependency({
+            "manager": "custom.regex", "depName": "Rubio-Enterprises/.github",
+            "fileName": "manifest.toml", "currentVersion": "4.0.0",
+            "updateType": "digest",
+        }, {"pinDigests": True})
+        self.assertTrue(resolved.get("enabled", True))
+        self.assertTrue(resolved["pinDigests"])
 
     def test_experimental_dev_tools_override_major_and_zero_approval(self) -> None:
         dependency = {
@@ -429,7 +470,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         for rule in (pin, dev, typescript):
             self.assertGreater(index[id(rule)], index[id(major)])
             self.assertGreater(index[id(rule)], index[id(zero)])
-        for name in ("mise-cli", "uv-cli", "testflight release workflow"):
+        for name in ("mise-cli", "uv-cli"):
             self.assertGreater(index[id(_rule_with_group(name))], index[id(dev)])
 
     def test_stable_and_pre_one_groups_resolve_to_distinct_branches(self) -> None:
@@ -797,17 +838,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
             ),
             (
-                "TestFlight",
-                {
-                    "manager": "github-actions",
-                    "depName": "Rubio-Enterprises/.github",
-                    "packageName": "Rubio-Enterprises/.github",
-                    "fileName": ".github/workflows/testflight-release.yml",
-                    "currentVersion": "2.0.0",
-                    "updateType": "digest",
-                },
-            ),
-            (
                 "mise CLI",
                 {
                     "manager": "custom.regex",
@@ -963,7 +993,6 @@ class RenovateConfigContractTests(unittest.TestCase):
             "pre-1.0 npm dependencies",
             "pre-1.0 cargo dependencies",
             "pre-1.0 dependency pins",
-            "testflight release workflow",
             "mise-cli",
             "uv-cli",
         }
