@@ -18,9 +18,8 @@ outputs. The pilot consumer is `bookmark-scraper`.
 | `STANDARDS_READER_APP_ID` | Every full consumer |
 | `STANDARDS_READER_APP_PRIVATE_KEY` | Every full consumer |
 
-Rendered callers need no secrets and keep the same build path. Native callers
-must explicitly forward both secrets as shown below; missing credentials fail
-before building. Fork PRs do not receive them and fail closed for native callers.
+Callers explicitly forward both secrets as shown below; missing credentials
+fail before building. Fork PRs do not receive them and fail closed.
 
 The caller grants `contents: read` and `packages: write` to the calling job;
 fork PRs retain GitHub's read-only token. Do not use `secrets: inherit` or
@@ -84,62 +83,76 @@ Native callers add only these named secrets to the image job (never
       STANDARDS_READER_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
 ```
 
-After checkout, `standards-bootstrap@main` provisions and verifies
-`.standards-config/` on the runner using `bootstrap-parts: repos` and
-`keep-route: false`. It does not install the caller's toolchain on the runner,
-cache those tools, or export their environment; the Dockerfile installs them.
-Bootstrap does not read classification metadata. The action removes and verifies
-removal of its standards token URL route before Docker runs. Git stores
-the original credential-free remote URL, not its rewritten authenticated URL.
-No reader credentials are passed as Docker arguments, environment or secrets.
+After checkout, `standards-bootstrap@main` resolves standards `main` once,
+provisions a clean full-history checkout at that SHA in `.standards-config/`,
+and exports the validated lowercase 40-hex `STANDARDS_PIN` for later steps.
+`bootstrap-parts: repos` skips the caller's toolchain installation and caching;
+the Dockerfile installs it. Origin is the credential-free
+`https://github.com/Rubio-Enterprises/standards.git`, and bootstrap removes its
+read access before repository code runs. No standards credential is passed to
+Docker as an argument, environment variable or secret.
 
-Copy only the included pin fragments and any files they read into the toolchain
-layer, beside `.mise.toml`. For a caller with CodeWiki and no other pin Facets:
+Use mise **2026.10.19 or later** and baseline **3.0.1 or later**. The build
+definition uses the CLI's native argument substitution and named build context:
 
-```dockerfile
-COPY .standards-config/config/mise/base.toml .standards-config/config/mise/codewiki.toml /tmp/mise-pins/.standards-config/config/mise/
-COPY .standards-config/config/codewiki-uv-excludes.txt /tmp/mise-pins/.standards-config/config/
+```json
+{
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "../..",
+    "args": { "STANDARDS_PIN": "${localEnv:STANDARDS_PIN}" },
+    "options": [
+      "--build-context",
+      "standards=${localWorkspaceFolder}/.standards-config"
+    ]
+  }
+}
 ```
 
-Use mise **2026.10.19 or later** and baseline **3.0.1 or later**. Keep the existing
-repository config/manifest COPYs and `mise install --system` toolchain layer.
-Add the fragments selected by the caller's actual `.mise.toml` includes, rather
-than copying all standards files into this layer. Changes to unrelated standards
-files then cannot invalidate the toolchain cache.
+The reusable rejects an absent, empty or malformed pin before building. Its
+Docker check also requires the resolved build argument to match that pin and
+forwards `build.options` without shell evaluation, matching CLI 0.89.0.
+The CLI has no `build --build-arg` flag; `build.args` is the supported interface.
 
-The source layer copies the repository plus the shared `config/` subtree.
-Exclude all other checkout contents and nested Git metadata using Docker's
-native ignore rules:
+The Dockerfile declares `ARG STANDARDS_PIN` (not `ENV`) and mounts the named
+context read-only during toolchain installation and project setup. For example,
+with the caller's own manifests/config already staged in `/tmp/mise-pins`:
+
+```dockerfile
+ARG STANDARDS_PIN
+RUN --mount=type=bind,from=standards,target=/tmp/mise-pins/.standards-config \
+    cd /tmp/mise-pins && bash -euc '[[ "$STANDARDS_PIN" =~ ^[0-9a-f]{40}$ ]]' \
+    && MISE_TRUSTED_CONFIG_PATHS=/tmp/mise-pins mise bootstrap repos status --missing \
+    && MISE_TRUSTED_CONFIG_PATHS=/tmp/mise-pins mise install --system
+```
+
+After copying the repository, mount the same context at its workspace's
+`.standards-config/`, run `mise bootstrap repos status --missing` before
+`CI=true mise run setup`, and retain the ordinary setup tasks. When setup runs
+as another user, Git needs that mount's exact path in `safe.directory` because
+BuildKit presents the checkout as root-owned. Never remove the mounted
+directory during a RUN; it is read-only and disappears when that RUN ends.
+The matching pin makes bootstrap/status/repeated setup use local Git state
+without standards transport. Empty pins must fail, not silently omit a repo.
+
+Exclude the whole checkout from both the Dockerfile-specific ignore file and
+the root fallback used by generated feature Dockerfiles:
 
 ```dockerignore
-.standards-config/*
-!.standards-config/config/
+.standards-config
 **/.git
 ```
 
-Apply these rules to the Dockerfile-specific ignore file and any root fallback
-ignore file used by the CLI. Do not ignore the whole `.standards-config/`
-directory: the local includes would fall back to private Git URLs. Audit/test
-fixtures elsewhere in standards do not belong in the image; no checkout Git
-metadata is needed. Keep both architecture image secret scans enabled.
+The named context bypasses those source-context exclusions only for the explicit
+bind mounts. Never COPY the checkout, its `config/` subtree or its Git database
+into an image layer. Keep both architecture secret scans enabled; scanning
+alone does not prove absence of the private bundle. The full checkout and pin
+must be provisioned again for runtime setup; the image carries neither.
 
-The Dockerfile's plain `CI=true mise run setup` must be build-safe on the
-caller's standards Channel. At `template/v1.55.154`, shared `setup:tools` still
-runs `mise bootstrap --only repos,tools`, which rejects an existing Git-free
-checkout. Runner provisioning alone does not resolve that setup dependency.
-[standards#758](https://github.com/Rubio-Enterprises/standards/pull/758) proposed
-recognizing a provisioned Git-free snapshot and using `mise install` instead,
-but is closed and unpublished. Native image adoption remains blocked until a
-reviewed build-safe setup contract or an alternative provisioning design is
-published; do not bypass setup or add per-repository task overrides. Rendered
-callers are unaffected. Local context preparation otherwise follows the same
-runner-side pattern after `mise bootstrap --only repos,tools`.
-
-Channel-only promotions do not push a consumer commit, so they do not trigger
-a push rebuild. The caller's weekly schedule or a manual dispatch refreshes the
-image; a mounted runtime workspace still runs normal setup to reconcile any
-intervening tool/dependency changes: slower, never wrong. Runtime checkout and
-authentication provisioning are the runtime configuration's responsibility.
+Standards changes do not push a consumer commit or fan out image rebuilds.
+The caller's weekly schedule or manual dispatch refreshes the image. Runtime
+workspace setup reconciles dependencies independently; trusted runtime
+provisioning must supply its own checkout and matching pin.
 
 ## Build and publication
 
