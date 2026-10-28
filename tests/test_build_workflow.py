@@ -248,16 +248,16 @@ class ArtifactBuildTests(unittest.TestCase):
         positions = [bd.index(f"- name: {name}") for name in order]
         self.assertEqual(positions, sorted(positions))
 
-    def test_ruby_is_provisioned_on_the_macos_route_before_the_build(self) -> None:
+    def test_ruby_is_provisioned_on_every_route_before_the_build(self) -> None:
         bd = job("bd-01")
         self.assertIn("has_ruby: ${{ steps.pick.outputs.has_ruby }}", job("detect"))
-        condition = "if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'"
         prepare = extract_step(TEXT, "Prepare macOS Ruby dependencies and tool cache")
-        self.assertIn(condition, prepare)
+        self.assertIn("if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'", prepare)
         self.assertIn("brew install openssl@3 libyaml gmp", prepare)
         self.assertIn("/Users/runner/hostedtoolcache", prepare)
         install = extract_step(TEXT, "Install Ruby and locked bundle")
-        self.assertIn(condition, install)
+        self.assertIn("if: needs.detect.outputs.has_ruby == 'true'", install)
+        self.assertNotIn("runner.os", install)
         self.assertIn("bundler-cache: true", install)
         self.assertNotIn("ruby-version:", install)
         order = [
@@ -270,10 +270,9 @@ class ArtifactBuildTests(unittest.TestCase):
         positions = [bd.index(f"- name: {name}") for name in order]
         self.assertEqual(positions, sorted(positions))
 
-    def test_ruby_off_the_macos_route_is_reported(self) -> None:
-        step = extract_step(TEXT, "Report unprovisioned Ruby")
-        self.assertIn("if: runner.os != 'macOS' && needs.detect.outputs.has_ruby == 'true'", step)
-        self.assertIn("::warning::", step)
+    def test_ruby_has_no_warning_only_path(self) -> None:
+        self.assertNotIn("Report unprovisioned Ruby", TEXT)
+        self.assertNotIn("::warning::", job("bd-01"))
 
     def test_apple_builds_require_xcode(self) -> None:
         step = extract_step(TEXT, "Prepare the macOS build toolchain")

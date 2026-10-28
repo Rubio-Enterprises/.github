@@ -129,9 +129,10 @@ jobs:
           # An Apple build needs the selected Xcode toolchain
           xcodebuild -version
           xcrun --find swift
-      # Ruby release builds are provisioned on the macOS route only, where
-      # Tart matches setup-ruby's Darwin prebuilds; the self-hosted Linux
-      # routes cannot run its hosted-toolcache binaries.
+      # Ruby is provisioned on every route. setup-ruby's Darwin prebuilds need
+      # Homebrew's libraries and this fixed cache path on Tart; the Linux
+      # route's glue-runner image is Ubuntu 24.04 with a runner-owned
+      # /opt/hostedtoolcache and the prebuilds' runtime libraries.
       - name: Prepare macOS Ruby dependencies and tool cache
         if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'
         shell: bash
@@ -143,15 +144,10 @@ jobs:
             sudo mkdir -p /Users/runner/hostedtoolcache
             sudo chown "$(id -u):$(id -g)" /Users/runner/hostedtoolcache
           fi
-      - name: Report unprovisioned Ruby
-        if: runner.os != 'macOS' && needs.detect.outputs.has_ruby == 'true'
-        shell: bash
-        run: |
-          echo "::warning::has_ruby is declared, but BD-01 provisions .ruby-version only on the macOS route; a build task that needs Bundler runs here without it (docs/build-gate.md)"
       # ruby/setup-ruby reads the consumer-owned `.ruby-version`; bundler-cache
       # installs the exact Gemfile.lock set before the build task runs.
       - name: Install Ruby and locked bundle
-        if: runner.os == 'macOS' && needs.detect.outputs.has_ruby == 'true'
+        if: needs.detect.outputs.has_ruby == 'true'
         uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
         with:
           bundler-cache: true
