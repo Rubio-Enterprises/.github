@@ -1,6 +1,0 @@
-{
-  "standards-gates": ".github/workflows/standards-gates.yml",
-  "gate-typescript": ".github/workflows/typecheck-ts.yml",
-  "gate-lint-hooks": ".github/workflows/lint-hooks.yml",
-  "gate-build": ".github/workflows/build.yml"
-}

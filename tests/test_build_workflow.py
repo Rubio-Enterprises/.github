@@ -84,7 +84,7 @@ def pick(repo: Path) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
 
 
 class InjectionContractTests(unittest.TestCase):
-    def test_triggers_permissions_and_manifest(self) -> None:
+    def test_triggers_and_permissions(self) -> None:
         on_block = TEXT.split('"on":', 1)[1].split("permissions:", 1)[0]
         self.assertEqual(
             [line.strip() for line in on_block.strip().splitlines()],
@@ -92,10 +92,6 @@ class InjectionContractTests(unittest.TestCase):
         )
         self.assertIn("permissions:\n  contents: read\n", TEXT)
         self.assertNotIn("pull_request_target", TEXT)
-        manifest = json.loads(
-            (ROOT / ".github/plumbing-ref/gate-family-workflows.json").read_text()
-        )
-        self.assertEqual(manifest["gate-build"], ".github/workflows/build.yml")
 
     def test_source_repository_runs_are_a_no_op(self) -> None:
         self.assertIn(

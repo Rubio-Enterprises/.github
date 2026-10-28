@@ -104,11 +104,7 @@ enabled fails at the deploy step.
 
 ## Versioning and consumer updates
 
-This is a thin-called reusable, not a Gate Family workflow. It is not in
-`.github/plumbing-ref/gate-family-workflows.json` and does not ride
-`gates/wf-v1`. It ships through this repository's release-please release and
-the floating `v4` major tag. Consumers call it at the SHA in their rendered
-`standards.yml` (`@<sha> # v4`), which Renovate advances when `v4` moves. A
-consumer can call the workflow only once its pinned SHA includes it, so the
-standards template's `reusable_workflow_sha` placeholder must be at or after
-the first release that contains this file.
+This is a thin-called reusable, not a Gate Family workflow. Consumers call
+`Rubio-Enterprises/.github/.github/workflows/codewiki-pages.yml@main`.
+Reviewed merges take effect on the next run; no release or digest-update PR
+is required.
