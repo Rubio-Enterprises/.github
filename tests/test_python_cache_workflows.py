@@ -71,7 +71,7 @@ class PythonCacheFingerprintTests(unittest.TestCase):
     def run_fingerprint(
         self,
         name: str,
-        model: str = "native",
+        model: str | None = None,
         *,
         requires_python: str | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], str]:
@@ -84,9 +84,10 @@ class PythonCacheFingerprintTests(unittest.TestCase):
             root = Path(tmp)
             consumer = root / "consumer"
             shutil.copytree(FIXTURE, consumer)
-            (consumer / ".copier-answers.yml").write_text(
-                f"config_model: {model}\nhas_python: true\n"
-            )
+            answers = "has_python: true\n"
+            if model is not None:
+                answers = f"config_model: {model}\n" + answers
+            (consumer / ".copier-answers.yml").write_text(answers)
             if requires_python is not None:
                 manifest = consumer / "pyproject.toml"
                 manifest.write_text(

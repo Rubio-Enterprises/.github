@@ -191,7 +191,7 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
     }
 
     def test_native_pins_resolve_through_the_standards_checkout(self) -> None:
-        result, calls = self.run_step(self.NATIVE_LISTING, answers="config_model: native\n")
+        result, calls = self.run_step(self.NATIVE_LISTING, answers="has_python: true\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [
             "ls with link to <standards>",
@@ -200,13 +200,14 @@ class ConsumerLintBootstrapTests(unittest.TestCase):
         self.assertFalse(self.link_after, "the stand-in link must not outlive the step")
 
     def test_quoted_native_answer_selects_the_native_tools(self) -> None:
+        """Verify leftover quoted config_model in answers is ignored."""
         result, calls = self.run_step(self.NATIVE_LISTING, answers='config_model: "native"\n')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls[-1], "install aqua:evilmartians/lefthook aqua:mikefarah/yq")
 
     def test_existing_checkout_is_used_and_kept(self) -> None:
         result, calls = self.run_step(
-            self.NATIVE_LISTING, answers="config_model: native\n", existing="directory",
+            self.NATIVE_LISTING, answers="has_python: true\n", existing="directory",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, ["install aqua:evilmartians/lefthook aqua:mikefarah/yq"])
