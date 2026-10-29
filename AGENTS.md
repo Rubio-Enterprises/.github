@@ -48,7 +48,7 @@ ref at `refs/heads/main`. Reusable workflows and actions also follow `@main`.
 | `build.yml` | `gate-build` | BD-01 non-publishing `mise run build` (`has_release_artifact`; Swift on `RUNNERS.macos`, unsigned) and CT-01 `compose.ci.yml` smoke with healthy and non-root assertions (`has_container_image`). A declared check with no task or descriptor fails. See [`docs/build-gate.md`](docs/build-gate.md) | — |
 
 **Shared config (standards ADR-0033).** A full consumer
-inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Checkout at
+inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Directory at
 `.standards-config/`. Every workflow that runs mise in a consumer (`lint-hooks`,
 `typecheck-ts`, `build`, and the `e2e` and `cloud-setup-smoke` reusables) sets the checkout
 up with the shared composite action
