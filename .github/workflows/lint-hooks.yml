@@ -31,7 +31,7 @@ name: lint-hooks
 # running mise without a standards credential. A missing checkout fails the job.
 #
 # Delivery: the `gate-lint-hooks` org ruleset injects this file as a Required
-# Governance Workflow (published at `gates/wf-v1`) into every repository whose
+# Governance Workflow from `refs/heads/main` into every repository whose
 # `gate-lint-hooks` property is true, on `pull_request` and `merge_group`. A
 # repository cannot edit or skip it (standards#627). It is no longer callable
 # via `workflow_call`; any remaining rendered caller pins an older SHA and
