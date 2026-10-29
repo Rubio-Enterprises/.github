@@ -94,19 +94,18 @@ route has its own hosted fallback for public callers:
 
 | Route | Self-hosted | Hosted fallback |
 | --- | --- | --- |
-| `light` | `glue-x64` | `ubuntu-slim` |
-| `heavy` | `linux-x64` | `ubuntu-latest` |
+| `small` | `linux-x64-small` | `ubuntu-slim` |
+| `medium` | `linux-x64-medium` | `ubuntu-latest` |
 | `docker`, `kvm` | `linux-x64-large` | `ubuntu-latest` |
 | `arm` | `linux-arm64` | `ubuntu-24.04-arm` |
-| `e2e` | `linux-arm64` | `ubuntu-latest` |
-| `vrt` | `linux-x64` | self-only `linux-x64` |
+| `vrt` | `linux-x64-medium` | self-only `linux-x64-medium` |
 | `macos` | `macos-arm64` | `macos-26` |
 
 The `e2e.yml` reusable uses `arm`, including the `ubuntu-24.04-arm` fallback
 when the private map is unavailable. A caller declaring `has_swift` runs on
 `macos` instead (hosted `macos-26` fallback), because an Apple suite needs Xcode
-and the iOS Simulator. The legacy `e2e` key remains in the live
-map only during retirement; new workflows should use `arm` instead
+and the iOS Simulator. The map has exactly seven active keys; `light`, `heavy`
+and `e2e` are retired, and non-Swift E2E workflows use `arm` instead
 ([standards ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md)).
 
 The shared Renovate preset in `default.json` schedules ordinary updates on

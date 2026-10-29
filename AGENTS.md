@@ -214,7 +214,6 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   | `docker` | `linux-x64-large` | `ubuntu-latest` | x64 Docker/Compose/builds |
   | `kvm` | `linux-x64-large` | `ubuntu-latest` | nested x86 virtualization |
   | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
-  | `e2e` | `linux-arm64` | `ubuntu-latest` | multi-GiB Playwright work |
   | `vrt` | `linux-x64-medium` | `linux-x64-medium` (self-only) | pinned visual rendering |
   | `macos` | `macos-arm64` | `macos-26` | Xcode and signing |
 
