@@ -16,7 +16,7 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/e2e.yml"
 TEXT = WORKFLOW.read_text(encoding="utf-8")
 PICK_STEP = "Pick the runner from the Swift facet"
 MACOS_STEP = "Prepare the macOS toolchain"
-RUNNERS = {"MACOS_RUNNER": '[\n  "macos-tart"\n]', "ARM_RUNNER": '["linux-arm64"]'}
+RUNNERS = {"MACOS_RUNNER": '[\n  "macos-arm64"\n]', "ARM_RUNNER": '["linux-arm64"]'}
 
 
 def job(name: str) -> str:
@@ -118,8 +118,8 @@ class E2ERouteTests(unittest.TestCase):
 
     def test_swift_suites_route_to_macos_and_others_to_arm(self) -> None:
         for answers, runner in (
-            ("has_swift: true\n", ["macos-tart"]),
-            ("has_swift: true\nhas_typescript: true\n", ["macos-tart"]),
+            ("has_swift: true\n", ["macos-arm64"]),
+            ("has_swift: true\nhas_typescript: true\n", ["macos-arm64"]),
             ("has_swift: false\nhas_typescript: true\n", ["linux-arm64"]),
             ("has_swift: 'true'\n", ["linux-arm64"]),
             ("# has_swift: true\n", ["linux-arm64"]),

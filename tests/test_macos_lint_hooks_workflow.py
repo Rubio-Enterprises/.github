@@ -34,9 +34,9 @@ class MacOSRoutingTests(unittest.TestCase):
             with self.subTest(facet=facet):
                 output = router.route(
                     f"{facet}: true\nhas_ruby: true\nlint_hooks_workload_class: heavy\n",
-                    MACOS_RUNNER='[\n  "self-hosted",\n  "macos-tart"\n]',
+                    MACOS_RUNNER='[\n  "self-hosted",\n  "macos-arm64"\n]',
                 )
-                self.assertEqual(output["runner"], '["self-hosted","macos-tart"]')
+                self.assertEqual(output["runner"], '["self-hosted","macos-arm64"]')
                 self.assertEqual(output["has_ruby"], "true")
 
     def test_no_bare_hosted_macos_route_in_other_workflows(self) -> None:
