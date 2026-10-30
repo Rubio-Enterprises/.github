@@ -1,0 +1,107 @@
+name: Bug
+description: Report behavior that does not match expectations.
+type: bug
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for something that is broken, including a regression.
+        Examples: a command crashes on valid input; an export contains malformed output.
+
+        An initial report does not need a complete reproducer. Describe what you know;
+        if steps, version, or environment details are unknown, say so instead of guessing.
+        A durable reproducer is needed before unattended agent implementation.
+        Examples are illustrative, not reports about this repository. Redact secrets from logs.
+  - type: textarea
+    id: description
+    attributes:
+      label: "Description"
+      description: "Summarize the problem and who or what it affects."
+      placeholder: |
+        JSON export includes a diagnostic message before the data, so scripts cannot parse stdout.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps"
+      description: "Give the observed sequence and inputs. If you cannot reproduce it yet, describe the occurrence and what remains unknown."
+      placeholder: |
+        1. Use the sample configuration attached to this issue.
+        2. Run the inventory command in JSON mode.
+        3. Pipe stdout to jq.
+        4. Observe a parse error when the diagnostic is emitted.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected behavior"
+      description: "Describe the observable result you expected."
+      placeholder: |
+        Stdout contains only valid JSON. Diagnostic messages go to stderr.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: "Actual behavior"
+      description: "Describe the result you observed, including frequency when known."
+      placeholder: |
+        A warning precedes the JSON on stdout. It occurs whenever the sample configuration triggers the warning.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "Version / commit"
+      description: "Give the affected release or commit, if known. An honest Unknown is acceptable for initial intake."
+      placeholder: |
+        Version 1.4.2; commit <full commit SHA>.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment"
+      description: "Give relevant OS, runtime, configuration, and deployment details. Include an agent/model only if relevant to the failure; do not include credentials."
+      placeholder: |
+        macOS on Apple silicon; project-pinned runtime versions.
+        Fresh checkout with the attached sample configuration; no external services.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Reproduction"
+      description: "Optional at filing. For unattended handoff, link committed reproduction material at a fixed revision and give setup, commands or UI steps, and failure evidence. A running Codespace URL alone is not sufficient."
+      placeholder: |
+        Repository and revision: https://github.com/Rubio-Enterprises/<repo>/tree/<full-commit-sha>
+        Setup: use the environment definition committed at that revision.
+        Reproduce: run the commands in reproductions/json-output/README.md.
+        Evidence: attach the sanitized stdout and parser error; expected output is valid JSON.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Logs"
+      description: "Optional: paste the relevant sanitized output, not an entire unrelated log archive."
+      placeholder: |
+        Warning: optional source is unavailable
+        []
+        jq: parse error before the JSON array
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: "Additional context"
+      description: "Optional: link related issues or attach sanitized screenshots and other useful evidence."
+      placeholder: |
+        The previous release produced parseable output with the same input. Attach the two short output samples.
+    validations:
+      required: false

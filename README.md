@@ -14,6 +14,7 @@ its GitHub repository name remains `.github`.
 
 - [Install](#install)
 - [Usage](#usage)
+- [Shared issue forms](#shared-issue-forms)
 - [Reusable workflows](#reusable-workflows)
 - [Runner routes and dependency updates](#runner-routes-and-dependency-updates)
 - [Standards dependency](#standards-dependency)
@@ -59,6 +60,38 @@ from both updates and digest pinning: consumers intentionally use private,
 floating `:main` prebuilds. Other images and Dev Container features keep their
 existing policy. The runtime lockfile-refresh task remains scoped to
 `.devcontainer/devcontainer.json`; it does not refresh build-definition locks.
+
+## Shared issue forms
+
+The canonical organization defaults live in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/):
+
+| Form | Use for | Native issue type |
+| --- | --- | --- |
+| [Bug](.github/ISSUE_TEMPLATE/bug.yml) | Broken behavior or a regression | `bug` |
+| [Enhancement](.github/ISSUE_TEMPLATE/enhancement.yml) | New or improved behavior | `enhancement` |
+| [Refactoring](.github/ISSUE_TEMPLATE/refactoring.yml) | Structural code changes that preserve behavior | `task` |
+| [Task](.github/ISSUE_TEMPLATE/task.yml) | Documentation, maintenance, infrastructure, or other concrete work | `task` |
+
+Every form starts with only `needs-triage`; kind labels and Stage fields are not
+assigned. Proposal forms require Outcome, Problem / motivation, In scope, Out of
+scope, Done when, Verification, and Alternatives considered; Context links are
+optional. Bug intake is diagnostic: a complete reproduction is optional at
+filing, but needed before unattended implementation. Examples are placeholders,
+not prefilled answers.
+
+Repositories without local issue templates inherit the complete set from this
+public `.github` repository's default branch. Any local issue template or
+`ISSUE_TEMPLATE/config.yml` overrides **the entire inherited set**, not just one
+form. Review all local template locations (root, `.github/`, and `docs/`) and
+remove redundant overrides through reviewed changes; a repository retaining an
+override must maintain its complete local chooser. No Copier release, renderer,
+or synchronization job is needed.
+
+Before publishing, prepare compatible issue consumers, ensure the lowercase
+native types and `needs-triage` label exist where used, and pilot the complete
+chooser in one repository. These files do not provision GitHub metadata or change
+existing issues. Required fields are not a universal enforcement boundary,
+particularly in private repositories or for API/CLI-created issues.
 
 ## Reusable workflows
 
@@ -176,6 +209,17 @@ installed, check workflow syntax and the standard-library contract tests:
 actionlint
 python3 -m unittest discover -s tests
 ```
+
+Issue-form YAML/structure checks also use an existing `yq` v4 executable (no new
+Python dependencies); those checks skip when it is unavailable. To run only the
+issue-form tests:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_issue_forms.py' -v
+```
+
+These checks validate source paths and form structure, not GitHub rendering or
+submission behavior.
 
 CI runs workflow validation and the repository-local `test-gate`.
 All workflow and action changes ship on merge to `main`; review their consumer

@@ -1,0 +1,96 @@
+name: Enhancement
+description: Propose new or improved behavior.
+type: enhancement
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for new capabilities or improvements to existing behavior.
+        Examples: add JSON output to a CLI; add a filter to a dashboard.
+
+        Keep answers concise. Context links are optional; other sections are required.
+        If a section genuinely does not apply, explain why rather than inventing content.
+        Examples are illustrative, not reports about this repository. Do not include secrets.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: "Outcome"
+      description: "What useful result should this work deliver, and for whom?"
+      placeholder: |
+        Operators can consume inventory results in scripts without parsing a human-readable table.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem / motivation"
+      description: "Describe the current situation and why it needs to change."
+      placeholder: |
+        Inventory output is currently table-only. Small formatting changes break downstream scripts.
+    validations:
+      required: true
+  - type: textarea
+    id: in-scope
+    attributes:
+      label: "In scope"
+      description: "Name the behavior, areas, or artifacts this issue should change. Include concrete constraints."
+      placeholder: |
+        - Add a JSON output mode for inventory results.
+        - Include the same records and fields as the existing output.
+        - Preserve the current default output.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: "Out of scope"
+      description: "Name related work that is deliberately excluded."
+      placeholder: |
+        - CSV or YAML output.
+        - Changes to how inventory data is collected.
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "List observable conditions that must be true when the work is complete."
+      placeholder: |
+        - [ ] JSON mode emits a valid JSON array, including an empty array for no results.
+        - [ ] Diagnostics do not appear in the JSON stream.
+        - [ ] The default output remains unchanged.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: "Verification"
+      description: "Give relevant commands or manual checks and their expected results. Use the repository's actual tools."
+      placeholder: |
+        mise run test — include cases for empty and populated inventory output.
+        Run the CLI in JSON mode and parse stdout with jq; parsing succeeds.
+        Run the CLI without the new option; the existing output is unchanged.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives considered"
+      description: "Describe actual alternatives and why they were rejected. Use N/A only with a concrete reason no meaningful choice existed—not because alternatives were not investigated."
+      placeholder: |
+        Parse the existing table — rejected because it is a presentation format, not a stable interface.
+        Add CSV output — rejected because records contain nested data.
+        Add JSON output — selected because existing consumers can parse it directly.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: "Context links"
+      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance."
+      placeholder: |
+        Link to the inventory consumer that currently parses the table, plus an example of the nested records it needs.
+    validations:
+      required: false
