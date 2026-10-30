@@ -17,8 +17,12 @@ canonical tests remain repository-owned (`test-gate`).
 
 Unlisted repositories retain their original runner choices, commands, dependency
 and cache inputs, authentication routes and conditions. The additive exception
-is job-local `packages: read` alongside `contents: read`, needed for hosted pulls;
-GitHub does not permit conditional permission scopes. No package writes are added.
+is job-local `packages: read` alongside `contents: read` for injected-only lint
+and BD-01 jobs. Callable typecheck stays `contents: read`: existing cache-seed
+callers grant only contents read, and a reusable cannot elevate that grant even
+when image steps are skipped. Hosted typecheck image pulls remain held until a
+coordinated caller/callee permission migration. GitHub does not permit conditional
+permission scopes. No package writes are added.
 Image steps are skipped until the central switch selects the repository. There
 is no registry probing, readiness inference or per-repository opt-in file.
 

@@ -336,13 +336,25 @@ class Wiring(unittest.TestCase):
             text = (WORKFLOWS / name).read_text()
             self.assertIn('\n  ' + job + ':\n', text)
             self.assertIn("vars.CI_IMAGE_REPOS == 'all'", text)
-            self.assertIn('packages: read', text)
+            if name == 'typecheck-ts.yml':
+                self.assertNotIn('packages: read', text)
+            else:
+                self.assertIn('packages: read', text)
             self.assertNotIn('packages: write', text)
             self.assertNotIn('pull_request_target', text)
             for step in ['Select the declared CI Image route', 'Run project commands in the Repository Image']:
                 self.assertIn('Rubio-Enterprises/.github/actions/devcontainer-run@main', extract_step(text, step))
             self.assertLess(text.index('- name: Provision standards for image execution'),
                             text.index('- name: Run project commands in the Repository Image'))
+
+    def test_callable_typecheck_preserves_contents_only_caller_permissions(self):
+        text = (WORKFLOWS / 'typecheck-ts.yml').read_text()
+        self.assertIn('\n  workflow_call:\n', text)
+        header = text.split('\n  typecheck:\n', 1)[1].split('\n    steps:', 1)[0]
+        self.assertIn('permissions:\n      contents: read\n', header)
+        self.assertNotIn('packages:', header)
+        for name in ['lint-hooks.yml', 'build.yml']:
+            self.assertNotIn('\n  workflow_call:', (WORKFLOWS / name).read_text())
 
     def test_native_step_bodies_and_cache_auth_inputs_are_unchanged(self):
         fixture = json.loads((ROOT / 'tests/fixtures/image-opt-out.json').read_text())
