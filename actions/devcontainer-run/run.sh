@@ -55,7 +55,7 @@ while IFS= read -r key; do
   [ -n "$key" ] || continue
   value="$(git config --global --get "$key")"
   allowed=false
-  if [ "$value" = https://github.com/Rubio-Enterprises/knowledgebase-framework.git ]; then allowed=true; fi
+  if [ "${value%.git}" = https://github.com/Rubio-Enterprises/knowledgebase-framework ]; then allowed=true; fi
   IFS=',' read -ra repos <<< "${GO_PRIVATE_MODULE_REPOS:-}"
   for repo in "${repos[@]}"; do
     repo="${repo// /}"
