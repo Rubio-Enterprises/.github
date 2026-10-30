@@ -110,7 +110,8 @@ class CacheLifecycleTests(unittest.TestCase):
         for name, text in WORKFLOWS.items():
             with self.subTest(workflow=name):
                 restore = step(text, "Restore the pnpm cacheDir")
-                self.assertIn("if: steps.pnpm-cache-dir.outputs.ok == 'true'", restore)
+                route = "route" if name == "typecheck-ts" else "detect"
+                self.assertIn(f"if: needs.{route}.outputs.image_mode == '' && (steps.pnpm-cache-dir.outputs.ok == 'true')", restore)
                 self.assertIn("uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9", restore)
                 self.assertIn("path: ${{ steps.pnpm-cache-dir.outputs.path }}", restore)
                 self.assertIn(f"key: {KEY}", restore)

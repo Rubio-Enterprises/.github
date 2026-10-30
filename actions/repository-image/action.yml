@@ -1,0 +1,39 @@
+name: Repository image assets
+description: Central generic build inputs and immutable base-pair validation
+inputs:
+  operation:
+    description: resolve or prepare
+    required: true
+  base:
+    description: Public base tag or immutable index reference
+    default: ghcr.io/rubio-enterprises/devcontainers/base:latest
+  base-ci:
+    description: Public runner base tag or immutable index reference
+    default: ghcr.io/rubio-enterprises/devcontainers/base-ci:latest
+  config:
+    description: Repository-relative extra-Features definition
+    default: .github/.devcontainer/devcontainer.json
+outputs:
+  base:
+    description: Resolved base index reference
+    value: ${{ steps.run.outputs.base }}
+  base-ci:
+    description: Resolved runner base index reference
+    value: ${{ steps.run.outputs.base-ci }}
+  assets:
+    description: Trusted central assets directory
+    value: ${{ steps.run.outputs.assets }}
+  context:
+    description: Prepared job-local build inputs
+    value: ${{ steps.run.outputs.context }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        BASE: ${{ inputs.base }}
+        BASE_CI: ${{ inputs.base-ci }}
+        CONFIG: ${{ inputs.config }}
+      run: node "$GITHUB_ACTION_PATH/image.mjs" "$OPERATION"
