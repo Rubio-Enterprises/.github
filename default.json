@@ -9,7 +9,7 @@
     "github>Rubio-Enterprises/.github:copier"
   ],
   "timezone": "America/Chicago",
-  "dependencyDashboard": true,
+  "dependencyDashboard": false,
   "commitHourlyLimit": 1,
   "prHourlyLimit": 1,
   "prConcurrentLimit": 5,
@@ -30,7 +30,13 @@
     },
     {
       "description": "Ruff is owned only by the standards mise floor. Freeze PyPI manifest copies, including optional/dev groups and requirements, while leaving standards custom.regex pipx floor bumps enabled.",
-      "matchManagers": ["pep621", "pip_requirements", "pip_setup", "poetry", "pipenv"],
+      "matchManagers": [
+        "pep621",
+        "pip_requirements",
+        "pip_setup",
+        "poetry",
+        "pipenv"
+      ],
       "matchDatasources": ["pypi"],
       "matchPackageNames": ["ruff"],
       "enabled": false
@@ -62,39 +68,33 @@
       "enabled": false
     },
     {
-      "description": "Major updates are migrations, not background maintenance. Keep them visible in the Dependency Dashboard but do not create a branch, PR, or downstream CI run until an operator explicitly approves the update.",
-      "matchUpdateTypes": ["major"],
-      "dependencyDashboardApproval": true
-    },
-    {
-      "description": "Pre-1.0 dependencies can break on any release, so require explicit Dependency Dashboard approval before Renovate creates their branch and triggers downstream CI.",
-      "matchCurrentVersion": "/^v?0/",
-      "dependencyDashboardApproval": true
-    },
-    {
       "description": "Pin only named Python dev tools in pep621 dev groups: rangeStrategy:bump writes pyright>=1.1.413, then uv lock resolves 1.1.414 while it is inside the seven-day soak, and Renovate's artifact guard rejects the lockfile. An exact pin keeps the selected, aged version and its uv resolution aligned; runtime and optional dependencies retain their own range strategy.",
       "matchManagers": ["pep621"],
       "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
-      "matchPackageNames": ["pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
+      "matchPackageNames": [
+        "pytest",
+        "/^pytest-/",
+        "mypy",
+        "pyright",
+        "coverage",
+        "hypothesis"
+      ],
       "rangeStrategy": "pin"
     },
     {
       "description": "The exact pin of these dev tools writes the version uv.lock already resolves (Renovate 44 derives pep621 current versions from the lock), so it adopts no new release and the seven-day soak has nothing to age. Renovate also wires no release timestamp into `pin` updates (renovatebot/renovate#40288), so under timestamp-required every such pin branch otherwise holds renovate/stability-days pending forever. Only the pin skips the soak; version updates of these tools keep it.",
       "matchManagers": ["pep621"],
       "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
-      "matchPackageNames": ["pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
+      "matchPackageNames": [
+        "pytest",
+        "/^pytest-/",
+        "mypy",
+        "pyright",
+        "coverage",
+        "hypothesis"
+      ],
       "matchUpdateTypes": ["pin"],
       "minimumReleaseAge": null
-    },
-    {
-      "description": "Experimental-tier Python dev tools may merge green major and pre-1.0 updates without dashboard approval, after the normal seven-day release soak. Production standards/.github/.github-private keep their manual posture; later manual exceptions remain authoritative.",
-      "matchManagers": ["pep621"],
-      "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
-      "matchPackageNames": ["pytest", "/^pytest-/", "mypy", "pyright", "coverage", "hypothesis"],
-      "matchRepositories": ["!Rubio-Enterprises/standards", "!Rubio-Enterprises/.github", "!Rubio-Enterprises/.github-private"],
-      "dependencyDashboardApproval": false,
-      "automerge": true,
-      "platformAutomerge": false
     },
     {
       "description": "Hold TypeScript 7 only where the current version is below 7: TypeScript 7 removes baseUrl and moduleResolution=node10, and typescript-eslint and @astrojs/check peer ranges do not yet support it. Lift the hold when both support TypeScript 7; repositories already on 7 continue receiving 7.x.",
@@ -202,13 +202,13 @@
       "enabled": false
     },
     {
-      "description": "First-party fast lane for org-published OCI artifacts. The global 7-day minimumReleaseAge is a supply-chain soak for just-published THIRD-PARTY versions; an artifact the org itself publishes to ghcr.io/rubio-enterprises (Dev Container features, container images) was already gated by review and CI on the PR that released it, so there is nothing to vet. null, not \"0 days\": a Dev Container feature's OCI manifest carries no creation timestamp, and Renovate's default minimumReleaseAgeBehaviour (timestamp-required) never treats an untimestamped release as stable, so any age requirement at all would hold these updates forever. Scoped to the docker datasource and the ghcr.io/rubio-enterprises/ prefix because GHCR enforces org ownership of that namespace; the bare `rubio-enterprises/` docker name is deliberately NOT matched — it resolves to Docker Hub, whose namespaces are first-come and not provably the org's. Approval and automerge are untouched: majors still need dashboard approval.",
+      "description": "First-party fast lane for org-published OCI artifacts. The global 7-day minimumReleaseAge is a supply-chain soak for just-published THIRD-PARTY versions; an artifact the org itself publishes to ghcr.io/rubio-enterprises (Dev Container features, container images) was already gated by review and CI on the PR that released it, so there is nothing to vet. null, not \"0 days\": a Dev Container feature's OCI manifest carries no creation timestamp, and Renovate's default minimumReleaseAgeBehaviour (timestamp-required) never treats an untimestamped release as stable, so any age requirement at all would hold these updates forever. Scoped to the docker datasource and the ghcr.io/rubio-enterprises/ prefix because GHCR enforces org ownership of that namespace; the bare `rubio-enterprises/` docker name is deliberately NOT matched — it resolves to Docker Hub, whose namespaces are first-come and not provably the org's. The age exemption does not widen automerge: majors and pre-1.0 updates remain held drafts.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["/^ghcr\\.io\\/rubio-enterprises\\//i"],
       "minimumReleaseAge": null
     },
     {
-      "description": "First-party fast lane for org-owned GitHub sources: reusable workflows and actions, GitHub releases/tags/digests, git tags/refs and Go modules under github.com/Rubio-Enterprises. Same rationale as the GHCR rule above: these releases are cut by the org's own reviewed merges, so the third-party soak protects nothing. Matched only on datasources whose package name is a GitHub owner path, because GitHub enforces that the Rubio-Enterprises owner is the org; never on publisher-declared metadata such as sourceUrl (any third-party npm/PyPI package can claim a github.com/Rubio-Enterprises repository URL) or on bare package names in public registries (dependency confusion). The trailing slash anchors the owner exactly, so look-alike owners such as Rubio-Enterprises-x do not match. Approval and automerge are untouched.",
+      "description": "First-party fast lane for org-owned GitHub sources: reusable workflows and actions, GitHub releases/tags/digests, git tags/refs and Go modules under github.com/Rubio-Enterprises. Same rationale as the GHCR rule above: these releases are cut by the org's own reviewed merges, so the third-party soak protects nothing. Matched only on datasources whose package name is a GitHub owner path, because GitHub enforces that the Rubio-Enterprises owner is the org; never on publisher-declared metadata such as sourceUrl (any third-party npm/PyPI package can claim a github.com/Rubio-Enterprises repository URL) or on bare package names in public registries (dependency confusion). The trailing slash anchors the owner exactly, so look-alike owners such as Rubio-Enterprises-x do not match. The age exemption does not widen automerge: majors and pre-1.0 updates remain held drafts.",
       "matchDatasources": [
         "github-tags",
         "github-releases",
@@ -218,7 +218,9 @@
         "git-refs",
         "go"
       ],
-      "matchPackageNames": ["/^(https:\\/\\/)?(github\\.com\\/)?Rubio-Enterprises\\//i"],
+      "matchPackageNames": [
+        "/^(https:\\/\\/)?(github\\.com\\/)?Rubio-Enterprises\\//i"
+      ],
       "minimumReleaseAge": null
     },
     {
@@ -302,9 +304,22 @@
     {
       "description": "Per-repository prebuilt Dev Container images deliberately float on :main. They are private packages unavailable to Renovate; do not look up versions or pin digests in any Docker-datasource manager.",
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["/^ghcr\\.io/rubio-enterprises/[^/]+/devcontainer$/"],
+      "matchPackageNames": [
+        "/^ghcr\\.io/rubio-enterprises/[^/]+/devcontainer$/"
+      ],
       "enabled": false,
       "pinDigests": false
+    },
+    {
+      "description": "Majors and pre-1.0 updates are held drafts, never auto-merged. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher.",
+      "matchJsonata": [
+        "updateType = 'major' or $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/)"
+      ],
+      "draftPR": true,
+      "automerge": false,
+      "platformAutomerge": false,
+      "prConcurrentLimit": 1,
+      "branchConcurrentLimit": 1
     }
   ],
   "customManagers": [

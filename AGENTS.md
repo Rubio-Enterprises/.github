@@ -279,10 +279,17 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   setting by hand. That went unnoticed for two weeks in `agent-workspaces` and was found only when
   an outage fix could not be applied, so core raises are a paired operator move, not maintenance;
   **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
-  the global seven-day soak; **Dependency Dashboard approval before branch creation** for majors
-  and every pre-1.0 update, so migrations do not trigger consumer CI until an operator selects
-  them; human-merge-only for `go.mod` directive raises and, after approval, for the
-  `jdx/mise` and `astral-sh/uv` CLI pins. Stable and pre-1.0 npm, Cargo, and pin updates use
+  the global seven-day soak; **held draft PRs** for majors and every pre-1.0
+  update, never auto-merged. Dependency Dashboards are disabled, with no dashboard
+  approval rules. The final package rule applies `draftPR: true`,
+  `automerge: false`, `prConcurrentLimit: 1`, and `branchConcurrentLimit: 1` after
+  every automerge rule. These limits compare against the shared per-repository
+  Renovate backlog, so a held draft opens only when no other Renovate PR is open;
+  closing it declines that version. Held drafts keep the weekend schedule. Named
+  Python dev tools retain their exact pins and pin-only soak exemption, without a
+  major/0.x automerge exception. `go.mod` directive raises and the `jdx/mise` and
+  `astral-sh/uv` CLI pins remain human-merge-only.
+  Stable and pre-1.0 npm, Cargo, and pin updates use
   distinct groups so a manual member cannot disarm an otherwise-safe stable branch. One rule
   runs a post-upgrade task: on a branch that bumps the root `.devcontainer/devcontainer.json`,
   it runs `devcontainer upgrade --workspace-folder .` and commits only
@@ -498,12 +505,11 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   ONE definition of the copier rule instead of copying it.
 
   **Ordering caveat:** Renovate concatenates a preset's `packageRules` *before* the extending
-  config's own (`mergeChildConfig`: `parent.concat(child)`), so the copier rule now sits *ahead*
-  of `default.json`'s own rules rather than last. That is currently behaviour-neutral (nothing in
-  `default.json` matches `matchManagers: ["copier"]`, and the one broadly-matching rule — blanket
-  automerge — sets `automerge`/`platformAutomerge` to the same values the copier rule does). If
-  you ever add a rule to `default.json` that *does* match the copier dep, it will now win over
-  this preset — which is the opposite of the old `KEEP LAST` behaviour.
+  config's own (`mergeChildConfig`: `parent.concat(child)`), so the copier rule sits *ahead*
+  of `default.json`'s own rules. Ordinary stable template re-renders keep their native automerge
+  and force-mode admission behavior. The final held-draft rule overrides automerge for a major
+  template update, as it does for every manager; it leaves the copier versioning and age
+  exemption intact.
 - **`renovate.json`** is *this repo's own* config and merely `extends` the preset above.
 
 ## Agent skills

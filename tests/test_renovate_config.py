@@ -39,6 +39,17 @@ AGENT_SANDBOX_DEPS = [
     "registry.k8s.io/agent-sandbox/agent-sandbox-controller",
 ]
 CLAUDE_CODE_DEP = "@anthropic-ai/claude-code"
+HELD_UPDATE_EXPRESSION = (
+    "updateType = 'major' or $contains(lockedVersion ? lockedVersion : "
+    "(currentVersion ? currentVersion : currentValue), /^v?0/)"
+)
+HELD_POSTURE = {
+    "draftPR": True,
+    "automerge": False,
+    "platformAutomerge": False,
+    "prConcurrentLimit": 1,
+    "branchConcurrentLimit": 1,
+}
 def _python_regex(pattern: str) -> re.Pattern[str]:
     """Compile a Renovate RE2 pattern with Python's named-group spelling."""
     return re.compile(pattern.replace("(?<", "(?P<"))
@@ -93,6 +104,11 @@ def _rule_matches(
         if value is None or not _selector_matches(rule[rule_field], value):
             return False
 
+    compare_version = (
+        dependency.get("lockedVersion")
+        or dependency.get("currentVersion")
+        or dependency.get("currentValue", "")
+    )
     current_version = rule.get("matchCurrentVersion")
     if current_version is not None:
         if current_version == "<7":
@@ -101,15 +117,24 @@ def _rule_matches(
         else:
             negate = current_version.startswith("!")
             pattern = current_version[2:-1] if negate else current_version[1:-1]
-            matched = re.search(pattern, dependency["currentVersion"]) is not None
+            matched = re.search(pattern, compare_version) is not None
             if matched == negate:
                 return False
 
-    for expression in rule.get("matchJsonata", []):
-        if expression != "$exists(groupName) = false":
+    expressions = rule.get("matchJsonata", [])
+    matches = []
+    for expression in expressions:
+        if expression == "$exists(groupName) = false":
+            matches.append("groupName" not in resolved)
+        elif expression == HELD_UPDATE_EXPRESSION:
+            matches.append(
+                dependency.get("updateType") == "major"
+                or re.search(r"^v?0", compare_version) is not None
+            )
+        else:
             raise AssertionError(f"unsupported test fixture JSONata: {expression}")
-        if "groupName" in resolved:
-            return False
+    if expressions and not any(matches):
+        return False
     return True
 
 
@@ -119,7 +144,9 @@ def _resolve_dependency(
 ) -> dict[str, Any]:
     resolved: dict[str, Any] = {
         "automerge": False,
-        "dependencyDashboardApproval": False,
+        "draftPR": False,
+        "prConcurrentLimit": CONFIG["prConcurrentLimit"],
+        "branchConcurrentLimit": CONFIG["branchConcurrentLimit"],
         "platformAutomerge": False,
         "minimumReleaseAge": CONFIG["minimumReleaseAge"],
         "rangeStrategy": CONFIG["rangeStrategy"],
@@ -128,7 +155,9 @@ def _resolve_dependency(
         resolved.update(initial)
     resolved_fields = {
         "automerge",
-        "dependencyDashboardApproval",
+        "draftPR",
+        "prConcurrentLimit",
+        "branchConcurrentLimit",
         "enabled",
         "groupName",
         "groupSlug",
@@ -148,7 +177,9 @@ def _resolve_dependency(
 
 class RenovateConfigContractTests(unittest.TestCase):
     def test_global_backlog_posture_is_exact(self) -> None:
-        self.assertTrue(CONFIG["dependencyDashboard"])
+        self.assertFalse(CONFIG["dependencyDashboard"])
+        self.assertEqual(CONFIG["timezone"], "America/Chicago")
+        self.assertIn("schedule:weekends", CONFIG["extends"])
         self.assertNotIn(":disableDependencyDashboard", CONFIG["extends"])
         self.assertEqual(CONFIG["commitHourlyLimit"], 1)
         self.assertEqual(CONFIG["prHourlyLimit"], 1)
@@ -172,7 +203,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             if rule.get("automerge") is True
             and rule.get("platformAutomerge") is False
         ]
-        self.assertEqual(len(side_merge_rules), 5)
+        self.assertEqual(len(side_merge_rules), 4)
         for rule in CONFIG["packageRules"]:
             with self.subTest(rule=rule.get("description", rule.get("groupName"))):
                 self.assertIsNot(rule.get("platformAutomerge"), True)
@@ -390,7 +421,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertTrue(resolved.get("enabled", True))
         self.assertTrue(resolved["pinDigests"])
 
-    def test_experimental_dev_tools_override_major_and_zero_approval(self) -> None:
+    def test_dev_tool_majors_and_zero_x_are_held_in_every_repository(self) -> None:
         dependency = {
             "repository": "Rubio-Enterprises/avr",
             "manager": "pep621",
@@ -401,31 +432,28 @@ class RenovateConfigContractTests(unittest.TestCase):
             "currentVersion": "0.16.7",
             "updateType": "major",
         }
-        for current, update in (("0.16.7", "patch"), ("0.16.7", "major"), ("9.1.1", "major")):
-            with self.subTest(current=current, update=update):
-                resolved = _resolve_dependency(
-                    {**dependency, "currentVersion": current, "updateType": update}
-                )
-                self.assertTrue(resolved["automerge"])
-                self.assertFalse(resolved["dependencyDashboardApproval"])
-                self.assertFalse(resolved["platformAutomerge"])
-                self.assertEqual(resolved["minimumReleaseAge"], "7 days")
-
         for repository in (
+            "Rubio-Enterprises/avr",
             "Rubio-Enterprises/standards",
             "Rubio-Enterprises/.github",
             "Rubio-Enterprises/.github-private",
         ):
-            with self.subTest(repository=repository):
-                resolved = _resolve_dependency({**dependency, "repository": repository})
-                self.assertFalse(resolved["automerge"])
-                self.assertTrue(resolved["dependencyDashboardApproval"])
-
-        runtime = _resolve_dependency(
-            {**dependency, "depType": "project.dependencies", "packageName": "typer", "depName": "typer"}
-        )
-        self.assertFalse(runtime["automerge"])
-        self.assertTrue(runtime["dependencyDashboardApproval"])
+            for current, update in (
+                ("0.16.7", "patch"), ("v0.16.7", "minor"),
+                ("0.16.7", "pin"), ("0.16.7", "major"), ("9.1.1", "major"),
+            ):
+                with self.subTest(repository=repository, current=current, update=update):
+                    resolved = _resolve_dependency({
+                        **dependency, "repository": repository,
+                        "currentVersion": current, "updateType": update,
+                    })
+                    self.assertEqual(
+                        {key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE
+                    )
+                    self.assertEqual(resolved["rangeStrategy"], "pin")
+                    self.assertEqual(
+                        resolved["minimumReleaseAge"], None if update == "pin" else "7 days"
+                    )
 
     def test_typescript_seven_hold_only_affects_older_repos(self) -> None:
         dependency = {
@@ -451,27 +479,35 @@ class RenovateConfigContractTests(unittest.TestCase):
             _resolve_dependency({**dependency, "packageName": "typescript-eslint", "depName": "typescript-eslint"}),
         )
 
-    def test_new_rules_follow_approval_and_precede_manual_exceptions(self) -> None:
+    def test_one_held_rule_is_last_and_cannot_be_rearmed(self) -> None:
         rules = CONFIG["packageRules"]
-        index = {id(rule): i for i, rule in enumerate(rules)}
-        major = next(rule for rule in rules if rule.get("matchUpdateTypes") == ["major"])
-        zero = next(rule for rule in rules if rule.get("matchCurrentVersion") == "/^v?0/")
-        dev = next(rule for rule in rules if rule.get("matchManagers") == ["pep621"] and rule.get("automerge") is True)
-        pin = next(rule for rule in rules if rule.get("rangeStrategy") == "pin")
-        interpreter = next(rule for rule in rules if rule.get("matchManagers") == ["asdf", "pyenv"])
-        typescript = next(rule for rule in rules if rule.get("allowedVersions") == "<7")
-        floor = next(
-            rule for rule in rules
-            if rule.get("matchManagers") == ["pep621"]
-            and rule.get("matchDepTypes") == ["requires-python"]
+        held_rules = [rule for rule in rules if rule.get("draftPR") is True]
+        self.assertEqual(len(held_rules), 1)
+        self.assertIs(held_rules[0], rules[-1])
+        self.assertEqual(rules[-1]["matchJsonata"], [HELD_UPDATE_EXPRESSION])
+        self.assertEqual(
+            {key: rules[-1][key] for key in HELD_POSTURE}, HELD_POSTURE
         )
-        self.assertLess(index[id(interpreter)], index[id(major)])
-        self.assertLess(index[id(floor)], index[id(major)])
-        for rule in (pin, dev, typescript):
-            self.assertGreater(index[id(rule)], index[id(major)])
-            self.assertGreater(index[id(rule)], index[id(zero)])
-        for name in ("mise-cli", "uv-cli"):
-            self.assertGreater(index[id(_rule_with_group(name))], index[id(dev)])
+        self.assertEqual(
+            {key for key in rules[-1] if key.startswith("match")}, {"matchJsonata"}
+        )
+
+    def test_dashboard_approval_is_absent_from_all_local_presets(self) -> None:
+        def check(value: Any) -> None:
+            if isinstance(value, dict):
+                self.assertNotIn("dependencyDashboardApproval", value)
+                for child in value.values():
+                    check(child)
+            elif isinstance(value, list):
+                for child in value:
+                    check(child)
+            elif isinstance(value, str):
+                self.assertNotIn("approveMajorUpdates", value)
+                self.assertNotIn("dependencyDashboardApproval", value)
+
+        for path in ("default.json", "copier.json", "renovate.json"):
+            with self.subTest(path=path):
+                check(json.loads((ROOT / path).read_text(encoding="utf-8")))
 
     def test_stable_and_pre_one_groups_resolve_to_distinct_branches(self) -> None:
         fixtures = [
@@ -613,13 +649,13 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertFalse(resolved["platformAutomerge"])
                 self.assertEqual(resolved["minimumReleaseAge"], "7 days")
                 self.assertEqual(
-                    resolved["dependencyDashboardApproval"], not should_merge
+                    resolved["draftPR"], not should_merge
                 )
                 slugs_by_group[expected_group] = expected_slug
 
         self.assertEqual(len(slugs_by_group), len(set(slugs_by_group.values())))
 
-    def test_major_and_pre_one_updates_require_dashboard_approval(self) -> None:
+    def test_major_and_pre_one_updates_are_held_drafts(self) -> None:
         fixtures = [
             (
                 "stable patch remains automatic",
@@ -634,7 +670,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 False,
             ),
             (
-                "stable major requires approval",
+                "stable major is held",
                 {
                     "manager": "npm",
                     "depName": "stable-major",
@@ -646,7 +682,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 True,
             ),
             (
-                "pre-one patch requires approval",
+                "pre-one patch is held",
                 {
                     "manager": "cargo",
                     "depName": "unstable-crate",
@@ -658,7 +694,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 True,
             ),
             (
-                "v-prefixed pre-one minor requires approval",
+                "v-prefixed pre-one minor is held",
                 {
                     "manager": "dockerfile",
                     "depName": "unstable-image",
@@ -671,13 +707,72 @@ class RenovateConfigContractTests(unittest.TestCase):
             ),
         ]
 
-        for fixture_name, dependency, should_require_approval in fixtures:
+        for fixture_name, dependency, held in fixtures:
             with self.subTest(fixture=fixture_name):
                 resolved = _resolve_dependency(dependency)
-                self.assertEqual(
-                    resolved["dependencyDashboardApproval"],
-                    should_require_approval,
-                )
+                self.assertEqual(resolved["draftPR"], held)
+                self.assertEqual(resolved["automerge"], not held)
+                self.assertEqual(resolved["prConcurrentLimit"], 1 if held else 5)
+                self.assertEqual(resolved["branchConcurrentLimit"], 1 if held else 5)
+
+    def test_held_posture_survives_all_group_and_fast_lane_overrides(self) -> None:
+        fixtures = (
+            ("npm", "zero-npm", "package.json", "npm"),
+            ("cargo", "zero-crate", "Cargo.toml", "crate"),
+            ("custom.regex", "jdx/mise", ".github/workflows/build.yml", "github-releases"),
+            ("custom.regex", "astral-sh/uv", ".github/workflows/build.yml", "github-releases"),
+            ("npm", "typescript", "package.json", "npm"),
+            ("pep621", "typer", "pyproject.toml", "pypi"),
+            ("pep621", "rubio-cli-kit", "pyproject.toml", "pypi"),
+            ("custom.regex", "Rubio-Enterprises/org-ops", "home/.chezmoidata/uv-tools.toml", "github-tags"),
+            ("gomod", "go", "go.mod", "golang-version"),
+            ("gomod", "github.com/Rubio-Enterprises/example", "go.mod", "go"),
+            ("devcontainer", "ghcr.io/rubio-enterprises/features/example", ".devcontainer/devcontainer.json", "docker"),
+            ("github-actions", "actions/checkout", ".github/workflows/test-gate.yml", "github-tags"),
+        )
+        for manager, name, filename, datasource in fixtures:
+            for current, update in (
+                ("1.2.3", "major"), ("v1.2.3", "major"),
+                *((current, update)
+                  for current in ("0.9.0", "v0.9.0")
+                  for update in ("major", "minor", "patch", "pin", "digest", "pinDigest")),
+            ):
+                with self.subTest(name=name, current=current, update=update):
+                    resolved = _resolve_dependency({
+                        "manager": manager, "depName": name, "packageName": name,
+                        "fileName": filename, "datasource": datasource,
+                        "currentVersion": current, "updateType": update,
+                    }, {"automerge": True, "platformAutomerge": True})
+                    self.assertEqual(
+                        {key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE
+                    )
+
+    def test_held_version_matching_uses_renovates_current_version_fallback(self) -> None:
+        dependency = {
+            "manager": "pep621", "depName": "example", "packageName": "example",
+            "fileName": "pyproject.toml", "updateType": "patch",
+        }
+        for versions, held in (
+            ({"currentValue": "v0.9.0"}, True),
+            ({"currentValue": "^0.9", "currentVersion": "0.9.1"}, True),
+            ({"currentValue": "^1", "currentVersion": "1.0.0", "lockedVersion": "0.9.1"}, True),
+            ({"currentValue": "^0", "currentVersion": "0.9.1", "lockedVersion": "1.0.0"}, False),
+            ({"currentValue": "1.2.3"}, False),
+            ({}, False),
+        ):
+            with self.subTest(versions=versions):
+                self.assertEqual(_resolve_dependency({**dependency, **versions})["draftPR"], held)
+
+    def test_major_copier_update_overrides_inherited_automerge(self) -> None:
+        resolved = _resolve_dependency({
+            "manager": "copier",
+            "depName": "https://github.com/Rubio-Enterprises/standards.git",
+            "packageName": "https://github.com/Rubio-Enterprises/standards.git",
+            "fileName": ".copier-answers.yml", "currentVersion": "template/v1.55.160",
+            "updateType": "major",
+        }, {"automerge": True, "platformAutomerge": True, "minimumReleaseAge": "0 days"})
+        self.assertEqual({key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE)
+        self.assertEqual(resolved["minimumReleaseAge"], "0 days")
 
     def test_stable_pin_digest_inherits_the_soaked_safe_lane(self) -> None:
         standing = next(
@@ -717,7 +812,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             }
         )
         self.assertFalse(directive["automerge"])
-        self.assertFalse(directive["dependencyDashboardApproval"])
+        self.assertFalse(directive["draftPR"])
 
         module_dependency = _resolve_dependency(
             {
@@ -1202,13 +1297,12 @@ class FirstPartyReleaseFastLaneTests(unittest.TestCase):
         "repository": "Rubio-Enterprises/todoist-classify",
     }
 
-    def test_own_devcontainer_feature_major_skips_soak_but_keeps_approval(self) -> None:
+    def test_own_devcontainer_feature_major_skips_soak_but_stays_held(self) -> None:
         resolved = _resolve_dependency(
             {**self.BASELINE, "updateType": "major", "currentVersion": "2.0.0"}
         )
         self.assertIsNone(resolved["minimumReleaseAge"])
-        self.assertTrue(resolved["dependencyDashboardApproval"])
-        self.assertFalse(resolved["automerge"])
+        self.assertEqual({key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE)
 
     def test_own_devcontainer_feature_patch_skips_soak(self) -> None:
         resolved = _resolve_dependency(
