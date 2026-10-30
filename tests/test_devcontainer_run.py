@@ -86,7 +86,7 @@ class Runtime(unittest.TestCase):
                     'RUNNER_OS': 'Linux', 'RUNNER_ARCH': 'X64', 'IMAGE_MODE': 'hosted',
                     'PROJECT_TASK': 'typecheck', 'GITHUB_REPOSITORY': 'Rubio-Enterprises/Test',
                     'GITHUB_RUN_ID': '1', 'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_JOB': 'test',
-                    'GITHUB_ACTOR': 'test', 'IMAGE_PULL_TOKEN': 'not-a-real-token',
+                    'GITHUB_ACTOR': 'test', 'GITHUB_BASE_REF': '', 'IMAGE_PULL_TOKEN': 'not-a-real-token',
                     'PATH': str(self.bin) + os.pathsep + os.environ['PATH'],
                     'TRACE': str(self.root / 'trace'), 'FIXTURE': str(self.root)}
         for key in ['CONFIG', 'DATA', 'STATE', 'CACHE']:
