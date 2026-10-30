@@ -41,9 +41,21 @@ there is no fallback to another base or architecture emulation.
 The central composite action obtains its assets through `GITHUB_ACTION_PATH`.
 The caller cannot substitute a lookalike Dockerfile/script in its checkout.
 `git archive HEAD` supplies committed source, excluding the working checkout's
-Git database, untracked credentials and provisioned standards. Tracked Git or
-standards directories, escaping symlinks and submodules fail closed. A separate
-pin-sensitive context contains top-level mise TOML/lock files, `package.json`
+Git database, untracked credentials and provisioned standards. The archived
+snapshot omits only these exact template Config Stub symlink path/target pairs,
+without following them:
+
+| Source path | Exact link target |
+| --- | --- |
+| `tombi.toml` | `.standards-config/config/tombi.toml` |
+
+Runtime checkouts and workspace bind mounts retain those stubs. A regular,
+repository-owned `tombi.toml` remains in the snapshot. Other links into standards,
+escaping symlinks, tracked Git or standards directories and submodules still fail
+closed; this is not a path-wide exclusion or an all-layer audit exemption. A
+future template stub needs an explicit reviewed pair here and in preparation.
+
+A separate pin-sensitive context contains top-level mise TOML/lock files, `package.json`
 and `.config/`; source-only changes do not invalidate that tool context. Projects
 with other tool-input paths need qualification before adoption, not a second
 Dockerfile. The complete source and language lockfiles feed ordinary
