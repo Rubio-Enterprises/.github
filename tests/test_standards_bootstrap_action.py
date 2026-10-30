@@ -23,7 +23,10 @@ VALIDATE = "Validate and export the standards pin"
 INSTALL_MISE = "Install mise without loading repository config"
 READY = "Require the Shared Config Directory before bootstrap"
 BOOTSTRAP = "Install mise and bootstrap the Shared Config Checkout"
-STEPS = [PREREQUISITES, MINT, RESOLVE, CHECKOUT, UNROUTE, VALIDATE, INSTALL_MISE, READY, BOOTSTRAP]
+WARM_BOOTSTRAP = "Bootstrap repos with the verified mise executable"
+WARM = "steps.prerequisites.outputs.use_existing_mise"
+STEPS = [PREREQUISITES, MINT, RESOLVE, CHECKOUT, UNROUTE, VALIDATE, INSTALL_MISE, READY,
+         BOOTSTRAP, WARM_BOOTSTRAP]
 URL = "https://github.com/Rubio-Enterprises/standards.git"
 ROUTE_KEY = "url.https://x-access-token:ghs_secret@github.com/Rubio-Enterprises/standards.insteadof"
 BASHES = ["bash"] + (["/bin/bash"] if Path("/bin/bash").exists() else [])
@@ -40,8 +43,16 @@ def action_inputs() -> dict[str, str]:
 
 def run(name: str, cwd: Path, *, shell: str = "bash", **env: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [shell, "-c", extract_run_block(ACTION, name)], cwd=cwd, text=True,
-        capture_output=True, check=False, env={**os.environ, **env},
+        [shutil.which(shell) or shell, "-c", extract_run_block(ACTION, name)], cwd=cwd, text=True,
+        capture_output=True, check=False, env={
+            **os.environ,
+            "MISE_CONFIG_DIR": str(cwd / "mise-config"),
+            "MISE_DATA_DIR": str(cwd / "mise-data"),
+            "MISE_STATE_DIR": str(cwd / "mise-state"),
+            "MISE_CACHE_DIR": str(cwd / "mise-cache"),
+            "MISE_GLOBAL_CONFIG_FILE": str(cwd / "mise-global.toml"),
+            **env,
+        },
     )
 
 
@@ -62,7 +73,13 @@ class InterfaceTests(unittest.TestCase):
 
     def test_steps_run_in_order_without_a_model_guard(self) -> None:
         self.assertEqual(re.findall(r"(?m)^    - name: (.*)$", ACTION), STEPS)
-        self.assertEqual(re.findall(r"(?m)^      if: (.*)$", ACTION), ["always()"])
+        guards = {name: re.findall(r"(?m)^      if: (.*)$", extract_step(ACTION, name))
+                  for name in STEPS}
+        self.assertEqual(guards, {
+            **{name: [] for name in STEPS}, UNROUTE: ["always()"],
+            INSTALL_MISE: [f"{WARM} != 'true'"], BOOTSTRAP: [f"{WARM} != 'true'"],
+            WARM_BOOTSTRAP: [f"{WARM} == 'true'"],
+        })
 
     def test_nested_actions_are_pinned_by_digest(self) -> None:
         uses = re.findall(r"(?m)^\s+uses: (\S+)(.*)$", ACTION)
@@ -105,24 +122,46 @@ class InterfaceTests(unittest.TestCase):
             self.assertIn(line, step)
         for name in STEPS[STEPS.index(VALIDATE):]:
             self.assertNotIn("steps.token.outputs.token", extract_step(ACTION, name))
+        warm = extract_step(ACTION, WARM_BOOTSTRAP)
+        self.assertIn('"$MISE_BINARY" bootstrap --only repos', warm)
+        self.assertIn("MISE_BINARY: ${{ steps.prerequisites.outputs.mise_binary }}", warm)
+        self.assertNotIn("MISE_GITHUB_TOKEN", warm)
+        self.assertNotIn("cache:", warm)
+        self.assertNotIn("GITHUB_ENV", warm)
 
 
 class PrerequisiteTests(unittest.TestCase):
     def check(self, *, app_id: str = "1", key: str = "k", version: str = "",
-              installed: str | None = None, shell: str = "bash", parts: str = "repos,tools"):
+              installed: str | None = None, shell: str = "bash", parts: str = "repos,tools",
+              path_installed: str | None = None, report: str | None = None, code: int = 0):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             data = root / "mise-data"
             if installed is not None:
                 binary = data / "bin" / "mise"
                 binary.parent.mkdir(parents=True)
-                report = json.dumps({"version": f"{installed} linux-x64 (2026-10-01)"})
-                binary.write_text(f"#!/bin/sh\n[ \"$*\" = 'version --json' ] || exit 2\necho '{report}'\n")
+                data_report = json.dumps({"version": f"{installed} linux-x64 (2026-10-01)"})
+                binary.write_text(f"#!/bin/sh\n[ \"$*\" = 'version --json' ] || exit 2\necho '{data_report}'\n")
+                binary.chmod(0o755)
+            path_bin = root / "path-bin"
+            path_bin.mkdir()
+            (path_bin / "jq").symlink_to(shutil.which("jq"))
+            if path_installed is not None or report is not None:
+                binary = path_bin / "mise"
+                binary.write_text(
+                    '#!/bin/sh\n[ "$*" = "version --json" ] || exit 2\n'
+                    'printf "%s\\n" "$REPORT"\nexit "$CODE"\n'
+                )
                 binary.chmod(0o755)
             result = run(PREREQUISITES, root, shell=shell, APP_ID=app_id, APP_PRIVATE_KEY=key,
                          MISE_VERSION=version, MISE_DATA_DIR=str(data), BOOTSTRAP_PARTS=parts,
+                         PATH=str(path_bin), REPORT=report if report is not None else
+                         json.dumps({"version": path_installed}), CODE=str(code),
                          GITHUB_OUTPUT=str(root / "out"))
-            return result, outputs(root / "out")
+            out = outputs(root / "out")
+            if "mise_binary" in out:
+                self.assertEqual(out.pop("mise_binary"), str(path_bin / "mise"))
+            return result, out
 
     def test_bootstrap_parts_accepts_only_the_two_supported_modes(self) -> None:
         for parts in ("repos", "repos,tools", "", "tools", "repos --skip tools", "repos; echo injected"):
@@ -156,6 +195,59 @@ class PrerequisiteTests(unittest.TestCase):
                     result, out = self.check(version=version, installed=installed, shell=shell)
                     self.assertEqual(result.returncode == 0, expected is not None, result.stderr)
                     self.assertEqual(out, {"mise_version": expected} if expected else {})
+
+
+    def test_repos_only_uses_the_actual_path_binary_not_the_action_data_binary(self) -> None:
+        for requested, installed, expected, warm in (
+            ("", None, "2026.10.19", False),
+            ("", "2026.10.18", "2026.10.19", False),
+            ("", "2026.10.19", "2026.10.19", True),
+            ("", "2026.11.3", "2026.11.3", True),
+            ("2026.11.3", None, "2026.11.3", False),
+            ("2026.11.3", "2026.10.19", "2026.11.3", False),
+            ("2026.10.19", "2026.11.3", "2026.10.19", False),
+            ("2026.11.3", "2026.11.3", "2026.11.3", True),
+        ):
+            for shell in BASHES:
+                with self.subTest(requested=requested, installed=installed, shell=shell):
+                    result, out = self.check(parts="repos", version=requested,
+                                             installed="2025.1.0", path_installed=installed,
+                                             shell=shell)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(out, {"mise_version": expected,
+                                          **({"use_existing_mise": "true"} if warm else {})})
+
+    def test_repos_only_rejects_malformed_or_unusable_path_binary(self) -> None:
+        for report, code in (
+            ("not-json", 0), ('{}', 0), ('{"version": null}', 0),
+            ('{"version": "latest"}', 0), ('{"version": "2026.10.19-beta"}', 0),
+            ('{"version": "2026.10.19\\nuse_existing_mise=true"}', 0),
+            ('{"version": "2026.10.19"}', 1),
+            ('{"version": "2026.10.19"}\n{"version": "2026.11.3"}', 0),
+        ):
+            for requested in ("", "2026.10.19"):
+                for shell in BASHES:
+                    with self.subTest(report=report, code=code, requested=requested, shell=shell):
+                        result, out = self.check(parts="repos", version=requested,
+                                                 report=report, code=code, shell=shell)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertEqual(out, {})
+
+    def test_repos_only_still_validates_the_explicit_version(self) -> None:
+        for version in ("2026.10.18", "latest", "v2026.10.19", "2026.10.19\\nOTHER=value"):
+            for shell in BASHES:
+                with self.subTest(version=version, shell=shell):
+                    result, out = self.check(parts="repos", version=version,
+                                             path_installed="2026.11.3", shell=shell)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(out, {})
+
+    def test_tools_mode_does_not_probe_or_reuse_the_path_binary(self) -> None:
+        for shell in BASHES:
+            with self.subTest(shell=shell):
+                result, out = self.check(installed="2026.10.19", report="not-json", shell=shell)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(out, {"mise_version": "2026.10.19"})
 
 
 class ResolutionTests(unittest.TestCase):
@@ -257,6 +349,53 @@ class CheckoutTests(unittest.TestCase):
         result = run(VALIDATE, self.root, STANDARDS_PIN=self.sha, **self.env)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(outputs(self.root / "env"), {})
+
+    def test_warm_bootstrap_runs_only_after_pin_and_declaration_readiness(self) -> None:
+        for shell in BASHES:
+            for failure in ("none", "pin", "absent", "skipped", "wrong-sha", "bootstrap"):
+                with self.subTest(shell=shell, failure=failure):
+                    binary = self.root / "mise"
+                    binary.write_text(
+                        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\n'
+                        'case "$*" in\n'
+                        '"version --json") echo \'{"version":"2026.10.19"}\';;\n'
+                        '"bootstrap repos status --missing --json") printf "%s\\n" "$STATUS";;\n'
+                        '"bootstrap --only repos") exit "$BOOTSTRAP_CODE";;\n'
+                        '*) exit 2;;\nesac\n'
+                    )
+                    binary.chmod(0o755)
+                    calls = self.root / "calls"
+                    calls.unlink(missing_ok=True)
+                    good = {"path_raw": ".standards-config", "url": URL, "ref": self.sha,
+                            "current_sha": self.sha, "state": "current"}
+                    entry = {**good, **({"state": "skipped"} if failure == "skipped" else {}),
+                             **({"current_sha": self.first} if failure == "wrong-sha" else {})}
+                    env = {
+                        **self.env, "APP_ID": "1", "APP_PRIVATE_KEY": "k", "MISE_VERSION": "",
+                        "BOOTSTRAP_PARTS": "repos", "GITHUB_OUTPUT": str(self.root / "out"),
+                        "PATH": f"{self.root}:{os.environ['PATH']}", "CALLS": str(calls),
+                        "STANDARDS_PIN": self.first if failure == "pin" else self.sha,
+                        "STATUS": json.dumps({"repos": [] if failure == "absent" else [entry]}),
+                        "BOOTSTRAP_CODE": "23" if failure == "bootstrap" else "0",
+                    }
+                    (self.root / "out").unlink(missing_ok=True)
+                    result = run(PREREQUISITES, self.root, shell=shell, **env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    selected = outputs(self.root / "out")
+                    self.assertEqual(selected["use_existing_mise"], "true")
+                    env["MISE_BINARY"] = selected["mise_binary"]
+                    for step in (UNROUTE, VALIDATE, READY, WARM_BOOTSTRAP):
+                        result = run(step, self.root, shell=shell, **env)
+                        if result.returncode:
+                            break
+                    self.assertEqual(result.returncode, 0 if failure == "none" else
+                                     23 if failure == "bootstrap" else 1, result.stderr)
+                    expected = ["version --json"]
+                    if failure != "pin":
+                        expected.append("bootstrap repos status --missing --json")
+                    if failure in ("none", "bootstrap"):
+                        expected.append("bootstrap --only repos")
+                    self.assertEqual(calls.read_text().splitlines(), expected)
 
     def test_missing_checkout_does_not_validate_the_parent_repository(self) -> None:
         shutil.rmtree(self.repo)

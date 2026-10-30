@@ -16,9 +16,10 @@ The action:
    the credential-free origin to
    `https://github.com/Rubio-Enterprises/standards.git`, and exports the validated
    `STANDARDS_PIN` through `GITHUB_ENV` for later steps in the same job.
-5. Installs mise without tools, caching or consumer-environment export from
-   `runner.temp`. Even installation-only mise-action invokes `mise ls`, so its
-   directory must not load consumer includes before checkout validation.
+5. Unless repos-only mode has a verified compatible mise on `PATH`, installs
+   mise without tools, caching or consumer-environment export from `runner.temp`.
+   Even installation-only mise-action invokes `mise ls`, so its directory must
+   not load consumer includes before checkout validation.
 6. Runs `mise bootstrap repos status --missing --json` **before bootstrap or
    setup**. Its JSON must contain `.standards-config` at the expected pin in
    state `current`; an absent/skipped declaration cannot pass unchecked. The
@@ -26,7 +27,10 @@ The action:
 7. Runs mise-action's native `bootstrap: true` with `--only repos,tools`,
    including the readiness hook, tool installation and environment export.
    `bootstrap-parts: repos` retains pin export and verification but skips tools,
-   tool caching and consumer-environment export.
+   tool caching and consumer-environment export. With a compatible installed
+   executable, both mise-action steps are skipped and that verified executable
+   runs `mise bootstrap --only repos` after readiness instead. Native mise
+   `min_version` enforcement still applies when it loads consumer config.
 
 Bootstrap is unconditional. Every consumer must already carry the final stub:
 
@@ -91,8 +95,14 @@ jobs:
   Both credentials are required.
 - `mise-version`: 2026.10.19 or later. The default is the runner's installed
   mise, or 2026.10.19 when none is installed, so the action never
-  self-updates a warm runner's mise; on a runner whose mise is older, it fails.
-  Pass a version to have mise-action install or update to it.
+  self-updates a warm runner's mise; in `repos,tools` mode, an older runner mise
+  fails. Pass a version to have mise-action install or update to it.
+  In `repos` mode, the action inspects the actual `PATH` executable's
+  `version --json`. With no explicit version, any version meeting the same
+  action floor can be reused; an explicit version requires an exact match.
+  Missing, too-old or nonmatching versions use the existing installer path.
+  A malformed version report or failing executable fails before token minting,
+  even when an explicit version was requested.
 - `cache-key-prefix`: mise-action's `cache_key_prefix`. Default `mise-v1`.
 - `bootstrap-parts`: `repos,tools` (default) or `repos`. The latter provisions
   and verifies only the checkout for jobs that install tools elsewhere, such as

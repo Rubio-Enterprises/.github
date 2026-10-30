@@ -20,7 +20,8 @@ inputs:
     description: >-
       The mise version for jdx/mise-action, at least 2026.10.19. Empty uses the
       runner's installed mise, so a warm runner is never self-updated, or
-      2026.10.19 when none is installed.
+      2026.10.19 when none is installed. Repos-only mode reuses a compatible PATH
+      executable, or installs this exact version when explicitly requested.
     required: false
     default: ""
   cache-key-prefix:
@@ -57,7 +58,9 @@ runs:
         fi
         floor=2026.10.19
         version="$MISE_VERSION"
-        if [ -z "$version" ]; then
+        if [ "$BOOTSTRAP_PARTS" = repos ]; then
+          version="${version:-$floor}"
+        elif [ -z "$version" ]; then
           # Match mise-action's binary lookup without self-updating a warm runner
           binary="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/bin/mise"
           version="$floor"
@@ -69,9 +72,31 @@ runs:
           echo "::error::mise-version must be YYYY.M.P, got '$version'" >&2
           exit 1
         fi
-        if [ $((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]})) -lt 2026010019 ]; then
+        IFS=. read -r floor_year floor_month floor_patch <<<"$floor"
+        floor_number=$((10#$floor_year * 1000000 + 10#$floor_month * 1000 + 10#$floor_patch))
+        if [ $((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]})) -lt "$floor_number" ]; then
           echo "::error::shared config bootstrap needs mise $floor or later, got $version" >&2
           exit 1
+        fi
+        if [ "$BOOTSTRAP_PARTS" = repos ]; then
+          binary="$(type -P mise || true)"
+          if [ -n "$binary" ]; then
+            installed="$("$binary" version --json | jq -er '.version | strings | capture("^(?<number>[0-9]{4}[.][0-9]+[.][0-9]+)( |$)").number')"
+            if ! [[ "$installed" =~ ^([0-9]{4})[.]([0-9]+)[.]([0-9]+)$ ]]; then
+              echo "::error::installed mise must report YYYY.M.P" >&2
+              exit 1
+            fi
+            installed_number=$((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]}))
+            if [ "$installed_number" -ge "$floor_number" ] &&
+               { [ -z "$MISE_VERSION" ] || [ "$installed" = "$MISE_VERSION" ]; }; then
+              if ! [[ "$binary" = /* && "$binary" != *$'\n'* && "$binary" != *$'\r'* ]]; then
+                echo "::error::installed mise must have a single-line absolute path" >&2
+                exit 1
+              fi
+              printf 'mise_binary=%s\nuse_existing_mise=true\n' "$binary" >> "$GITHUB_OUTPUT"
+              version="$installed"
+            fi
+          fi
         fi
         printf 'mise_version=%s\n' "$version" >> "$GITHUB_OUTPUT"
     - name: Mint the standards read token
@@ -156,6 +181,7 @@ runs:
         echo "Shared Config Directory: standards at \`$STANDARDS_PIN\`" >> "$GITHUB_STEP_SUMMARY"
         echo "Shared Config Directory: standards at $STANDARDS_PIN"
     - name: Install mise without loading repository config
+      if: steps.prerequisites.outputs.use_existing_mise != 'true'
       uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       env:
         MISE_GITHUB_TOKEN: ${{ github.token }}
@@ -192,6 +218,7 @@ runs:
           exit 1
         fi
     - name: Install mise and bootstrap the Shared Config Checkout
+      if: steps.prerequisites.outputs.use_existing_mise != 'true'
       uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       env:
         MISE_GITHUB_TOKEN: ${{ github.token }}
@@ -204,3 +231,13 @@ runs:
         env: ${{ inputs.bootstrap-parts != 'repos' }}
         bootstrap: true
         bootstrap_args: --only ${{ inputs.bootstrap-parts }}
+    - name: Bootstrap repos with the verified mise executable
+      if: steps.prerequisites.outputs.use_existing_mise == 'true'
+      shell: bash
+      env:
+        MISE_BINARY: ${{ steps.prerequisites.outputs.mise_binary }}
+        GIT_TERMINAL_PROMPT: "0"
+        GCM_INTERACTIVE: never
+      run: |
+        set -euo pipefail
+        "$MISE_BINARY" bootstrap --only repos
