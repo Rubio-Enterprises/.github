@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+import importlib.util
+import io
+import json
+import os
+import re
+import subprocess
+import tarfile
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+ASSETS = ROOT / "actions/repository-image"
+TEXT = (ROOT / ".github/workflows/repository-image.yml").read_text()
+MODULE = (ASSETS / "image.mjs").as_uri()
+spec = importlib.util.spec_from_file_location("image_audit", ASSETS / "audit.py")
+audit_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(audit_module)
+
+
+def script(name):
+    lines = TEXT.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
+    run = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run]) - len(lines[run].lstrip())
+    body = []
+    for line in lines[run + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) <= indent:
+            break
+        body.append(line[indent + 2:] if line.strip() else "")
+    return "\n".join(body) + "\n"
+
+
+def config(arch="amd64"):
+    return {"os": "linux", "architecture": arch, "rootfs": {"diff_ids": ["base"]},
+            "config": {"Env": ["UV_LINK_MODE=copy"], "Labels": {"devcontainer.metadata": "[]"}}}
+
+
+def manifest(*layers):
+    return {"layers": [{"digest": name, "size": 1} for name in layers]}
+
+
+class Contracts(unittest.TestCase):
+    def test_permissions_events_native_routes_and_debounce(self):
+        self.assertIn("permissions: {}", TEXT)
+        self.assertNotIn("pull_request_target", TEXT)
+        self.assertNotIn("workflow_run", TEXT)
+        self.assertIn("github.event_name == 'pull_request'", TEXT)
+        self.assertIn("github.event.repository.default_branch", TEXT)
+        self.assertIn("cancel-in-progress: true", TEXT)
+        self.assertIn("group: repository-image-${{ github.repository }}-${{ github.ref }}", TEXT)
+        self.assertIn("contents: read\n      packages: read", TEXT)
+        self.assertIn("contents: read\n      packages: write", TEXT)
+        self.assertIn(".docker || fromJSON('[\"ubuntu-latest\"]')", TEXT)
+        self.assertIn(".arm || fromJSON('[\"ubuntu-24.04-arm\"]')", TEXT)
+        self.assertIn("steps: *build-steps", TEXT)
+        self.assertNotIn("continue-on-error", TEXT)
+        self.assertNotIn("qemu", TEXT.lower())
+
+    def test_assets_are_owned_by_the_shared_action_and_refs_pinned(self):
+        action = (ASSETS / "action.yml").read_text()
+        self.assertIn('$GITHUB_ACTION_PATH/image.mjs', action)
+        self.assertNotIn("./actions/repository-image", TEXT)
+        for ref in re.findall(r"uses: (\S+)", TEXT):
+            if ref.startswith("Rubio-Enterprises/.github/actions/"):
+                self.assertIn(ref, ["Rubio-Enterprises/.github/actions/repository-image@main",
+                                    "Rubio-Enterprises/.github/actions/standards-bootstrap@main"])
+            else:
+                self.assertRegex(ref, r"@[a-f0-9]{40}$")
+        self.assertIn("persist-credentials: false", TEXT)
+
+    def test_build_scan_publish_and_retention(self):
+        names = ["Provision native shared config", "Require the image build pin",
+                 "Prepare central generic build inputs", "Build, rebase and audit both architecture artifacts",
+                 "Scan both local artifacts for secrets", "Push the scanned architecture image"]
+        positions = [TEXT.index(f"- name: {name}") for name in names]
+        self.assertEqual(positions, sorted(positions))
+        scan = script("Scan both local artifacts for secrets")
+        self.assertIn('for artifact in "$IMAGE" "$CI_IMAGE"', scan)
+        self.assertIn('--image-src docker --scanners secret --image-config-scanners secret', scan)
+        self.assertIn('--config \'\' --ignorefile \'\'', scan)
+        self.assertIn('if [[ "$status" != 0 ]]; then exit "$status"; fi', scan)
+        self.assertNotIn(".Match", scan)
+        self.assertNotIn(".Content", scan)
+        self.assertIn('needs: [prepare, build]', TEXT)
+        self.assertIn('needs: [prepare, merge]', TEXT)
+        self.assertIn('delete-only-untagged-versions: "true"', TEXT)
+        self.assertIn('min-versions-to-keep: 5', TEXT)
+        self.assertIn('ci-image: ${{ steps.image.outputs.image }}-ci', TEXT)
+        for name in ("Resolve image and publication policy", "Scan both local artifacts for secrets",
+                     "Publish multi-architecture tags and cache aliases"):
+            self.assertNotIn("${{", script(name))
+
+    def test_generic_dockerfile_never_copies_standards_or_declares_pin(self):
+        dockerfile = (ASSETS / "Dockerfile").read_text()
+        self.assertNotIn("ARG STANDARDS_PIN", dockerfile)
+        self.assertNotIn("ENV STANDARDS_PIN", dockerfile)
+        self.assertEqual(dockerfile.count("from=standards"), 2)
+        self.assertIn('from=pins', dockerfile)
+        self.assertIn('COPY --chown=vscode:vscode --from=src', dockerfile)
+        self.assertIn("UV_LINK_MODE=copy", dockerfile)
+        self.assertNotIn("COPY --from=standards", dockerfile)
+        self.assertNotIn("mise bootstrap --only", dockerfile)
+
+    def test_scan_policy_and_checksum_pins_match_legacy_contract(self):
+        from test_devcontainer_image_workflow import script as legacy_script
+        scan = script("Scan both local artifacts for secrets")
+        old = legacy_script("Scan the local image for secrets")
+        for text in [scan, old]:
+            policy = text.split("<<'TRIVY'\n", 1)[1].split("\nTRIVY", 1)[0]
+            if text == scan:
+                new_policy = policy
+            else:
+                self.assertEqual(new_policy, policy)
+        self.assertEqual(script("Install checksum-pinned Trivy"), legacy_script("Install checksum-pinned Trivy"))
+
+
+class Fixtures(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.env = {**os.environ, "RUNNER_TEMP": str(self.root), "GITHUB_OUTPUT": str(self.root / "output"),
+                    "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        for name in ("CONFIG_DIR", "DATA_DIR", "STATE_DIR", "CACHE_DIR", "GLOBAL_CONFIG_FILE"):
+            self.env[f"MISE_{name}"] = str(self.root / name)
+
+    def node(self, function, arguments):
+        source = f"import {{ {function} }} from {json.dumps(MODULE)}; {function}(...{json.dumps(arguments)});"
+        return subprocess.run(["node", "--input-type=module", "-e", source],
+                              env=self.env, capture_output=True, text=True)
+
+    def test_base_reference_rejects_untrusted_registry_mutable_tags_and_injection(self):
+        name = "ghcr.io/rubio-enterprises/devcontainers/base"
+        for ref in [name + ":latest", name + "@sha256:" + "a" * 64]:
+            self.assertEqual(self.node("baseReference", [ref, "base"]).returncode, 0)
+        for ref in ["other/base:latest", name + ":v1", name + "\nbase=other", name + "@sha256:short"]:
+            self.assertNotEqual(self.node("baseReference", [ref, "base"]).returncode, 0)
+        for kind in ["base", "base-ci"]:
+            for registry in ["ghcrXio", "ghcr-io"]:
+                ref = f"{registry}/rubio-enterprises/devcontainers/{kind}@sha256:" + "a" * 64
+                self.assertNotEqual(self.node("baseReference", [ref, kind]).returncode, 0)
+
+    def test_extra_features_definition_rejects_legacy_and_local_build_inputs(self):
+        self.assertEqual(self.node("validateDefinition", [{"name": "repo", "features": {
+            "ghcr.io/devcontainers-extra/features/apt-packages:1.0.6": {"packages": "python3"}}}]).returncode, 0)
+        for definition in [{"build": {"dockerfile": "Dockerfile"}}, {"image": "other"},
+                           {"features": []}, {"features": {"./evil": {}}},
+                           {"features": {"ghcr.io/rubio-enterprises/devcontainer-features/baseline:3.0.1": {}}}]:
+            self.assertNotEqual(self.node("validateDefinition", [definition]).returncode, 0)
+
+    def pair(self, arch="amd64"):
+        base, ci = config(arch), config(arch)
+        ci["config"]["Labels"]["org.opencontainers.image.base.digest"] = "sha256:" + "a" * 64
+        ci["rootfs"]["diff_ids"].append("runner")
+        return [manifest("base"), manifest("base", "runner"), base, ci, "sha256:" + "a" * 64, arch]
+
+    def test_base_pair_validates_both_arches_label_and_filesystem_prefix(self):
+        for arch in ["amd64", "arm64"]:
+            self.assertEqual(self.node("validatePair", self.pair(arch)).returncode, 0)
+        for field in ["architecture", "label", "compressed", "uncompressed"]:
+            args = self.pair()
+            if field == "architecture": args[3]["architecture"] = "arm64"
+            if field == "label": args[3]["config"]["Labels"]["org.opencontainers.image.base.digest"] = "other"
+            if field == "compressed": args[1]["layers"][0]["digest"] = "other"
+            if field == "uncompressed": args[3]["rootfs"]["diff_ids"][0] = "other"
+            self.assertNotEqual(self.node("validatePair", args).returncode, 0, field)
+
+    def rebased(self):
+        dev, ci = config(), config()
+        dev["rootfs"]["diff_ids"] = ["base", "feature", "repo"]
+        ci["rootfs"]["diff_ids"] = ["base", "runner", "feature", "repo"]
+        return [manifest("base"), manifest("base", "runner"), manifest("base", "feature", "repo"),
+                manifest("base", "runner", "feature", "repo"), dev, ci, "amd64"]
+
+    def test_rebase_preserves_exact_layers_metadata_runtime_config_and_platform(self):
+        self.assertEqual(self.node("validateRebase", self.rebased()).returncode, 0)
+        reordered = self.rebased()
+        reordered[5]["config"] = dict(reversed(list(reordered[5]["config"].items())))
+        self.assertEqual(self.node("validateRebase", reordered).returncode, 0)
+        for field in ["prefix", "layer", "config", "metadata", "uv", "architecture", "diff_ids"]:
+            args = self.rebased()
+            if field == "prefix": args[3]["layers"][0]["digest"] = "other"
+            if field == "layer": args[3]["layers"][-1]["digest"] = "other"
+            if field == "config": args[5]["config"]["User"] = "root"
+            if field == "metadata":
+                for item in args[4:6]: item["config"]["Labels"] = {}
+            if field == "uv":
+                for item in args[4:6]: item["config"]["Env"] = []
+            if field == "architecture": args[5]["architecture"] = "arm64"
+            if field == "diff_ids": args[5]["rootfs"]["diff_ids"][-1] = "other"
+            self.assertNotEqual(self.node("validateRebase", args).returncode, 0, field)
+
+    def make_archive(self, files, image_config=None):
+        layer = io.BytesIO()
+        with tarfile.open(fileobj=layer, mode="w") as contents:
+            for name, body in files.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(body)
+                contents.addfile(member, io.BytesIO(body))
+        archive = self.root / "artifact.tar"
+        with tarfile.open(archive, "w") as saved:
+            entries = {"manifest.json": json.dumps([{"Config": "config.json", "Layers": ["layer.tar"]}]).encode(),
+                       "config.json": json.dumps(image_config or config()).encode(), "layer.tar": layer.getvalue()}
+            for name, body in entries.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(body)
+                saved.addfile(member, io.BytesIO(body))
+        return archive
+
+    def test_layer_audit_catches_deleted_bundle_paths_content_and_pin_in_config_history(self):
+        standards = self.root / "standards"
+        (standards / "config").mkdir(parents=True)
+        private = b"private bundle fixture\n" * 20
+        (standards / "config/private.yml").write_bytes(private)
+        pin = "a" * 40
+        audit_module.audit(self.make_archive({"repo/source": b"safe"}), standards, pin)
+        for files in [{"repo/.standards-config/config/private": b"short"},
+                      {"elsewhere/copied-policy": private}, {"state/pin": pin.encode()}]:
+            with self.assertRaises(ValueError): audit_module.audit(self.make_archive(files), standards, pin)
+        for image_config in [{"config": {"Env": ["STANDARDS_PIN=other"]}}, {"history": [{"created_by": pin}]}]:
+            with self.assertRaises(ValueError): audit_module.audit(self.make_archive({}, image_config), standards, pin)
+
+    def stub(self, name, body):
+        target = self.root / name
+        target.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body)
+        target.chmod(0o755)
+        return target
+
+    def test_two_artifact_secret_scan_is_fail_closed_before_any_push(self):
+        binary = self.root / "trivy/trivy"
+        binary.parent.mkdir()
+        binary.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/calls"\ncase "${*: -1}" in *-ci:*) exit "${CI_STATUS:-0}";; *) exit "${DEV_STATUS:-0}";; esac\n')
+        binary.chmod(0o755)
+        self.env.update(IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer", CI_IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer-ci",
+                        ARCH="arm64", GITHUB_SHA="a" * 40, PATH=str(self.root) + os.pathsep + os.environ["PATH"])
+        self.stub("docker", 'touch "$RUNNER_TEMP/pushed"\n')
+        source = script("Scan both local artifacts for secrets") + script("Push the scanned architecture image")
+        for dev, ci in [(1, 0), (0, 1), (0, 2), (0, 0)]:
+            (self.root / "pushed").unlink(missing_ok=True)
+            result = subprocess.run(["bash", "-e", "-c", source], env={**self.env, "DEV_STATUS": str(dev), "CI_STATUS": str(ci)}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, dev or ci, result.stderr)
+            self.assertEqual((self.root / "pushed").exists(), not (dev or ci))
+            self.assertNotIn(".Match", (self.root / "calls").read_text())
+
+    def test_build_orchestration_with_native_architecture_and_rebase_fixtures(self):
+        context = self.root / "context"
+        for directory in ["features", "pins", "src", "empty", "expected", "verify"]:
+            (context / directory).mkdir(parents=True, exist_ok=True)
+        standards = self.root / "workspace/.standards-config/config"
+        standards.mkdir(parents=True)
+        (standards / "private.yml").write_text("private fixture\n" * 20)
+        safe_archive = self.make_archive({"workspace/source": b"safe"})
+        docker = self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
+if [[ "$1" = info ]]; then echo "$DOCKER_ARCH"; exit; fi
+if [[ "$1" = port ]]; then echo 127.0.0.1:12345; exit; fi
+if [[ "$1 $2" = 'image save' ]]; then cp "$RUNNER_TEMP/artifact.tar" "${*: -1}"; exit; fi
+for arg in "$@"; do
+  if [[ "$arg" = digest ]]; then printf 'sha256:%064d\\n' 0; exit; fi
+  if [[ "$arg" = manifest || "$arg" = config ]]; then
+    ref="${*: -1}"
+    case "$ref" in
+      *base-ci@*) name=base-ci;;
+      *base@*) name=base;;
+      */dev:*) name=dev;;
+      */ci:*) name=ci;;
+      *) exit 2;;
+    esac
+    if [[ "$arg" = config ]]; then name="$name-config"; fi
+    cat "$RUNNER_TEMP/fixtures/$name.json"
+    exit
+  fi
+done
+''')
+        self.stub("curl", "exit 0\n")
+        cli = self.stub("devcontainer", 'printf "%s\\n" "$*" > "$RUNNER_TEMP/cli-call"\n')
+        fixtures = self.root / "fixtures"
+        fixtures.mkdir()
+        args = self.rebased()
+        for arch, native in [("amd64", "x86_64"), ("arm64", "aarch64")]:
+            for item in args[4:6]: item["architecture"] = arch
+            for name, data in zip(["base", "base-ci", "dev", "ci", "dev-config", "ci-config"], args[:6]):
+                (fixtures / f"{name}.json").write_text(json.dumps(data))
+            for name in ["base-config", "base-ci-config"]:
+                (fixtures / f"{name}.json").write_text(json.dumps(config(arch)))
+            env = {**self.env, "ASSETS": str(ASSETS), "CONTEXT": str(context), "ARCH": arch,
+                   "BASE": "ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "a" * 64,
+                   "BASE_CI": "ghcr.io/rubio-enterprises/devcontainers/base-ci@sha256:" + "b" * 64,
+                   "IMAGE": "ghcr.io/rubio-enterprises/repo/devcontainer", "CI_IMAGE": "ghcr.io/rubio-enterprises/repo/devcontainer-ci",
+                   "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "c" * 40,
+                   "GITHUB_REPOSITORY": "Rubio-Enterprises/repo", "GITHUB_SERVER_URL": "https://github.com",
+                   "GITHUB_WORKSPACE": str(self.root / "workspace"), "STANDARDS_PIN": "d" * 40,
+                   "DEVCONTAINER": str(cli), "DOCKER_ARCH": native,
+                   "PATH": str(docker.parent) + os.pathsep + os.environ["PATH"]}
+            result = subprocess.run(["bash", str(ASSETS / "build.sh")], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = (self.root / "docker-calls").read_text()
+            self.assertIn("--old_base " + env["BASE"] + " --new_base " + env["BASE_CI"], calls)
+            self.assertIn("--cache-from " + env["IMAGE"] + ":main-" + arch, calls)
+            self.assertIn("--build-arg BUILDKIT_INLINE_CACHE=1", calls)
+            self.assertIn("--security-opt no-new-privileges --user 1000", calls)
+            self.assertNotIn("push ghcr.io", calls)
+            self.assertNotIn("--build-arg STANDARDS_PIN", calls)
+            self.assertIn("--platform linux/" + arch, (self.root / "cli-call").read_text())
+            (self.root / "docker-calls").unlink()
+            result = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "DOCKER_ARCH": "wrong"}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("build --", (self.root / "docker-calls").read_text())
+            (self.root / "docker-calls").unlink()
+        self.assertTrue(safe_archive.exists())
+
+    def test_prepare_uses_committed_source_and_cli_jsonc_not_workspace_untracked_files(self):
+        src = self.root / "workspace"
+        (src / ".github/.devcontainer").mkdir(parents=True)
+        (src / ".github/.devcontainer/devcontainer.json").write_text('{// JSONC\n"features":{}}')
+        (src / ".mise.toml").write_text('[tools]\n')
+        (src / "source.py").write_text("print('safe')")
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(src), *args], env=self.env, text=True).strip()
+        git("init", "-q")
+        git("add", ".")
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: fixture")
+        (src / ".standards-config").mkdir()
+        (src / ".standards-config/private").write_text("not copied")
+        (src / "untracked-secret").write_text("not copied")
+        cli = self.stub("devcontainer", 'printf \'{"configuration":{"features":{},"configFilePath":{}}}\'\n')
+        result = subprocess.run(["node", str(ASSETS / "image.mjs"), "prepare"], env={**self.env,
+            "GITHUB_WORKSPACE": str(src), "GITHUB_SHA": git("rev-parse", "HEAD"), "STANDARDS_PIN": "b" * 40,
+            "BASE": "ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "a" * 64,
+            "CONFIG": ".github/.devcontainer/devcontainer.json", "DEVCONTAINER": str(cli)}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
+        context = Path(outputs["context"])
+        self.assertTrue((context / "src/source.py").exists())
+        self.assertFalse((context / "src/.standards-config").exists())
+        self.assertFalse((context / "src/.git").exists())
+        self.assertFalse((context / "src/untracked-secret").exists())
+        self.assertTrue((context / "pins/.mise.toml").exists())
+        self.assertFalse((context / "pins/source.py").exists())
+        self.assertEqual(outputs["assets"], str(ASSETS))
+        self.assertEqual(json.loads((context / "features/devcontainer.json").read_text())["remoteUser"], "vscode")
+
+
+if __name__ == "__main__":
+    unittest.main()
