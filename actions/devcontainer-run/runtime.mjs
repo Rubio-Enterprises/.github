@@ -25,7 +25,7 @@ const remoteEnv = {
 };
 for (const key of ['GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_REPOSITORY_ID', 'GITHUB_SHA',
   'GITHUB_REF', 'GITHUB_BASE_REF', 'GITHUB_EVENT_NAME', 'IS_FORK', 'HAS_KNOWLEDGEBASE',
-  'MISE_GITHUB_TOKEN', 'GOPRIVATE']) {
+  'MISE_GITHUB_TOKEN']) {
   if (process.env[key]) remoteEnv[key] = '${localEnv:' + key + '}';
 }
 const config = {

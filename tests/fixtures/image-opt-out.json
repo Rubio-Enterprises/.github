@@ -12,8 +12,6 @@
       "Fingerprint the uv-resolved python for the mise cache key": "616ef37c7b45829f62b09fa16eeb01b0ad8c07599f9e3f7c15408ef447a2ffb0",
       "Resolve installed mise version": "49780af4e82626bd1686810f7d38070d060bac053a6fc0a8794c416f081e4ffa",
       "Bootstrap the Shared Config Checkout": "2ea0b041aabea4cb5e2ee426bbcb5289d81290e40c46a94d19a5cc093acbd7a4",
-      "Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)": "8bbdd2d13ab0747929a0fd7041261c0d48869c5c40bd59ebc3b030a2add91983",
-      "Route private Go module fetches through the App token": "63c755d88cb12398c05b900d3cb7d646b9d49a5a79ac782fa37ad3c379cf519d",
       "Install pnpm (for lefthook.local.yml hooks invoking pnpm)": "898b1899edc77770158ada7ca8ab576aebd84496bf7ba18bd2f2dcba7c44bf82",
       "Locate the pnpm cacheDir": "d6f49ad7f5aa6c322eac04f9af29ebdd568603e58c7460935518407dc7e29d55",
       "Restore the pnpm cacheDir": "4c4edb878b60fda6b2d14c2876003a0e468bb5b358e6229a036ab329bea7cc08",
@@ -63,7 +61,7 @@
   },
   "unchanged": {
     "e2e.yml": "96ca7ff1136832d6a61f121bd54a1cf27a7f0ed9e57fe4a07e5019b3ccb33e0a",
-    "cloud-setup-smoke.yml": "f8046f194fa862184a727029a1cfdec02800dd096ee6b7793ee354acfe1112b7",
+    "cloud-setup-smoke.yml": "bb90ec6ec7aed65972d9a0919bcd901309ff2811988b4597758a50b2af7fa4b7",
     "repository-image.yml": "61c767c812cb9f24327fb5a1fe630a3f335fdaa9f127f75a0765ad47696a8877",
     "devcontainer-image.yml": "9bd1be8be4a65cddf15ba5bfe19c4fdb61c2e25429bf43647f43378b7d2badd0"
   },
@@ -79,8 +77,6 @@
       "Fingerprint the uv-resolved python for the mise cache key": "",
       "Resolve installed mise version": "",
       "Bootstrap the Shared Config Checkout": "",
-      "Mint private-Go-module token (consumers setting GO_PRIVATE_MODULE_REPOS)": "vars.GO_PRIVATE_MODULE_REPOS != ''",
-      "Route private Go module fetches through the App token": "vars.GO_PRIVATE_MODULE_REPOS != ''",
       "Install pnpm (for lefthook.local.yml hooks invoking pnpm)": "hashFiles('pnpm-lock.yaml') != ''",
       "Locate the pnpm cacheDir": "hashFiles('pnpm-lock.yaml') != ''",
       "Restore the pnpm cacheDir": "steps.pnpm-cache-dir.outputs.ok == 'true'",

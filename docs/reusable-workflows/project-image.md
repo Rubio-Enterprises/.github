@@ -98,10 +98,9 @@ hosted adapter does not silently grant Docker/KVM capabilities.
 The checkout, including provisioned standards, is bind-mounted into
 `/workspaces/<repo>`. CLI maps `vscode` to the hosted user's UID; the adapter
 re-owns only the image's tool/cache/shim directories, not the checkout, before
-non-root preflight/lifecycle execution. Existing private-module/framework URL
-routes are copied to a temporary read-only Git config; their App scopes do not
-change, and standards-reader access is never widened. Registry credentials and
-standards-reader tokens are not forwarded. Only named CI/task environment values
+non-root preflight/lifecycle execution. An empty read-only Git config prevents
+host URL routes or credentials from crossing into the container. Registry
+credentials and standards-reader tokens are not forwarded. Only named CI/task environment values
 are forwarded. No Docker socket, service containers or host ports are requested;
 these shared tasks need none. Jobs needing host services/Docker remain on their
 capability routes rather than importing laptop runtime mounts into CI.
