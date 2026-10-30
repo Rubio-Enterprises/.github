@@ -125,7 +125,6 @@ jobs:
   typecheck:
     permissions:
       contents: read
-      packages: read
     needs: route
     runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 120
