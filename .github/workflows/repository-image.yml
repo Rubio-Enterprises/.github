@@ -1,0 +1,354 @@
+name: repository image (reusable)
+"on":
+  workflow_call:
+    inputs:
+      config:
+        description: Repository-relative extra-Features definition
+        type: string
+        default: .github/.devcontainer/devcontainer.json
+      image-name:
+        description: GHCR image without a tag; defaults to ghcr.io/<owner>/<repo>/devcontainer
+        type: string
+        default: ""
+      base:
+        description: Public base tag or resolved multiarch index reference
+        type: string
+        default: ghcr.io/rubio-enterprises/devcontainers/base:latest
+      base-ci:
+        description: Matching runner base tag or resolved multiarch index reference
+        type: string
+        default: ghcr.io/rubio-enterprises/devcontainers/base-ci:latest
+    secrets:
+      STANDARDS_READER_APP_ID:
+        description: Standards-reader App ID; required for shared config bootstrap
+        required: false
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        description: Standards-reader App key; required for shared config bootstrap
+        required: false
+permissions: {}
+concurrency:
+  group: repository-image-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  prepare:
+    name: Resolve publication and base pair
+    if: >-
+      github.event_name == 'pull_request' ||
+      (contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      package: ${{ steps.image.outputs.package }}
+      publish: ${{ steps.image.outputs.publish }}
+      ci-image: ${{ steps.image.outputs.image }}-ci
+      ci-package: ${{ steps.image.outputs.package }}-ci
+      base: ${{ steps.bases.outputs.base }}
+      base-ci: ${{ steps.bases.outputs.base-ci }}
+    steps:
+      - name: Resolve image and publication policy
+        id: image
+        shell: bash
+        env:
+          IMAGE_INPUT: ${{ inputs.image-name }}
+          CONFIG: ${{ inputs.config }}
+          PUBLISH: ${{ github.event_name != 'pull_request' }}
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            ""|/*|..|../*|*/../*|*/..) echo "::error::config must be repository-relative without parent traversal"; exit 1 ;;
+          esac
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="${IMAGE_INPUT:-ghcr.io/${GITHUB_REPOSITORY,,}/devcontainer}"
+          image="${image,,}"
+          prefix="ghcr.io/$owner/"
+          package="${image#"$prefix"}"
+          if [[ "$image" != "$prefix"* || ! "$package" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]]; then
+            echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
+            exit 1
+          fi
+          printf 'image=%s\npackage=%s\npublish=%s\n' "$image" "$package" "$PUBLISH" >> "$GITHUB_OUTPUT"
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Resolve and validate the public base pair
+        id: bases
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        with:
+          operation: resolve
+          base: ${{ inputs.base }}
+          base-ci: ${{ inputs.base-ci }}
+
+  validate:
+    name: Validate (${{ matrix.arch }})
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'false'
+    permissions:
+      contents: read
+      packages: read
+    strategy: &architectures
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+          - arch: arm64
+            runner: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    # Keep pruning from deleting untagged attestation manifests referenced by an index
+    env: &build-env
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+    steps: &build-steps
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Provision native shared config
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          bootstrap-parts: repos
+      - name: Require the image build pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "${STANDARDS_PIN:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::standards-bootstrap must export a full lowercase STANDARDS_PIN before building" >&2
+            exit 1
+          fi
+      - name: Verify native Docker architecture
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          actual="$(docker info --format '{{.Architecture}}')"
+          case "$ARCH:$actual" in
+            amd64:x86_64|amd64:amd64|arm64:aarch64|arm64:arm64) ;;
+            *) echo "::error::Docker architecture does not match linux/$ARCH"; exit 1 ;;
+          esac
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install the Dev Container CLI
+        shell: bash
+        run: npm install --prefix "$RUNNER_TEMP/devcontainer-cli" --ignore-scripts --no-audit --no-fund @devcontainers/cli@0.89.0
+      - name: Log in to GHCR
+        if: >-
+          needs.prepare.outputs.publish == 'true' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Prepare central generic build inputs
+        id: inputs
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+        with:
+          operation: prepare
+          config: ${{ inputs.config }}
+          base: ${{ needs.prepare.outputs.base }}
+      - name: Install checksum-pinned Trivy
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          version=0.76.1
+          case "$ARCH" in
+            amd64) platform=64bit; checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0 ;;
+            arm64) platform=ARM64; checksum=e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f ;;
+            *) echo "::error::Unsupported Trivy architecture"; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-${platform}.tar.gz"
+          printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/trivy" trivy
+      - name: Build, rebase and audit both architecture artifacts
+        shell: bash
+        env:
+          ASSETS: ${{ steps.inputs.outputs.assets }}
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          BASE: ${{ needs.prepare.outputs.base }}
+          BASE_CI: ${{ needs.prepare.outputs.base-ci }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+          ARCH: ${{ matrix.arch }}
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+        run: bash "$ASSETS/build.sh"
+      - name: Scan both local artifacts for secrets
+        shell: bash
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf "$RUNNER_TEMP/trivy-cache"' EXIT
+          # skip-patterns replaces Trivy's defaults. Keep them plus package caches:
+          # installs hardlink into caches whose hashes defeat path-based allow rules.
+          # Third-party package contents stay out of scope, matching Trivy's defaults.
+          cat > "$RUNNER_TEMP/trivy-secret.yaml" <<'TRIVY'
+          skip-patterns:
+            - "**/.git/**"
+            - "**/node_modules/**"
+            - "**/go.mod"
+            - "**/go.sum"
+            - "**/package-lock.json"
+            - "**/yarn.lock"
+            - "**/pnpm-lock.yaml"
+            - "**/Pipfile.lock"
+            - "**/Gemfile.lock"
+            - "**/*.jpg"
+            - "**/*.png"
+            - "**/*.gif"
+            - "**/*.doc"
+            - "**/*.pdf"
+            - "**/*.bin"
+            - "**/*.svg"
+            - "**/*.socket"
+            - "**/*.deb"
+            - "**/*.rpm"
+            - "**/*.zip"
+            - "**/*.gz"
+            - "**/*.gzip"
+            - "**/*.tar"
+            - "**/pnpm-store/**"
+            - "**/_cacache/**"
+            - "**/.cache/uv/**"
+            - "**/.cache/pip/**"
+            - "**/.cache/mise/npm/aube/store/**"
+            - "**/.cache/mise/downloads-cas/**"
+          # Keep the SDK prose guard for regular files in uncached install layouts.
+          exclude-block:
+            description: Anthropic SDK execution-identity documentation, not GCP credentials
+            regexes:
+              - 'sending `\{"type": "service_account"\}` stores the'
+              - 'send null or `\{"type": "service_account"\}`'
+              - 'Always present; `\{"type": "service_account"\}` when runs carry no customer-named'
+          TRIVY
+          # shellcheck disable=SC2016
+          template='{{ range . }}{{ $target := .Target }}{{ range .Secrets }}{{ printf "%s:%d-%d: %s (%s)\n" $target .StartLine .EndLine .RuleID .Severity }}{{ end }}{{ end }}'
+          for artifact in "$IMAGE" "$CI_IMAGE"; do
+            SECONDS=0
+            status=0
+            "$RUNNER_TEMP/trivy/trivy" image \
+              --image-src docker --scanners secret --image-config-scanners secret \
+              --exit-code 1 --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
+              --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
+              --timeout 15m --format template --template "$template" \
+              "$artifact:sha-$GITHUB_SHA-$ARCH" || status=$?
+            printf 'Secret scan (%s, %s): %s seconds (exit %s)\n' "$artifact" "$ARCH" "$SECONDS" "$status"
+            if [[ "$status" != 0 ]]; then exit "$status"; fi
+          done
+      - name: Push the scanned architecture image
+        if: needs.prepare.outputs.publish == 'true'
+        shell: bash
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          for artifact in "$IMAGE" "$CI_IMAGE"; do
+            docker push "$artifact:sha-$GITHUB_SHA-$ARCH"
+          done
+      - name: Clean job-local artifacts
+        if: always()
+        shell: bash
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
+          docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
+          if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
+
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+    strategy: *architectures
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env: *build-env
+    steps: *build-steps
+
+  merge:
+    name: Publish multi-architecture image
+    needs: [prepare, build]
+    permissions:
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 15
+    env: *build-env
+    steps:
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish multi-architecture tags and cache aliases
+        shell: bash
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+        run: |
+          set -euo pipefail
+          for artifact in "$IMAGE" "$CI_IMAGE"; do
+          docker buildx imagetools create \
+            --tag "$artifact:main" --tag "$artifact:sha-$GITHUB_SHA" \
+            "$artifact:sha-$GITHUB_SHA-amd64" "$artifact:sha-$GITHUB_SHA-arm64"
+          for arch in amd64 arm64; do
+            docker buildx imagetools create --prefer-index=false \
+              --tag "$artifact:main-$arch" "$artifact:sha-$GITHUB_SHA-$arch"
+          done
+          docker buildx imagetools inspect "$artifact:main"
+          docker buildx imagetools inspect "$artifact:sha-$GITHUB_SHA"
+          done
+
+  prune:
+    name: Prune untagged versions
+    needs: [prepare, merge]
+    permissions:
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        package:
+          - ${{ needs.prepare.outputs.package }}
+          - ${{ needs.prepare.outputs.ci-package }}
+    steps:
+      - name: Keep five untagged versions
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+        with:
+          owner: ${{ github.repository_owner }}
+          package-name: ${{ matrix.package }}
+          package-type: container
+          delete-only-untagged-versions: "true"
+          min-versions-to-keep: 5
