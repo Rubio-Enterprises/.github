@@ -223,19 +223,15 @@ elif args[0] == 'run-user-commands':
         self.assertIn('docker rm -f ' + 'b' * 64, trace)
         self.assert_clean()
 
-    def test_only_declared_module_and_framework_routes_are_forwarded(self):
-        framework_route = extract_run_block((WORKFLOWS / 'lint-hooks.yml').read_text(),
-                                            'Route the Knowledgebase Framework remote through the App token')
-        subprocess.run(['bash', '-c', framework_route], cwd=self.repo,
-                       env={**self.env, 'TOKEN': 'fixture', 'OWNER': 'Rubio-Enterprises'}, check=True)
-        for repo in ['private-module', 'standards', 'unrelated']:
+    def test_only_declared_private_module_routes_are_forwarded(self):
+        for repo in ['private-module', 'knowledgebase-framework', 'knowledgebase-framework.git', 'standards', 'unrelated']:
             self.git('config', '--global', 'url.https://x-access-token:fixture@github.com/Rubio-Enterprises/' + repo + '.insteadOf',
                      'https://github.com/Rubio-Enterprises/' + repo)
         result = self.run_image(GO_PRIVATE_MODULE_REPOS='private-module')
         self.assertEqual(result.returncode, 0, result.stderr)
         copied = (self.root / 'gitconfig-copy').read_text()
         self.assertIn('private-module', copied)
-        self.assertIn('knowledgebase-framework', copied)
+        self.assertNotIn('knowledgebase-framework', copied)
         self.assertNotIn('standards', copied)
         self.assertNotIn('unrelated', copied)
         self.assertNotIn('fixture@', self.trace())
