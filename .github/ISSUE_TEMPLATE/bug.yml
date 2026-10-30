@@ -12,7 +12,7 @@ body:
 
         An initial report does not need a complete reproducer. Describe what you know;
         if steps, version, or environment details are unknown, say so instead of guessing.
-        A durable reproducer is needed before unattended agent implementation.
+        A durable reproducer is needed before unattended agent execution.
         Examples are illustrative, not reports about this repository. Redact secrets from logs.
   - type: textarea
     id: description
