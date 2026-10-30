@@ -510,8 +510,7 @@ separate retirement; this code cleanup does not delete refs or historical tags.
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues; external PRs are not a triage request surface. See
-`docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues; external PRs are not a triage request surface.
 
 ### Triage labels
 
