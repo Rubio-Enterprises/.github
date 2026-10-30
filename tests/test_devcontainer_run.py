@@ -223,17 +223,14 @@ elif args[0] == 'run-user-commands':
         self.assertIn('docker rm -f ' + 'b' * 64, trace)
         self.assert_clean()
 
-    def test_only_declared_private_module_routes_are_forwarded(self):
+    def test_host_git_credentials_are_never_forwarded(self):
         for repo in ['private-module', 'knowledgebase-framework', 'knowledgebase-framework.git', 'standards', 'unrelated']:
             self.git('config', '--global', 'url.https://x-access-token:fixture@github.com/Rubio-Enterprises/' + repo + '.insteadOf',
                      'https://github.com/Rubio-Enterprises/' + repo)
         result = self.run_image(GO_PRIVATE_MODULE_REPOS='private-module')
         self.assertEqual(result.returncode, 0, result.stderr)
         copied = (self.root / 'gitconfig-copy').read_text()
-        self.assertIn('private-module', copied)
-        self.assertNotIn('knowledgebase-framework', copied)
-        self.assertNotIn('standards', copied)
-        self.assertNotIn('unrelated', copied)
+        self.assertEqual(copied, '')
         self.assertNotIn('fixture@', self.trace())
         self.assert_clean()
 

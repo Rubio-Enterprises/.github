@@ -11,7 +11,7 @@ The action:
    `main` once to a validated lowercase 40-hex SHA, and uses `actions/checkout`
    to provision that exact commit with full history and no persisted credentials.
 3. Removes legacy standards token routes, including on failure. It installs no
-   route; unrelated private-module and knowledgebase routes are untouched.
+   route; unrelated Git routes are untouched.
 4. Requires a real, clean, non-shallow checkout at the resolved SHA, normalizes
    the credential-free origin to
    `https://github.com/Rubio-Enterprises/standards.git`, and exports the validated

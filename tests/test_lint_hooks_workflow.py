@@ -253,28 +253,23 @@ class KnowledgebaseRemoteTests(unittest.TestCase):
         self.assertIn("lefthook run kb-check", check)
 
 
-class PrivateGoModuleTokenTests(unittest.TestCase):
-    """Go-module reads use the private-modules App, never the standards reader.
+class PrivateModuleRetirementTests(unittest.TestCase):
+    def test_lint_hooks_never_mints_or_forwards_private_module_auth(self) -> None:
+        for retired in (
+            "PRIVATE_MODULES_READER", "GO_PRIVATE_MODULE_REPOS",
+            "go-private-token", "Route private Go module",
+        ):
+            self.assertNotIn(retired, WORKFLOW_TEXT)
 
-    Every PR job can reach the standards-reader key, so its installation stays
-    standards + knowledgebase-framework (.github-private ADR 0003); a Go-module
-    mint from it would fail once the installation no longer covers the module.
-    """
-
-    def mint(self) -> str:
-        return WORKFLOW_TEXT.split(
-            "- name: Mint private-Go-module token", 1
-        )[1].split("- name:", 1)[0]
-
-    def test_go_module_mint_uses_the_private_modules_app(self) -> None:
-        mint = self.mint()
-        self.assertIn("app-id: ${{ secrets.PRIVATE_MODULES_READER_APP_ID }}", mint)
-        self.assertIn(
-            "private-key: ${{ secrets.PRIVATE_MODULES_READER_APP_PRIVATE_KEY }}", mint
-        )
-        self.assertNotIn("STANDARDS_READER", mint)
-        self.assertIn("repositories: ${{ vars.GO_PRIVATE_MODULE_REPOS }}", mint)
-        self.assertIn("permission-contents: read", mint)
+    def test_cloud_smoke_accepts_legacy_names_without_reading_them(self) -> None:
+        smoke = (ROOT / ".github/workflows/cloud-setup-smoke.yml").read_text()
+        for name in ("PRIVATE_MODULES_READER_APP_ID", "PRIVATE_MODULES_READER_APP_PRIVATE_KEY"):
+            self.assertIn(f"      {name}:\n", smoke)
+            self.assertNotIn(f"secrets.{name}", smoke)
+        self.assertNotIn("private-modules-token", smoke)
+        self.assertNotIn("HAS_PRIVATE_MODULES_APP", smoke)
+        self.assertNotIn("          GH_PAT:", smoke)
+        self.assertIn("secrets.STANDARDS_READER_APP_ID", smoke)
 
     def test_standards_reader_mints_only_for_standards(self) -> None:
         # The standards-bootstrap action mints inside itself, so read its scope

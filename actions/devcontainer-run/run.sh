@@ -49,20 +49,8 @@ image_id="$(docker image inspect --format '{{.Id}}' "$image")"
 rm -rf "$state/auth"
 unset IMAGE_PULL_TOKEN
 cp "$GITHUB_ACTION_PATH/preflight.sh" "$GITHUB_ACTION_PATH/$PROJECT_TASK.sh" "$state/"
-# Only declared private-module routes cross into the container
+# Do not inherit host Git credentials
 : > "$state/gitconfig"
-while IFS= read -r key; do
-  [ -n "$key" ] || continue
-  value="$(git config --global --get "$key")"
-  allowed=false
-  IFS=',' read -ra repos <<< "${GO_PRIVATE_MODULE_REPOS:-}"
-  for repo in "${repos[@]}"; do
-    repo="${repo// /}"
-    if [[ "$repo" =~ ^[A-Za-z0-9_.-]+$ ]] &&
-       [ "$value" = "https://github.com/Rubio-Enterprises/$repo" ]; then allowed=true; fi
-  done
-  if [ "$allowed" = true ]; then git config --file "$state/gitconfig" --add "$key" "$value"; fi
-done < <(git config --global --name-only --get-regexp '^url\..*\.insteadof$' || true)
 export PROJECT_IMAGE_STATE="$state" PROJECT_IMAGE_ID="$image_id"
 node "$GITHUB_ACTION_PATH/runtime.mjs"
 cli="$RUNNER_TEMP/project-devcontainer-cli/node_modules/.bin/devcontainer"

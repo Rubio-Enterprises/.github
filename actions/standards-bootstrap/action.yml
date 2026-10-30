@@ -136,7 +136,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # Remove legacy standards routes without touching private-module routes
+        # Remove legacy standards routes without touching unrelated routes
         routes() { git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null || true; }
         while read -r key _; do
           case "$key" in
