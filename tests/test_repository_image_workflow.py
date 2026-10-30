@@ -138,6 +138,10 @@ class Fixtures(unittest.TestCase):
             self.assertEqual(self.node("baseReference", [ref, "base"]).returncode, 0)
         for ref in ["other/base:latest", name + ":v1", name + "\nbase=other", name + "@sha256:short"]:
             self.assertNotEqual(self.node("baseReference", [ref, "base"]).returncode, 0)
+        for kind in ["base", "base-ci"]:
+            for registry in ["ghcrXio", "ghcr-io"]:
+                ref = f"{registry}/rubio-enterprises/devcontainers/{kind}@sha256:" + "a" * 64
+                self.assertNotEqual(self.node("baseReference", [ref, kind]).returncode, 0)
 
     def test_extra_features_definition_rejects_legacy_and_local_build_inputs(self):
         self.assertEqual(self.node("validateDefinition", [{"name": "repo", "features": {

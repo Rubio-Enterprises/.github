@@ -13,7 +13,7 @@ const crane = (...args) => run('docker', ['run', '--rm', CRANE, ...args]);
 
 export function baseReference(value, kind) {
   const name = `ghcr.io/rubio-enterprises/devcontainers/${kind}`;
-  if (value !== `${name}:latest` && !new RegExp(`^${name}@sha256:[a-f0-9]{64}$`).test(value)) {
+  if (value !== `${name}:latest` && !(value.startsWith(`${name}@`) && digestPattern.test(value.slice(name.length + 1)))) {
     throw new Error(`Expected ${kind}:latest or its immutable sha256 reference`);
   }
   return name;
