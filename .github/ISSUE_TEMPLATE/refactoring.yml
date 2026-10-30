@@ -1,0 +1,95 @@
+name: Refactoring
+description: Change internal structure while preserving behavior.
+type: task
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to improve code structure without changing its intended behavior.
+        Examples: consolidate duplicated configuration loaders; split a module along an existing boundary.
+
+        Keep answers concise. Context links are optional; other sections are required.
+        If a section genuinely does not apply, explain why rather than inventing content.
+        Examples are illustrative, not reports about this repository. Do not include secrets.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: "Outcome"
+      description: "What maintainability, clarity, or testability improvement should this structural change achieve?"
+      placeholder: |
+        Configuration parsing has one implementation, so fixes do not have to be repeated in the CLI and worker.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem / motivation"
+      description: "Describe the current structure and the specific problem it causes."
+      placeholder: |
+        The CLI and worker each contain a load_settings implementation with the same precedence rules.
+    validations:
+      required: true
+  - type: textarea
+    id: in-scope
+    attributes:
+      label: "In scope"
+      description: "Name the transformation, its target, affected callers, and behavior that must remain unchanged."
+      placeholder: |
+        - Extract one shared load_settings function.
+        - Update the CLI and worker callers to use it.
+        - Preserve environment-variable and file precedence.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: "Out of scope"
+      description: "Name related work that is deliberately excluded."
+      placeholder: |
+        - New configuration keys.
+        - Changes to error messages, defaults, or accepted inputs.
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: "Done when"
+      description: "Include both structural completion and preserved behavior. Passing old tests alone does not prove the refactor happened."
+      placeholder: |
+        - [ ] One configuration parser implementation remains and both callers use it.
+        - [ ] The same inputs produce the same settings and errors.
+        - [ ] Existing precedence and default behavior are preserved.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: "Verification"
+      description: "Give checks for the new structure as well as regression checks for preserved behavior. Use actual repository commands."
+      placeholder: |
+        mise run test — configuration and caller tests pass, including precedence and error cases.
+        Inspect both call sites and search for load_settings definitions; both use the single shared implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives considered"
+      description: "Describe actual alternatives and why they were rejected. Use N/A only with a concrete reason no meaningful choice existed—not because alternatives were not investigated."
+      placeholder: |
+        Leave the duplication — rejected because fixes regularly need to be made twice.
+        Share only small parsing helpers — rejected because the precedence logic would remain duplicated.
+        Extract the complete loader — selected because both callers have the same contract.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: "Context links"
+      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance."
+      placeholder: |
+        Link to the two current implementations and the regression tests that capture their existing behavior.
+    validations:
+      required: false
