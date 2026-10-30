@@ -237,54 +237,20 @@ class InjectionContractTests(unittest.TestCase):
         # Not a reusable any more: only the injected path may run it.
         self.assertNotIn("workflow_call", on_block)
 
-KNOWLEDGEBASE_DETECT_STEP = "Detect the Knowledgebase Framework remote"
-FRAMEWORK_REMOTE = "https://github.com/Rubio-Enterprises/knowledgebase-framework.git"
-
-
 class KnowledgebaseRemoteTests(unittest.TestCase):
-    """has_knowledgebase repos fetch a second PRIVATE remote; route it, scoped."""
+    def test_public_framework_needs_no_token_or_url_route(self) -> None:
+        for retired in (
+            "Detect the Knowledgebase Framework remote",
+            "Mint knowledgebase-framework read token",
+            "Route the Knowledgebase Framework remote through the App token",
+            "knowledgebase-remote",
+        ):
+            self.assertNotIn(retired, WORKFLOW_TEXT)
 
-    def detect(self, lefthook: str | None) -> str:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            if lefthook is not None:
-                (repo / "lefthook.yml").write_text(lefthook, encoding="utf-8")
-            output = repo / "github_output"
-            output.write_text("", encoding="utf-8")
-            subprocess.run(
-                ["bash", "-c", extract_run_block(KNOWLEDGEBASE_DETECT_STEP)],
-                cwd=repo,
-                check=True,
-                env={"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(output)},
-            )
-            return output.read_text(encoding="utf-8")
-
-    def test_stub_naming_the_framework_remote_is_detected(self) -> None:
-        stub = f"remotes:\n  - git_url: {FRAMEWORK_REMOTE}\n    ref: v2\n"
-        self.assertEqual(self.detect(stub), "present=true\n")
-
-    def test_other_repositories_mint_no_framework_token(self) -> None:
-        stub = "remotes:\n  - git_url: https://github.com/Rubio-Enterprises/standards.git\n"
-        self.assertEqual(self.detect(stub), "present=false\n")
-        self.assertEqual(self.detect(None), "present=false\n")
-
-    def test_mint_and_route_are_gated_and_scoped_to_the_framework(self) -> None:
-        mint = WORKFLOW_TEXT.split(
-            "- name: Mint knowledgebase-framework read token", 1
-        )[1].split("- name:", 1)[0]
-        self.assertIn("if: steps.knowledgebase-remote.outputs.present == 'true'", mint)
-        self.assertIn("repositories: knowledgebase-framework\n", mint)
-        self.assertIn("permission-contents: read", mint)
-        route = WORKFLOW_TEXT.split(
-            "- name: Route the Knowledgebase Framework remote through the App token", 1
-        )[1].split("- name:", 1)[0]
-        self.assertIn("if: steps.knowledgebase-remote.outputs.present == 'true'", route)
-        self.assertIn('"https://github.com/${OWNER}/knowledgebase-framework"', route)
-        # The mint precedes every lefthook run, which is where the fetch happens.
-        self.assertLess(
-            WORKFLOW_TEXT.index("- name: Mint knowledgebase-framework read token"),
-            WORKFLOW_TEXT.index(f"- name: {ALL_FILES_STEP}"),
-        )
+    def test_full_knowledgebase_check_remains_enabled(self) -> None:
+        check = WORKFLOW_TEXT.split("- name: Run the full knowledgebase check", 1)[1].split("- name:", 1)[0]
+        self.assertIn("needs.detect.outputs.has_knowledgebase == 'true'", check)
+        self.assertIn("lefthook run kb-check", check)
 
 
 class PrivateGoModuleTokenTests(unittest.TestCase):
@@ -310,7 +276,7 @@ class PrivateGoModuleTokenTests(unittest.TestCase):
         self.assertIn("repositories: ${{ vars.GO_PRIVATE_MODULE_REPOS }}", mint)
         self.assertIn("permission-contents: read", mint)
 
-    def test_standards_reader_mints_only_the_two_framework_repos(self) -> None:
+    def test_standards_reader_mints_only_for_standards(self) -> None:
         # The standards-bootstrap action mints inside itself, so read its scope
         # from the action: the native path's token is the action's.
         action = (ROOT / "actions" / "standards-bootstrap" / "action.yml").read_text()
@@ -321,4 +287,4 @@ class PrivateGoModuleTokenTests(unittest.TestCase):
             for step in steps
             if "secrets.STANDARDS_READER_APP_ID" in step
         )
-        self.assertEqual(scopes, ["knowledgebase-framework", "standards", "standards"])
+        self.assertEqual(scopes, ["standards", "standards"])
