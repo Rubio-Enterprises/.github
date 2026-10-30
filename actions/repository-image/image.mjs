@@ -7,6 +7,9 @@ import { isDeepStrictEqual } from 'node:util';
 export const CRANE = 'gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1'; // v0.22.1
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const assets = path.dirname(fileURLToPath(import.meta.url));
+const sharedConfigStubLinks = new Map([
+  ['tombi.toml', '.standards-config/config/tombi.toml'],
+]);
 let pendingContext;
 const run = (command, args) => execFileSync(command, args, { encoding: 'utf8' }).trim();
 const crane = (...args) => run('docker', ['run', '--rm', CRANE, ...args]);
@@ -96,7 +99,13 @@ function walk(root, visit, relative = '') {
     const name = path.join(relative, entry.name);
     if (['.standards-config', '.git'].includes(entry.name)) throw new Error('Tracked Git or standards checkout rejected');
     if (entry.isSymbolicLink()) {
-      const target = path.resolve(root, relative, fs.readlinkSync(path.join(root, name)));
+      const link = path.join(root, name);
+      const destination = fs.readlinkSync(link);
+      if (sharedConfigStubLinks.get(name) === destination) {
+        fs.unlinkSync(link);
+        continue;
+      }
+      const target = path.resolve(root, relative, destination);
       if (!target.startsWith(`${root}${path.sep}`) || target.split(path.sep).includes('.standards-config')) {
         throw new Error('Source symlink escapes the clean context');
       }

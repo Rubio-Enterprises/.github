@@ -311,6 +311,94 @@ done
             (self.root / "docker-calls").unlink()
         self.assertTrue(safe_archive.exists())
 
+    def prepare_consumer(self, name, links, extra_files=None):
+        src = self.root / name
+        files = {
+            ".gitignore": "/.standards-config/\n",
+            ".copier-answers.yml": "repo_type: native\nhas_python: true\n",
+            ".mise.toml": "[tools]\n",
+            ".config/mise-bootstrap.toml": "# Host bootstrap placeholder\n",
+            ".github/.devcontainer/devcontainer.json": '{"name":"Repository image build","features":{}}',
+            ".devcontainer/devcontainer.json": '{"image":"ghcr.io/rubio-enterprises/example/devcontainer:main"}',
+            "AGENTS.md": "Consumer fixture\n",
+            "main.py": "print('consumer fixture')\n",
+            **(extra_files or {}),
+        }
+        for name, body in files.items():
+            target = src / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body)
+        for name, target in links.items():
+            link = src / name
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(target)
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(src), *args], env=self.env, text=True).strip()
+        git("init", "-q")
+        git("add", ".")
+        for name in extra_files or {}:
+            if name.startswith(".standards-config/"):
+                git("add", "--force", "--", name)
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: consumer fixture")
+        policy = src / ".standards-config/config/tombi.toml"
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        if not policy.exists():
+            policy.write_text("Untracked policy fixture\n" * 20)
+        cli = self.stub("devcontainer", 'printf \'{"configuration":{"features":{},"configFilePath":{}}}\'\n')
+        output = Path(self.env["GITHUB_OUTPUT"])
+        output.unlink(missing_ok=True)
+        result = subprocess.run(["node", str(ASSETS / "image.mjs"), "prepare"], env={**self.env,
+            "GITHUB_WORKSPACE": str(src), "GITHUB_SHA": git("rev-parse", "HEAD"), "STANDARDS_PIN": "b" * 40,
+            "BASE": "ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "a" * 64,
+            "CONFIG": ".github/.devcontainer/devcontainer.json", "DEVCONTAINER": str(cli)}, capture_output=True, text=True)
+        return src, result
+
+    def test_prepare_omits_exact_shared_config_stub_without_changing_runtime_checkout(self):
+        src, result = self.prepare_consumer("consumer", {
+            "tombi.toml": ".standards-config/config/tombi.toml", "CLAUDE.md": "AGENTS.md"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
+        context = Path(outputs["context"])
+        self.assertFalse(os.path.lexists(context / "src/tombi.toml"))
+        self.assertFalse((context / "src/.standards-config").exists())
+        self.assertEqual((context / "src/CLAUDE.md").readlink(), Path("AGENTS.md"))
+        self.assertEqual((context / "src/main.py").read_text(), (src / "main.py").read_text())
+        self.assertEqual((src / "tombi.toml").readlink(), Path(".standards-config/config/tombi.toml"))
+        self.assertTrue((src / ".standards-config/config/tombi.toml").is_file())
+        self.assertTrue((context / "pins/.config/mise-bootstrap.toml").is_file())
+        self.assertFalse(os.path.lexists(context / "pins/tombi.toml"))
+
+    def test_prepare_preserves_repository_owned_regular_tombi_config(self):
+        _, result = self.prepare_consumer("regular", {}, {"tombi.toml": "[schema]\nenabled = false\n"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
+        self.assertEqual((Path(outputs["context"]) / "src/tombi.toml").read_text(), "[schema]\nenabled = false\n")
+
+    def test_prepare_still_rejects_unknown_policy_links_and_escaping_stub_substitutions(self):
+        for index, (name, target) in enumerate([
+            ("tombi.toml", ".standards-config/config/other.toml"),
+            ("other.toml", ".standards-config/config/tombi.toml"),
+            ("nested/tombi.toml", "../.standards-config/config/tombi.toml"),
+            ("tombi.toml", "./.standards-config/config/tombi.toml"),
+            ("tombi.toml", ".standards-config/../.standards-config/config/tombi.toml"),
+            ("tombi.toml", "../outside"),
+            ("tombi.toml", str(self.root / "outside")),
+        ]):
+            with self.subTest(name=name, target=target):
+                _, result = self.prepare_consumer(f"rejected-{index}", {name: target})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Source symlink escapes the clean context", result.stderr)
+                self.assertFalse((self.root / "output").exists())
+                self.assertFalse(list(self.root.glob("repository-image-*")))
+
+    def test_prepare_still_rejects_tracked_policy_with_the_known_stub(self):
+        _, result = self.prepare_consumer("tracked-policy", {"tombi.toml": ".standards-config/config/tombi.toml"},
+                                          {".standards-config/config/tombi.toml": "Tracked policy fixture\n"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Tracked Git or standards checkout rejected", result.stderr)
+        self.assertFalse((self.root / "output").exists())
+        self.assertFalse(list(self.root.glob("repository-image-*")))
+
     def test_prepare_uses_committed_source_and_cli_jsonc_not_workspace_untracked_files(self):
         src = self.root / "workspace"
         (src / ".github/.devcontainer").mkdir(parents=True)
