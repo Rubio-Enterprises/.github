@@ -81,7 +81,8 @@ jobs:
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
-      runner: ${{ steps.pick.outputs.runner }}
+      runner: ${{ steps.image-route.outputs.runner || steps.pick.outputs.runner }}
+      image_mode: ${{ steps.image-route.outputs.mode }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -110,8 +111,21 @@ jobs:
           # one line. Reject invalid JSON rather than writing a broken output.
           runner="$(jq -ce . <<<"$runner")" || exit 1
           printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"
+      - name: Select the declared CI Image route
+        id: image-route
+        if: >-
+          vars.CI_IMAGE_REPOS == 'all' || contains(fromJSON(vars.CI_IMAGE_REPOS || '[]'), github.repository_id) || contains(fromJSON(vars.CI_IMAGE_REPOS || '[]'), fromJSON(github.repository_id))
+        uses: Rubio-Enterprises/.github/actions/devcontainer-run@main
+        with:
+          operation: route
+          task: typecheck
+          runner: ${{ steps.pick.outputs.runner }}
+          rollout: ${{ vars.CI_IMAGE_REPOS }}
 
   typecheck:
+    permissions:
+      contents: read
+      packages: read
     needs: route
     runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 120
@@ -122,7 +136,15 @@ jobs:
       # uv on PATH routes mise's pipx-backend installs through uvx; without it
       # mise >= 2026.6.2 falls back to pip's --uploaded-prior-to which cold
       # runners' bootstrap pip (< 26) rejects.
+      - name: Provision standards for image execution
+        if: needs.route.outputs.image_mode != ''
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          bootstrap-parts: repos
       - name: Install uv (routes mise pipx installs through uvx)
+        if: needs.route.outputs.image_mode == ''
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
@@ -141,6 +163,7 @@ jobs:
       # (idempotent — the same managed interpreter uvx would provision anyway),
       # then read the managed version.
       - name: Fingerprint the uv-resolved python for the mise cache key
+        if: needs.route.outputs.image_mode == ''
         id: uv-python
         # Native cache seeds ignore consumer project bounds, matching uvx
         env:
@@ -158,6 +181,7 @@ jobs:
           echo "uv-resolved python for mise cache key: $version"
 
       - name: Resolve installed mise version
+        if: needs.route.outputs.image_mode == ''
         id: mise-version
         env:
           # renovate: datasource=github-releases depName=jdx/mise
@@ -181,6 +205,7 @@ jobs:
       # through a read-only standards-reader token and removes the token route
       # before any repository code runs.
       - name: Bootstrap the Shared Config Checkout
+        if: needs.route.outputs.image_mode == ''
         uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
@@ -188,6 +213,7 @@ jobs:
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
       - name: Detect the typecheck task
+        if: needs.route.outputs.image_mode == ''
         # `mise tasks info` exits non-zero when the task is absent (non-ts repo,
         # or a repo with no .mise.toml at all — e.g. .github itself). Defensive:
         # property targeting should prevent this, but a mis-targeted repo passes
@@ -208,7 +234,7 @@ jobs:
         # packageManager) rather than corepack, whose bundled pnpm signing-key
         # store crashes with `Cannot find matching keyid`. No-op without a
         # pnpm-lock.
-        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
+        if: needs.route.outputs.image_mode == '' && (steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != '')
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
       # Cache the pnpm content-addressed store. Without this the gate
@@ -244,7 +270,7 @@ jobs:
       # emit ok=false and skip caching, leaving the install to run uncached.
       - name: Locate the pnpm store
         id: pnpm-store
-        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
+        if: needs.route.outputs.image_mode == '' && (steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != '')
         shell: bash
         run: |
           set -uo pipefail
@@ -257,7 +283,7 @@ jobs:
           printf 'path=%s\n' "$store" >> "$GITHUB_OUTPUT"
           echo "pnpm store: $store"
       - name: Restore the pnpm store
-        if: steps.pnpm-store.outputs.ok == 'true'
+        if: needs.route.outputs.image_mode == '' && (steps.pnpm-store.outputs.ok == 'true')
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
@@ -269,7 +295,7 @@ jobs:
       # Both gates read the same cache; only typecheck's default-branch seeder writes it.
       - name: Locate the pnpm cacheDir
         id: pnpm-cache-dir
-        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != ''
+        if: needs.route.outputs.image_mode == '' && (steps.detect.outputs.has_typecheck == 'true' && hashFiles('pnpm-lock.yaml') != '')
         shell: bash
         run: |
           set -uo pipefail
@@ -303,7 +329,7 @@ jobs:
           esac
           printf 'ok=true\npath=%s\n' "$cache_dir" >> "$GITHUB_OUTPUT"
       - name: Restore the pnpm cacheDir
-        if: steps.pnpm-cache-dir.outputs.ok == 'true'
+        if: needs.route.outputs.image_mode == '' && (steps.pnpm-cache-dir.outputs.ok == 'true')
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ steps.pnpm-cache-dir.outputs.path }}
@@ -329,7 +355,7 @@ jobs:
         #
         # Only pnpm is throttled: it is the measured offender, and the other
         # package managers have no observed kill to justify tuning them blind.
-        if: steps.detect.outputs.has_typecheck == 'true'
+        if: needs.route.outputs.image_mode == '' && (steps.detect.outputs.has_typecheck == 'true')
         env:
           MISE_ENV: ci
         shell: bash
@@ -359,20 +385,14 @@ jobs:
       # re-uses the same key, which `cache/save` reports as a skip, not an
       # error.
       - name: Seed the pnpm store cache
-        if: >-
-          inputs.seed-caches
-          && steps.detect.outputs.has_typecheck == 'true'
-          && steps.pnpm-store.outputs.ok == 'true'
+        if: needs.route.outputs.image_mode == '' && (inputs.seed-caches && steps.detect.outputs.has_typecheck == 'true' && steps.pnpm-store.outputs.ok == 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
           key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Seed the pnpm cacheDir cache
-        if: >-
-          inputs.seed-caches
-          && steps.detect.outputs.has_typecheck == 'true'
-          && steps.pnpm-cache-dir.outputs.ok == 'true'
+        if: needs.route.outputs.image_mode == '' && (inputs.seed-caches && steps.detect.outputs.has_typecheck == 'true' && steps.pnpm-cache-dir.outputs.ok == 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ steps.pnpm-cache-dir.outputs.path }}
@@ -399,7 +419,7 @@ jobs:
       # 700 MB store write could not earn that back. Being plain `cache` also
       # means a push-to-default run seeds the default branch for free.
       - name: Restore the turbo task cache
-        if: steps.detect.outputs.has_typecheck == 'true' && hashFiles('turbo.json') != ''
+        if: needs.route.outputs.image_mode == '' && (steps.detect.outputs.has_typecheck == 'true' && hashFiles('turbo.json') != '')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .turbo/cache
@@ -408,7 +428,7 @@ jobs:
             turbo-typecheck-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Type-check (mise run typecheck)
-        if: steps.detect.outputs.has_typecheck == 'true'
+        if: needs.route.outputs.image_mode == '' && (steps.detect.outputs.has_typecheck == 'true')
         env:
           MISE_ENV: ci
           # Conservative CI concurrency floor for monorepo build tools (a turbo
@@ -417,3 +437,12 @@ jobs:
           # a repo's explicit --concurrency overrides it.
           TURBO_CONCURRENCY: "2"
         run: mise run typecheck
+      - name: Run project commands in the Repository Image
+        if: needs.route.outputs.image_mode != ''
+        uses: Rubio-Enterprises/.github/actions/devcontainer-run@main
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          mode: ${{ needs.route.outputs.image_mode }}
+          task: typecheck
+          token: ${{ github.token }}

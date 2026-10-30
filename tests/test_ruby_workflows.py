@@ -186,13 +186,13 @@ class LintRubyRoutingTests(unittest.TestCase):
 
     def test_lint_setup_is_pinned_locked_and_before_mise(self) -> None:
         step = extract_step(LINT_TEXT, "Install Ruby and locked bundle")
-        self.assertIn("if: needs.detect.outputs.has_ruby == 'true'", step)
+        self.assertIn("if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_ruby == 'true')", step)
         self.assertIn(f"uses: {ruby_setup_pin(LINT_TEXT)}", step)
         self.assertIn("bundler-cache: true", step)
         self.assertNotIn("ruby-version", step)
         self.assertLess(
             LINT_TEXT.index("- name: Install Ruby and locked bundle"),
-            LINT_TEXT.index("uses: Rubio-Enterprises/.github/actions/standards-bootstrap@"),
+            LINT_TEXT.index("- name: Bootstrap the Shared Config Checkout"),
         )
 
 

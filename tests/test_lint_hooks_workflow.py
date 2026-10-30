@@ -171,7 +171,8 @@ class EnforcementPolicyTests(unittest.TestCase):
         run_index = next(
             i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |"
         )
-        self.assertNotIn("if:", "\n".join(lines[start:run_index]))
+        conditions = [line.strip() for line in lines[start:run_index] if line.strip().startswith("if:")]
+        self.assertEqual(conditions, ["if: needs.detect.outputs.image_mode == ''"])
 
     def test_all_files_step_has_no_enforcement_escape_hatch(self) -> None:
         # The non-fork path was never broken. It must not gain a warn-only mode,
@@ -320,4 +321,4 @@ class PrivateGoModuleTokenTests(unittest.TestCase):
             for step in steps
             if "secrets.STANDARDS_READER_APP_ID" in step
         )
-        self.assertEqual(scopes, ["knowledgebase-framework", "standards"])
+        self.assertEqual(scopes, ["knowledgebase-framework", "standards", "standards"])
