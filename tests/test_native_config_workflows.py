@@ -137,6 +137,9 @@ class AnswerIndependenceTests(unittest.TestCase):
 
 
 def bootstrap_guard(name: str) -> str:
+    if name in ("lint-hooks", "typecheck-ts", "build"):
+        route = "route" if name == "typecheck-ts" else "detect"
+        return f"needs.{route}.outputs.image_mode == ''"
     return "steps.probe.outputs.runnable == 'true'" if name == "cloud-setup-smoke" else ""
 
 
@@ -155,7 +158,7 @@ class NativeBootstrapContractTests(unittest.TestCase):
                 self.assertIsNotNone(match, step)
                 refs.add(match.group(1))
                 self.assertEqual(condition(text, BOOTSTRAP_STEP), bootstrap_guard(name))
-                self.assertEqual(len(ACTION_REF.findall(text)), 1)
+                self.assertEqual(len(ACTION_REF.findall(text)), 2 if name in ("lint-hooks", "typecheck-ts", "build") else 1)
         self.assertEqual(refs, {"Rubio-Enterprises/.github/actions/standards-bootstrap@main"})
 
     def test_bootstrap_exception_is_exact(self) -> None:
@@ -249,7 +252,7 @@ class LintHooksExecutionTests(unittest.TestCase):
         step = extract_step(LINT, "Run the full knowledgebase check")
         self.assertEqual(
             condition(LINT, "Run the full knowledgebase check"),
-            "needs.detect.outputs.has_knowledgebase == 'true'",
+            "needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_knowledgebase == 'true')",
         )
         self.assertIn("run: mise exec -- lefthook run kb-check", step)
         self.assertNotIn("continue-on-error", step)

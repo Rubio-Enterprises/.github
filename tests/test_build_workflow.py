@@ -256,7 +256,7 @@ class ArtifactBuildTests(unittest.TestCase):
         self.assertIn("brew install openssl@3 libyaml gmp", prepare)
         self.assertIn("/Users/runner/hostedtoolcache", prepare)
         install = extract_step(TEXT, "Install Ruby and locked bundle")
-        self.assertIn("if: needs.detect.outputs.has_ruby == 'true'", install)
+        self.assertIn("if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_ruby == 'true')", install)
         self.assertNotIn("runner.os", install)
         self.assertIn("bundler-cache: true", install)
         self.assertNotIn("ruby-version:", install)

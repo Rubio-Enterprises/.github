@@ -38,7 +38,8 @@ jobs:
     outputs:
       artifact: ${{ steps.pick.outputs.artifact }}
       image: ${{ steps.pick.outputs.image }}
-      artifact_runner: ${{ steps.pick.outputs.artifact_runner }}
+      artifact_runner: ${{ steps.image-route.outputs.runner || steps.pick.outputs.artifact_runner }}
+      image_mode: ${{ steps.image-route.outputs.mode }}
       has_ruby: ${{ steps.pick.outputs.has_ruby }}
     steps:
       - name: Sparse-checkout the consumer's .copier-answers.yml
@@ -101,8 +102,21 @@ jobs:
             echo "has_ruby=$has_ruby"
           } >> "$GITHUB_OUTPUT"
           echo "BD-01=$artifact CT-01=$image"
+      - name: Select the declared CI Image route
+        id: image-route
+        if: >-
+          vars.CI_IMAGE_REPOS == 'all' || contains(fromJSON(vars.CI_IMAGE_REPOS || '[]'), github.repository_id) || contains(fromJSON(vars.CI_IMAGE_REPOS || '[]'), fromJSON(github.repository_id))
+        uses: Rubio-Enterprises/.github/actions/devcontainer-run@main
+        with:
+          operation: route
+          task: build
+          runner: ${{ steps.pick.outputs.artifact_runner }}
+          rollout: ${{ vars.CI_IMAGE_REPOS }}
 
   bd-01:
+    permissions:
+      contents: read
+      packages: read
     name: BD-01 release artifact build
     needs: detect
     if: needs.detect.outputs.artifact == 'true'
@@ -113,6 +127,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Provision standards for image execution
+        if: needs.detect.outputs.image_mode != ''
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          bootstrap-parts: repos
       - name: Prepare the macOS build toolchain
         if: runner.os == 'macOS'
         shell: bash
@@ -147,7 +168,7 @@ jobs:
       # ruby/setup-ruby reads the consumer-owned `.ruby-version`; bundler-cache
       # installs the exact Gemfile.lock set before the build task runs.
       - name: Install Ruby and locked bundle
-        if: needs.detect.outputs.has_ruby == 'true'
+        if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_ruby == 'true')
         uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
         with:
           bundler-cache: true
@@ -155,6 +176,7 @@ jobs:
       # mise >= 2026.6.2 falls back to pip's --uploaded-prior-to, which cold
       # runners' bootstrap pip (< 26) rejects.
       - name: Install uv (routes mise pipx installs through uvx)
+        if: needs.detect.outputs.image_mode == ''
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
@@ -162,6 +184,7 @@ jobs:
       # Key the mise cache to the uv-managed Python (standards#331); see
       # lint-hooks.yml for why a Python bump must invalidate the cache.
       - name: Fingerprint the uv-resolved python for the mise cache key
+        if: needs.detect.outputs.image_mode == ''
         id: uv-python
         # Native cache seeds ignore consumer project bounds, matching uvx
         env:
@@ -177,6 +200,7 @@ jobs:
           fi
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Resolve installed mise version
+        if: needs.detect.outputs.image_mode == ''
         id: mise-version
         env:
           # renovate: datasource=github-releases depName=jdx/mise
@@ -200,6 +224,7 @@ jobs:
       # through a read-only standards-reader token and removes the token route
       # before any repository code runs.
       - name: Bootstrap the Shared Config Checkout
+        if: needs.detect.outputs.image_mode == ''
         uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
@@ -207,9 +232,10 @@ jobs:
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
       - name: Install pnpm
-        if: hashFiles('pnpm-lock.yaml') != ''
+        if: needs.detect.outputs.image_mode == '' && (hashFiles('pnpm-lock.yaml') != '')
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - name: Require the build task
+        if: needs.detect.outputs.image_mode == ''
         # mise loads mise.ci.toml only under MISE_ENV=ci, as the build step sets.
         env:
           MISE_ENV: ci
@@ -221,9 +247,19 @@ jobs:
             exit 1
           fi
       - name: Build the release artifact (mise run build)
+        if: needs.detect.outputs.image_mode == ''
         env:
           MISE_ENV: ci
         run: mise run build
+      - name: Run project commands in the Repository Image
+        if: needs.detect.outputs.image_mode != ''
+        uses: Rubio-Enterprises/.github/actions/devcontainer-run@main
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          mode: ${{ needs.detect.outputs.image_mode }}
+          task: build
+          token: ${{ github.token }}
 
   ct-01:
     name: CT-01 container smoke test

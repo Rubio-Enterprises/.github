@@ -59,7 +59,8 @@ jobs:
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     outputs:
-      runner: ${{ steps.pick.outputs.runner }}
+      runner: ${{ steps.image-route.outputs.runner || steps.pick.outputs.runner }}
+      image_mode: ${{ steps.image-route.outputs.mode }}
       is_fork: ${{ steps.pick.outputs.is_fork }}
       has_ruby: ${{ steps.pick.outputs.has_ruby }}
       has_knowledgebase: ${{ steps.pick.outputs.has_knowledgebase }}
@@ -159,7 +160,20 @@ jobs:
           else
             printf 'is_fork=false\n' >> "$GITHUB_OUTPUT"
           fi
+      - name: Select the declared CI Image route
+        id: image-route
+        if: >-
+          vars.CI_IMAGE_REPOS == 'all' || contains(fromJSON(vars.CI_IMAGE_REPOS || '[]'), github.repository_id) || contains(fromJSON(vars.CI_IMAGE_REPOS || '[]'), fromJSON(github.repository_id))
+        uses: Rubio-Enterprises/.github/actions/devcontainer-run@main
+        with:
+          operation: route
+          task: lint-hooks
+          runner: ${{ steps.pick.outputs.runner }}
+          rollout: ${{ vars.CI_IMAGE_REPOS }}
   lint-hooks:
+    permissions:
+      contents: read
+      packages: read
     needs: detect
     # Skip when running as the `pull_request` no-op on the `.github` repo
     # itself. Injected runs in consumer repositories (pull_request /
@@ -185,6 +199,13 @@ jobs:
           # history to merge-base against the base ref) to compute changed
           # files. Non-fork all-files mode is unaffected by the extra commit.
           fetch-depth: 2
+      - name: Provision standards for image execution
+        if: needs.detect.outputs.image_mode != ''
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          bootstrap-parts: repos
       - name: Prepare macOS hook tools
         if: runner.os == 'macOS'
         shell: bash
@@ -225,7 +246,7 @@ jobs:
       # lefthook can invoke any Ruby hook. Do not add ruby-version here: Ruby is
       # intentionally absent from rendered mise because glue cannot ruby-build.
       - name: Install Ruby and locked bundle
-        if: needs.detect.outputs.has_ruby == 'true'
+        if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_ruby == 'true')
         uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
         with:
           bundler-cache: true
@@ -234,6 +255,7 @@ jobs:
       # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
       # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
       - name: Install uv (routes mise pipx installs through uvx)
+        if: needs.detect.outputs.image_mode == ''
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
@@ -251,6 +273,7 @@ jobs:
       # (idempotent — the same managed interpreter uvx would provision anyway),
       # then read the managed version.
       - name: Fingerprint the uv-resolved python for the mise cache key
+        if: needs.detect.outputs.image_mode == ''
         id: uv-python
         # Native cache seeds ignore consumer project bounds, matching uvx
         env:
@@ -268,6 +291,7 @@ jobs:
           echo "uv-resolved python for mise cache key: $version"
       # Resolve the executable mise-action checks before it can self-update it.
       - name: Resolve installed mise version
+        if: needs.detect.outputs.image_mode == ''
         id: mise-version
         env:
           # renovate: datasource=github-releases depName=jdx/mise
@@ -286,6 +310,7 @@ jobs:
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           echo "mise action version: $version"
       - name: Bootstrap the Shared Config Checkout
+        if: needs.detect.outputs.image_mode == ''
         uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
@@ -368,13 +393,13 @@ jobs:
         # so python/swift consumers (no Node) get a free no-op. Reads
         # `packageManager` from package.json for version pinning, avoiding
         # the corepack keyring drift documented in e2e.yml's adjacent block.
-        if: hashFiles('pnpm-lock.yaml') != ''
+        if: needs.detect.outputs.image_mode == '' && (hashFiles('pnpm-lock.yaml') != '')
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       # pnpm keeps registry metadata and lockfile-verification memos outside its store.
       # Both gates read the same cache; only typecheck's default-branch seeder writes it.
       - name: Locate the pnpm cacheDir
         id: pnpm-cache-dir
-        if: hashFiles('pnpm-lock.yaml') != ''
+        if: needs.detect.outputs.image_mode == '' && (hashFiles('pnpm-lock.yaml') != '')
         shell: bash
         run: |
           set -uo pipefail
@@ -408,7 +433,7 @@ jobs:
           esac
           printf 'ok=true\npath=%s\n' "$cache_dir" >> "$GITHUB_OUTPUT"
       - name: Restore the pnpm cacheDir
-        if: steps.pnpm-cache-dir.outputs.ok == 'true'
+        if: needs.detect.outputs.image_mode == '' && (steps.pnpm-cache-dir.outputs.ok == 'true')
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ steps.pnpm-cache-dir.outputs.path }}
@@ -447,11 +472,11 @@ jobs:
         # "no hook needs the workspace". Fork-ness is not that test either:
         # forks run the same pre-commit hooks as every other repo, just scoped to
         # the PR's changed files.
-        if: hashFiles('pnpm-lock.yaml') != ''
+        if: needs.detect.outputs.image_mode == '' && (hashFiles('pnpm-lock.yaml') != '')
         run: pnpm install --frozen-lockfile --network-concurrency=8 --child-concurrency=2
         shell: bash
       - name: Run lefthook pre-commit across all files
-        if: needs.detect.outputs.is_fork != 'true'
+        if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.is_fork != 'true')
         # MISE_ENV=ci is forwarded so any mise env-conditional config behaves
         # the same as the audit job. `--all-files` walks the repo tree rather
         # than the empty staged-diff set CI checkouts present.
@@ -464,7 +489,7 @@ jobs:
           MISE_GITHUB_TOKEN: ${{ github.token }}
         run: mise exec -- lefthook run pre-commit --all-files --no-stage-fixed
       - name: Run lefthook pre-commit on changed fork files
-        if: needs.detect.outputs.is_fork == 'true'
+        if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.is_fork == 'true')
         env:
           MISE_ENV: ci
           MISE_GITHUB_TOKEN: ${{ github.token }}
@@ -533,13 +558,13 @@ jobs:
         # in the framework's remote hooks, so a remote Lefthook could not fetch
         # fails here with "hook kb-check doesn't exist" instead of passing.
         # Runs before the rewrite guard so a rewrite it makes fails the job.
-        if: >-
-          needs.detect.outputs.has_knowledgebase == 'true'
+        if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_knowledgebase == 'true')
         env:
           MISE_ENV: ci
           MISE_GITHUB_TOKEN: ${{ github.token }}
         run: mise exec -- lefthook run kb-check
       - name: Fail if a hook rewrote a tracked file
+        if: needs.detect.outputs.image_mode == ''
         # Both execution paths above run write-mode Fixers. Check their
         # rewrites afterward, including stage_fixed changes on fork PRs.
         # lint-config verifies configuration only; this is the formatting gate.
@@ -566,3 +591,15 @@ jobs:
           git --no-pager diff HEAD -- | head -n 400
           exit 1
         shell: bash
+      - name: Run project commands in the Repository Image
+        if: needs.detect.outputs.image_mode != ''
+        uses: Rubio-Enterprises/.github/actions/devcontainer-run@main
+        env:
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+          IS_FORK: ${{ needs.detect.outputs.is_fork }}
+          HAS_KNOWLEDGEBASE: ${{ needs.detect.outputs.has_knowledgebase }}
+          GO_PRIVATE_MODULE_REPOS: ${{ vars.GO_PRIVATE_MODULE_REPOS }}
+        with:
+          mode: ${{ needs.detect.outputs.image_mode }}
+          task: lint-hooks
+          token: ${{ github.token }}
