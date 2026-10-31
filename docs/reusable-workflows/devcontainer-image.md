@@ -274,7 +274,7 @@ package-cache layouts (Trivy paths have no leading slash):
 - Legacy mise: `mnt/devcontainer-cache/mise/installs/`.
 - Go modules/toolchains:
   `{var/cache/devcontainer,mnt/devcontainer-cache}/gomod/`,
-  `home/*/go/pkg/mod/` and `root/go/pkg/mod/`.
+  `home/*/.cache/gomod/`, `home/*/go/pkg/mod/` and `root/go/pkg/mod/`.
 - Bun package cache: `home/*/.bun/install/cache/`, `root/.bun/install/cache/`
   and `{var/cache/devcontainer,mnt/devcontainer-cache}/bun/`.
 - Default pnpm store: `home/*/.local/share/pnpm/store/` and

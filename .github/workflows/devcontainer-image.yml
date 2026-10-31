@@ -246,6 +246,7 @@ jobs:
             - "root/.local/share/mise/installs/**"
             - "mnt/devcontainer-cache/mise/installs/**"
             - "var/cache/devcontainer/gomod/**"
+            - "home/*/.cache/gomod/**"
             - "mnt/devcontainer-cache/gomod/**"
             - "home/*/go/pkg/mod/**"
             - "root/go/pkg/mod/**"
