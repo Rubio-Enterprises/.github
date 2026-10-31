@@ -195,6 +195,47 @@ class LintRubyRoutingTests(unittest.TestCase):
             LINT_TEXT.index("- name: Bootstrap the Shared Config Checkout"),
         )
 
+    def test_lint_bundle_uses_final_ruby_before_hooks(self) -> None:
+        name = "Install the locked bundle with the active Ruby"
+        step = extract_step(LINT_TEXT, name)
+        self.assertIn(
+            "if: needs.detect.outputs.image_mode == '' && "
+            "(needs.detect.outputs.has_ruby == 'true')",
+            step,
+        )
+        self.assertIn("run: mise exec -- bundle install", step)
+        self.assertNotIn("continue-on-error", step)
+        self.assertLess(
+            LINT_TEXT.index("- name: Bootstrap the Shared Config Checkout"),
+            LINT_TEXT.index(f"- name: {name}"),
+        )
+        for hook in (
+            "Run lefthook pre-commit across all files",
+            "Run lefthook pre-commit on changed fork files",
+            "Run the full knowledgebase check",
+        ):
+            with self.subTest(hook=hook):
+                self.assertLess(LINT_TEXT.index(f"- name: {name}"), LINT_TEXT.index(hook))
+
+    def test_lint_bundle_install_propagates_failure(self) -> None:
+        step = extract_step(LINT_TEXT, "Install the locked bundle with the active Ruby")
+        script = next(line.strip()[5:] for line in step.splitlines()
+                      if line.strip().startswith("run: "))
+        for status in (0, 17):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                binary = Path(tmp) / "mise"
+                binary.write_text(
+                    '#!/bin/bash\nprintf "%s\\n" "$*"\nexit "$BUNDLE_EXIT"\n'
+                )
+                binary.chmod(0o755)
+                result = subprocess.run(
+                    ["bash", "-c", script], capture_output=True, text=True,
+                    env={**os.environ, "PATH": f"{tmp}:/usr/bin:/bin",
+                         "BUNDLE_EXIT": str(status)},
+                )
+                self.assertEqual(result.stdout.strip(), "exec -- bundle install")
+                self.assertEqual(result.returncode, status, result.stderr)
+
 
 class CloudSmokeRubyTests(unittest.TestCase):
     """Cloud smoke installs the lockfile-backed bundle only for explicit Ruby."""

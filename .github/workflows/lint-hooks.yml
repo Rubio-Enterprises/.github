@@ -317,6 +317,11 @@ jobs:
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           mise-version: ${{ steps.mise-version.outputs.version }}
           cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+      # Mise can select a different Ruby provider than setup-ruby
+      - name: Install the locked bundle with the active Ruby
+        if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_ruby == 'true')
+        shell: bash
+        run: mise exec -- bundle install
       - name: Install pnpm (for lefthook.local.yml hooks invoking pnpm)
         # Mirrors the pattern in e2e.yml — gated on pnpm-lock.yaml presence
         # so python/swift consumers (no Node) get a free no-op. Reads
