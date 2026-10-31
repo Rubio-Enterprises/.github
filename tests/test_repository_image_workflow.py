@@ -110,6 +110,15 @@ class Contracts(unittest.TestCase):
         self.assertNotIn("COPY --from=standards", dockerfile)
         self.assertNotIn("mise bootstrap --only", dockerfile)
 
+    def test_runner_payload_smoke_does_not_load_a_cold_consumer_config(self):
+        build = (ASSETS / "build.sh").read_text()
+        smoke = build.split('--entrypoint bash "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" -euc', 1)[1].split('\nfor artifact', 1)[0]
+        self.assertIn('workspace="$PWD"', smoke)
+        self.assertLess(smoke.index('cd /'), smoke.index('mise --version'))
+        self.assertIn('/usr/bin/gh --version', smoke)
+        self.assertIn('/usr/bin/jq --version', smoke)
+        self.assertIn('test ! -e "$workspace/.standards/node_modules"', smoke)
+
     def test_scan_policy_and_checksum_pins_match_legacy_contract(self):
         from test_devcontainer_image_workflow import script as legacy_script
         scan = script("Scan both local artifacts for secrets")

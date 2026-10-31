@@ -83,10 +83,12 @@ for artifact in "$IMAGE" "$CI_IMAGE"; do
 done
 docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-limit 512 \
   --entrypoint bash "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" -euc '
+    workspace="$PWD"
+    cd /
     /opt/actions-runner/bin/Runner.Listener --version
     mise --version
-    gh --version
-    jq --version
+    /usr/bin/gh --version
+    /usr/bin/jq --version
     test "$UV_LINK_MODE" = copy
     test -w /usr/local/share/mise
     test -w /var/cache/devcontainer
@@ -96,7 +98,7 @@ docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-
     test -z "${STANDARDS_PIN:-}"
     test -z "${NODE_AUTH_TOKEN:-}"
     test -z "${STANDARDS_VERSION:-}"
-    test ! -e .standards/node_modules
+    test ! -e "$workspace/.standards/node_modules"
   '
 for artifact in "$IMAGE" "$CI_IMAGE"; do
   for uid in 1000 1001; do
