@@ -8,160 +8,70 @@ working with code in this repository. `CLAUDE.md` is a symlink to this file — 
 
 `Rubio-Enterprises/.github` (local dir `Governance/dot-github`, remote `origin =
 git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
-**GitHub Actions workflows** that run the onboarded consumers' PR gates — the five
-property-targeted gate workflows the org rulesets **inject** into consumer PRs,
-plus the handful of reusables a consumer's `.github/workflows/standards.yml` still
-thin-calls. In the three-repo governance system it is the *delivery vehicle*:
-`standards` defines the rules, **this repo runs them in CI**, and
-`dot-github-private` enforces repo settings. The macro architecture (the three
-repos, the `standards` content layers, the release model, and the four
-propagation paths) is documented canonically in the sibling `standards` repo's
-`docs/propagation-map.md` → "How changes propagate to the Org set"; this file covers only what is
-specific to working *inside* `dot-github`.
+**GitHub Actions workflows** that run the onboarded repositories' PR checks: the
+injected **`standards`** Required Workflow, plus the reusables a repository's starter
+`.github/workflows/standards.yml` (or a release workflow) calls. In the three-repo
+governance system it is the *delivery vehicle*: `standards` ships the checks as the
+`@rubio-enterprises/standards` npm package, **this repo runs them in CI**, and
+`dot-github-private` enforces repo settings (the `standards` and `test-gate` rulesets
+target `standards-onboarded = true`).
 
-This is a **bootstrap repo**: not rendered from the Copier template, not standards-onboarded,
-and excluded from its own audit. Consequence: there is **no `.mise.toml`, no `lefthook.yml`,
-no `.editorconfig`, and no local task runner** here. The `mise install` / `mise run lint|test`
-steps in `CONTRIBUTING.md` describe the *consumer* dev loop and do **not** apply in this repo.
-Work here is editing workflow YAML + JSON config directly; `actionlint` is the practical
-local check for the workflow files before pushing. Otherwise validation happens in GitHub CI.
+This is a **bootstrap repo**: not standards-onboarded and not checked by its own injected
+workflow (the `standards` job skips `Rubio-Enterprises/.github`). There is **no `mise.toml`,
+no `lefthook.yml`, no `.editorconfig`, and no local task runner** here. Work here is editing
+workflow YAML + JSON config directly; `actionlint`, `zizmor` and the `tests/` suite
+(`uv run --no-project --with pytest pytest tests`) are the local checks.
 
-## The reusable workflows (`.github/workflows/`)
+## The workflows (`.github/workflows/`)
 
-Two delivery mechanisms live here now.
+**`standards.yml` — the injected Required Workflow** ([`docs/standards-check.md`](docs/standards-check.md)).
+The `standards` org ruleset injects it into every repository with `standards-onboarded = true`.
+One job installs the repository's Standards Release (`mise run setup`) and runs the package's
+Conformance Tasks `check` and `check:pr`; no standards logic lives in the workflow. Terraform
+owns the injected ref at `refs/heads/main`. The second required context, `test-gate`, is the
+repository's own starter workflow (the Test Gate), not a file here.
 
-**Gate workflows — the property-targeted Required Governance Workflows.**
-`gate-typescript` runs where a repo carries `gate-typescript`, `gate-build` where it
-carries `gate-build`; `standards-gates`
-runs on every `standards-onboarded` repo and reads its `gate-audit`,
-`gate-lint-config`, `gate-pr-conventions`, and `gate-secret-scan` properties to pick
-its checks (all set in `.github-private` Terraform). The org gate rulesets
-**inject** them into the consumer's PR checks. They are **not** thin-called
-from `standards.yml`. The content-bearing gate checks out standards `legacy/copier` (the Copier-era
-tree; standards `main` is now the v2 package; one `STANDARDS_LEGACY_REF` constant)
-at runtime without reading a ring property. Terraform owns the injected workflow
-ref at `refs/heads/main`. Reusable workflows and actions also follow `@main`.
+The Copier-era gate workflows (`standards-gates`, `lint-hooks`, `typecheck-ts`, `build`),
+`cloud-setup-smoke`, the `devcontainer-run` project-execution action and the Copier Renovate
+preset are retired (standards v2 flag day, 2026-10-31).
 
-| Gate workflow | Gate Family | What it does | Standards content |
-| --- | --- | --- | --- |
-| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item; the rules come from this repo's `.github/PULL_REQUEST_TEMPLATE.md`, the organization default, read at the workflow's own commit and passed as `PR_TEMPLATE_PATH`), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | `legacy/copier`, runtime-resolved |
-| `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
-| `build.yml` | `gate-build` | BD-01 non-publishing `mise run build` (`has_release_artifact`; Swift on `RUNNERS.macos`, unsigned) and CT-01 `compose.ci.yml` smoke with healthy and non-root assertions (`has_container_image`). A declared check with no task or descriptor fails. See [`docs/build-gate.md`](docs/build-gate.md) | — |
+**Reusables** — invoked via `uses:` / `workflow_call` from a repository's starter
+`standards.yml` (or a release workflow):
 
-**Shared config (standards ADR-0033).** A full consumer
-inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config Directory at
-`.standards-config/`. Every workflow that runs mise in a consumer (`lint-hooks`,
-`typecheck-ts`, `build`, and the `e2e` and `cloud-setup-smoke` reusables) sets the checkout
-up with the shared composite action
-[`actions/standards-bootstrap`](actions/standards-bootstrap/action.yml), which repository
-workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
-resolves standards `legacy/copier` once, checks out that full-history SHA with the reader
-App token and no persisted credentials, then exports `STANDARDS_PIN` for the job.
-It validates the clean checkout and credential-free origin before loading consumer config.
+| Workflow | What it does |
+| --- | --- |
+| `release-please.yml` | release-please with the `rubio-release-please` App token; the starter caller runs it when `release-please-config.json` exists. See [`docs/reusable-workflows/release-please.md`](docs/reusable-workflows/release-please.md) |
+| `repository-image.yml` | Per-repository Dev Container and CI images; the starter caller runs it when `.github/.devcontainer/devcontainer.json` exists. See [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) |
+| `devcontainer-image.yml` | Native amd64/arm64 Dev Container prebuilds, GHCR multi-arch publication and untagged pruning; read [`docs/reusable-workflows/devcontainer-image.md`](docs/reusable-workflows/devcontainer-image.md) before editing its publication or retention contract |
+| `codewiki-pages.yml` | Push-to-default deploy of a committed CodeWiki (`docs/codewiki/` minus `temp/`, requires the `index.html` viewer) to Pages; the starter caller runs it when `docs/codewiki/metadata.json` exists. Caller grants `contents: read`, `pages: write`, `id-token: write`; Pages enablement/visibility is `.github-private` Terraform's. See [`docs/reusable-workflows/codewiki-pages.md`](docs/reusable-workflows/codewiki-pages.md) |
+| `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-range gitleaks scan runs in the package's `check:pr` |
+| `e2e.yml` | E2E harness for a suite that needs its own job; accepts apex `scripts.e2e` or a repo-owned `mise run e2e`, requires nonempty JUnit at `reports/e2e/junit.xml`, supports optional `scripts.e2e:setup` or a mise `e2e-setup` task, and runs `mise run setup` first (the caller grants `packages: read`). Routes `ci-platform = macos` callers to `RUNNERS.macos`, others to `RUNNERS.arm`. Does **not** start a dev server (see its header). Most repositories run `e2e` in their Test Gate instead |
+| `testflight.yml` | The signed Apple build reusable — see [`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md) and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md) |
+| `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source) |
 
-- Installation-only mise-action runs from `runner.temp`: even with installation and
-  environment export disabled it invokes `mise ls`, which must not load cold includes.
-- Before bootstrap, native `mise bootstrap repos status --missing --json` must report
-  `.standards-config` at the pin. Empty/skipped declarations fail, as does a missing
-  `.standards-config/config/lefthook/base.yml`.
-- No standards token route is installed; legacy standards routes are removed before
-  any consumer mise command. Setup and hooks use the pin without Git transport.
-- `bootstrap-parts: repos` keeps checkout verification and pin export but skips tool
-  installation, caching and consumer-environment export.
-- **Ref.** Internal calls use
-  `Rubio-Enterprises/.github/actions/standards-bootstrap@main`. A local `./` path
-  would resolve against the consumer's checkout, not this repo. Third-party
-  actions remain SHA-pinned.
-- A called workflow sees org secrets only when its caller forwards them, so the callable ones
-  (`typecheck-ts` in cache-seed mode, `e2e`, `cloud-setup-smoke`) declare
-  `STANDARDS_READER_APP_ID` and `STANDARDS_READER_APP_PRIVATE_KEY` as optional. A native
-  caller that does not forward them fails with a clear error.
-- `standards-gates` never bootstraps. Its lint-config tool install links the main
-  checkout (`.standards`) as `.standards-config` while mise resolves the consumer's pins. It
-  installs only `yq` and `lefthook` and removes the link afterwards. The job sets
-  `MISE_EXEC_AUTO_INSTALL=false`, so the gate's `mise exec` cannot install them itself.
+`test-gate.yml`, `copilot-setup-steps.yml` and `workflow-validation.yml` are this repo's own
+ops, not reusables: `test-gate` runs `tests/` and reports the `test-gate` context;
+`copilot-setup-steps` pins Copilot to a hosted runner because this repo is public.
 
-Execution is unconditional. Every consumer stub must interpolate `STANDARDS_PIN`
-with `main` as its unset default, without a depth limit. Older PR branches must
-incorporate the converged stub before using the pin provisioner.
+`bump-brew.yml` is invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
 
-Canonical non-E2E tests are deliberately NOT a Gate Family workflow: the
-`gate-tests` org ruleset requires each enforcing repository's own repo-local
-`test-gate` status context (the Test Gate Contract — standards ADR-0020). The
-central `test-py.yml` / `rust-test.yml` overlap workflows and their
-`gate-python-tests` / `gate-rust-tests` families are retired (standards#389,
-2026-07-30).
-
-Beyond the gates and the thin-called reusables below, this repo also holds
-`testflight.yml` (the signed Apple build reusable — see
-[`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md)
-and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md)),
-`test-gate.yml`, `copilot-setup-steps.yml` and `workflow-validation.yml`
-(this repo's own ops, not reusables).
-
-**`lint-hooks.yml`** — `lefthook run pre-commit --all-files`, plus `lefthook run kb-check`
-(the full knowledgebase check, KB-01) for repositories declaring
-`has_knowledgebase`, the sole CI executor of the
-standards Fixers and Checkers. The commit-msg smoke test is retired: PR Conventions and the
-local commit-msg hook own PR-01. It is an injected Required Governance
-Workflow (the `gate-lint-hooks` org ruleset following main, standards#627), not a
-thin-called reusable: consumers cannot edit or skip it, and it has no `workflow_call` trigger
-(standards#642).
-
-**Thin-called reusables** — still invoked via `uses:` / `workflow_call` from a
-consumer's rendered `standards.yml` (or a release workflow):
-
-| Workflow | What it does | Pin |
-| --- | --- | --- |
-| `devcontainer-image.yml` | Native amd64/arm64 Dev Container prebuilds, GHCR multi-arch publication and untagged pruning; read [`docs/reusable-workflows/devcontainer-image.md`](docs/reusable-workflows/devcontainer-image.md) before editing its publication or retention contract | — |
-| `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-time gitleaks scan runs in `standards-gates.yml` | — |
-| `e2e.yml` | E2E Contract harness; accepts apex `scripts.e2e` or repo-owned `mise run e2e` for nested roots and non-browser suites, requires nonempty JUnit, and supports optional `scripts.e2e:setup` or mise setup. Does **not** start a dev server (see its header). A `detect` job sends `has_swift` suites to `RUNNERS.macos`; the suite job must stay `e2e` (required context `e2e / e2e`) | — |
-| `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source). Replaces `mislav/bump-homebrew-formula-action`, which can't handle source-build formulae or private-repo archives | — |
-| `codewiki-pages.yml` | Push-to-default deploy of a committed CodeWiki (`docs/codewiki/` minus `temp/`, requires the `index.html` viewer) to Pages, for repos declaring `has_codewiki`. Caller grants `contents: read`, `pages: write`, `id-token: write`; Pages enablement/visibility is `.github-private` Terraform's. See [`docs/reusable-workflows/codewiki-pages.md`](docs/reusable-workflows/codewiki-pages.md) | — |
-| `cloud-setup-smoke.yml` | Runs the consumer's Claude Code on the web setup chain (`cloud-setup-shim.sh` → `common/cloud-setup.sh` → `repo-local/cloud-setup.sh`) on Linux under `CLOUD_SETUP_SMOKE`, so a cloud-environment defect fails the PR that introduces it | — |
-
-`cloud-setup-smoke.yml` always runs hosted x64 (`ubuntu-latest`) so its
-Linux cloud-setup check matches the target architecture; it has no org-variable
-routing lever.
-
-Two things about it are load-bearing and easy to break:
-
-- **It probes before it runs, and the probe is a safety gate, not an
-  optimization.** A consumer whose rendered `scripts/common/cloud-setup.sh`
-  predates `CLOUD_SETUP_SMOKE` (standards < `template/v1.55.56`) does not ignore
-  the variable — it runs the **full cloud path** on the runner, registering a
-  global git credential helper and attempting marketplace clones. The workflow
-  greps the core for `CLOUD_SETUP_SMOKE` and skips with a notice when absent.
-  Never invoke a core that cannot honour the contract.
-- **It installs mise before invoking the chain.** The chain's own toolchain
-  bootstrap (the SessionStart hook core) opens with
-  `command -v mise >/dev/null 2>&1 || exit 0` — abort-proof, so on a runner
-  without mise it silently no-ops, every warm step is then skipped for want of a
-  tool, and the smoke passes green while proving nothing.
-
-`bump-brew.yml` is the odd one out: it's invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the My-Tools Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
-
-`standards-gates.yml` reads standards content from `main`. Inspect the actual
-workflow revision when diagnosing an older caller or an injected run.
-
-`copier-sync.yml` / `copier-check.yml` are **gone** — the consumer template-drift
-ritual is replaced by Renovate's native copier manager (auto-merged re-render
-PRs; see the Renovate section).
+**`actions/standards-bootstrap` (legacy).** The image builders (`repository-image.yml`,
+`devcontainer-image.yml`) still provision the Copier-era Shared Config Directory
+(`.standards-config/`, standards `legacy/copier`, read through the `rubio-standards-reader`
+App) for a repository that has not migrated to the package
+([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). No other workflow here uses it.
+Delete it once no image-building repository carries `.standards-config` and the image builders
+drop their legacy path.
 
 There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
-The two starters that once lived there (`standards-audit-starter`, `e2e-starter`) were
-removed: zero repos ever adopted them, and the audit one silently broke when `standards`
-went private (a picker-copied caller passes no `secrets: inherit`, so the standards-reader
-token mint fails). Repositories join the onboarded set via Copier (`/onboard-repo`), which renders
-`standards.yml` directly. Don't reintroduce starters without wiring the secrets contract.
+Repositories join the onboarded set with `npm init @rubio-enterprises/standards`, which copies
+the starter `standards.yml` and `test-gate.yml`.
 
 ## Workflow delivery
 
-Reviewed merges to `main` deliver Gate workflow files, reusables and actions.
+Reviewed merges to `main` deliver workflow files, reusables and actions.
 There is no separate publication request, floating-tag movement or release-please
 release for this repository. Recover regressions through reviewed reverts.
-Legacy refs remain frozen until the active-entry-point audit permits their
-separate retirement; this code cleanup does not delete refs or historical tags.
 
 ## Cross-cutting workflow patterns (easy to break when adding/editing a reusable)
 
@@ -193,14 +103,10 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   (`manifest-file` only swaps the URL; `fetch` is undici, so a local path is not an
   option). The pin converts "every run, always" into "first run per runner per uv
   version" — it does not make the dependency disappear.
-- **mise CLI pin and warm runner.** Each mise-using workflow tracks its quoted
-  `MISE_VERSION` cold fallback with `# renovate: datasource=github-releases depName=jdx/mise`.
-  `standards-gates.yml` has exactly one such pin in its job environment. A resolver
-  reads the executable at the same mise data directory path that mise-action checks
-  and passes its observed version to the action; an absent binary uses the fallback,
-  while a malformed present binary fails. The action receives `MISE_GITHUB_TOKEN`
-  before setup. Renovate bumps remain human-reviewed. Before landing a changed
-  gate pin, confirm that warm pools bake it.
+- **mise CLI pin.** Each mise-using workflow (`standards.yml`, `e2e.yml`) passes its quoted
+  job-level `MISE_VERSION` to `jdx/mise-action`, tracked by
+  `# renovate: datasource=github-releases depName=jdx/mise`. The action receives
+  `MISE_GITHUB_TOKEN` before setup. Renovate bumps remain human-reviewed.
 - **Runner Route selection.** Private org variable `RUNNERS` is a JSON map;
   `org-ops ci mode` owns live values. Each key has an independent hosted
   fallback, so public consumers (which cannot see private org variables)
@@ -221,48 +127,28 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   This repo's `e2e.yml` uses `arm` with the `ubuntu-24.04-arm` fallback,
   keeping self-hosted and hosted execution on ARM64 per standards
   [ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md).
-  Capability outranks that: a `has_swift` caller's suite runs on `macos`
-  (`macos-26` fallback), as `build` does, because simulator suites need Xcode.
+  Capability outranks that: a caller whose `ci-platform` custom property is `macos` runs its
+  suite on `macos` (`macos-26` fallback), because simulator suites need Xcode.
   `bump-brew` uses `arm` and its Ruby preflight can install
-  through passwordless sudo on Tart Ubuntu. `lint-hooks` keeps
-  Swift/Homebrew lint on `RUNNERS.macos` with the `macos-15` hosted fallback,
-  Ruby-only lint on hosted x64 `ubuntu-24.04`, and other lint on its declared tier.
-  macOS hook setup exposes Homebrew to non-login shells; mixed Ruby/macOS
-  consumers also prepare the dependencies and fixed cache path required by
-  `ruby/setup-ruby`'s Darwin prebuilds. `build` provisions Ruby the same way on
-  macOS and with `setup-ruby` directly on its self-hosted Linux route.
-  Long Xcode builds such as `testflight` use `macos`. Cloud smoke stays on
-  literal hosted `ubuntu-latest`, not a configurable route.
-- **The resource size is DECLARED by the consumer, never derived.** `lint-hooks` and
-  `typecheck-ts` route Linux work by the repo's `lint_hooks_workload_class` /
-  `typecheck_workload_class` answer (standards
-  [ADR-0022](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0022-glue-heavy-workload-class.md)),
-  read from a sparse-checkout of `.copier-answers.yml` in a `detect`
-  job because `runs-on:` is evaluated before checkout. `small` selects
-  `RUNNERS.small`; `medium` selects `RUNNERS.medium`. Older `light`/`heavy`
-  and `glue`/`glue-heavy` answers remain compatible; they do not require map aliases.
-  Absent answers select small. The two answers are workload-specific rather than
-  a repo-wide language proxy; selecting heavy from `has_typescript` once put
-  15 repos on a 3-slot pool. **Capability outranks resource:** Swift/Homebrew
-  needs macOS even if the answer says medium. The medium route falls back to
-  hosted `ubuntu-latest` (8 GB), never the small fallback. The old
-  separate-variable aliasing guards are unnecessary with one JSON route map.
-- **Fork hook checks are fail-closed.** `lint-hooks` checks only PR-changed files
-  in forks and all files in non-forks. Both paths fail on a hook error or a
-  tracked formatter rewrite. Internal calls follow main; legacy pinned consumers
-  still need the parent-coordinated caller update.
+  through passwordless sudo on Tart Ubuntu. Long Xcode builds such as `testflight` use `macos`.
+- **Size and platform are DECLARED as custom properties, never derived from files.**
+  `standards.yml` routes from the repository's `ci-platform` (`linux`/`macos`) and `ci-size`
+  (`small`/`medium`) custom properties (hand-authored in `.github-private` Terraform), read from
+  `github.event.repository.custom_properties` because `runs-on:` is evaluated before checkout.
+  The medium route falls back to hosted `ubuntu-latest` (8 GB), never the small fallback.
 
-## Renovate config — three files, three roles
+## Renovate config — two files, two roles
 
 - **`default.json`** is the **org-wide shared preset**. Every consumer's `renovate.json` does
   `extends: ["github>Rubio-Enterprises/.github"]`, which resolves to this file — so editing it
   changes Renovate behavior across onboarded consumers. The shared preset schedules
   ordinary update branches for weekends in `America/Chicago`; package-specific
   rules may have narrower schedules. Security vulnerability alert PRs retain
-  Renovate's immediate default. Key rules: built-in **`mise` manager disabled** (consumer
-  `.mise.toml` pins are template-owned; letting Renovate bump them thrashes against the copier
-  re-render); **`github-actions` manager disabled for the rendered `.github/workflows/standards.yml`**
-  (its action pins are template-owned too); first-party `Rubio-Enterprises/.github`
+  Renovate's immediate default. Key rules: the built-in **`mise` manager is on** (runtime pins in a
+  repository's `mise.toml` are repository-owned; the check-tool pins live in the Standards Package);
+  the **`copier` manager is off** (Copier is retired); **`github-actions` manager disabled for the
+  starter `.github/workflows/standards.yml`** outside this repository (its action pins advance in the
+  package's starter, and a local bump would show as Starter Drift); first-party `Rubio-Enterprises/.github`
   workflow/action dependencies are disabled in every filename, including
   TestFlight callers, with digest pinning disabled. Third-party updates retain
   their existing policy;
@@ -339,8 +225,7 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   independently in each tool repo.
 
   **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
-  stable non-major tool runtime dependencies and registry pins,
-  and — in `copier.json` — the template re-render). It was off
+  stable non-major tool runtime dependencies and registry pins). It was off
   because GitHub-native auto-merge waits only on **required** checks while Renovate's own engine
   waits for **all** checks green, and the onboarded consumers had no required checks beyond the audit ruleset.
   `gate-tests` going active (2026-07-30) changed that for the 34 repos carrying
@@ -348,31 +233,10 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   concrete: Renovate merges only *during* a wave, so eight green first-party PRs sat unmerged for
   up to two days and were hand-merged.
 
-  **The gap this flip opened was real, and it was closed the same day — do not re-derive the old
-  reasoning from a stale copy of this paragraph.** When `platformAutomerge` went on, `test-gate`
-  was the *only* required status **context** in the governance plane (`governance.tf` →
-  `required_status_checks`); every other required check is an *injected* gate workflow. So
-  `lint-hooks` was required **nowhere**, and native auto-merge — which waits only on required
-  checks — could land a PR over a red `lint-hooks` on any of the 39 governed repos. That mattered
-  because `lint-hooks` is the executor for standards lint/format tools
-  (including shellcheck, pyright, clippy, swiftformat).
-
-  **`.github-private`#179 (2026-08-03) closed it**: `lint-hooks / lint-hooks` and `e2e / e2e` are
-  now required status contexts, via `gate-lint-hooks` / `gate-e2e` property-targeted org rulesets,
-  both `active`. Verified against live enforcement rather than the plan — a
-  `repos/…/rules/branches/main` read on a gated repo returns ruleset `20320898` requiring
-  `lint-hooks / lint-hooks`, and a `gate-e2e = false` repo is correctly *not* asked for `e2e / e2e`.
-  Property targeting is what makes that safe: requiring a context on a repo that never renders the
-  job would block it permanently, because the check would never report at all. So the
-  required-checks-only wait is no longer a downgrade for the two jobs a consumer's `standards.yml`
-  actually renders on a PR.
-
-  Residual, and unchanged: the 7 governed repos with `gate_tests = false` (`claude-statusline`,
-  `daily-routine`, `devenv-skills`, `homebrew-tap`, `infra-skills`, `mattpocock-skills`,
-  `playwright-skills`) have no required test context — but six carry **zero language
-  facets** (skills marketplaces / content carriers), so onboarding them to `gate-tests` is *not
-  applicable* rather than merely undone: there are no canonical tests, and the template renders no
-  `test-gate.yml` (the context is repo-owned, per standards ADR-0020).
+  Since the standards v2 flag day (2026-10-31) every onboarded repository requires exactly two
+  contexts, the injected `standards` check and its own `test-gate`, so native auto-merge waits on
+  the same lint/format and test results Renovate's engine would. The 2026-08 `gate-lint-hooks` /
+  `gate-e2e` required contexts are retired with their workflows.
 
   **`rebaseWhen: "conflicted"` is the exact org-wide posture.** Falling behind
   `main` alone does not trigger a rebase, even for automerge PRs. Org rulesets set
@@ -381,8 +245,7 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   In the 2026-10-13–16 wave, 773 of 849 Renovate linux-x64 jobs ran on
   later-superseded commits, costing about eight slot-hours per day. The accepted
   trade-off is that a PR can merge after being tested against an older `main`.
-  Keep this manager-agnostic setting at top level; `copier.json` remains
-  copier-scoped. Consumers using untagged `github>Rubio-Enterprises/.github`
+  Keep this manager-agnostic setting at top level. Consumers using untagged `github>Rubio-Enterprises/.github`
   resolve `default.json` from the default branch (`main`), so this policy takes
   effect on their next Renovate run after merge, without a release or
   floating-major tag update.
@@ -406,104 +269,6 @@ separate retirement; this code cleanup does not delete refs or historical tags.
   and gates those releases itself, so the third-party supply-chain quarantine does not apply. For
   lockfile maintenance, the distinction is instead whether new content structurally re-arms the
   clock before it can expire.
-- **`copier.json`** is the **copier-only preset**, composed by `default.json` via `extends`. It
-  holds the two pieces of copier policy: the trust switch (`copier.ignoreScripts: false`) and the
-  `Rubio-Enterprises/standards` template re-render rule (Layer 3c — reads `_commit`/`_src_path`
-  from `.copier-answers.yml`, tracks the `standards` template `template/vX.Y.Z` tags via a
-  `versioning` regex, and ships an **auto-merged** full `copier update` re-render inside its own
-  PR through Renovate's own merge engine, which waits for all checks green — this replaces the
-  retired `copier-sync`/`copier-check` ritual and the old `_commit` regex customManager).
-
-  **The `versioning` regex must parse the `_commit` a consumer actually carries, not just the
-  tags `standards` publishes.** Renovate skips any dep whose `currentValue` fails
-  `versioning.isValid()`, so a consumer whose `_commit` the regex cannot read is dropped
-  *silently* — no error, no PR, forever. A repo hand-rendered from a working checkout rather
-  than an exact tag carries a `git describe` `_commit` (`template/v1.55.29-5-g3d6fc78`), which
-  the original `$`-anchored regex rejected. `aw-server-rust` and `vibe-kanban` both carry
-  exactly that `_commit` and both sat 17 template releases behind, rendering as an eternal
-  `pending` / `no PR yet`. Hence the **optional** `prerelease` group. It exists to
-  parse the current value only: `standards` publishes exclusively clean `template/vX.Y.Z` tags,
-  so nothing in the datasource carries a `-` suffix, and `ignoreUnstable` (default `true`)
-  would refuse an unstable target regardless — it still permits the unstable-current →
-  stable-target move this depends on. Keep the group optional, and keep the `^template/`
-  anchor: the anchor, not the tail, is what filters the `audit/*`, `plugin/*`, `gates/*`, and
-  bare `v*` streams.
-
-  **The `prerelease` group did NOT unblock those two repos, and nobody should assume it did**
-  (normalizing their `_commit` did). A scoped Renovate drain against both, run with the fix live (verified:
-  `copier.json` `lastModified` matched the merge commit), still produced no PR. The
-  observed dep was:
-
-  ```
-  "depName":      "https://github.com/Rubio-Enterprises/standards.git"
-  "currentValue": "template/v1.55.29-5-g3d6fc78"
-  "versioning":   "regex:…(?:-(?<prerelease>.+))?$"     ← the fix WAS applied
-  "skipReason":   "invalid-value"
-  ```
-
-  What that rules out: `_src_path` is the correct full https URL on both repos (read
-  directly), so the `gh:`-shorthand datasource failure above is **not** the cause; the
-  `git-tags` datasource was queried successfully; the copier manager extracted the file
-  (`fileCount: 1, depCount: 1`) and does not itself set `skipReason`; and Renovate's
-  `RegExpVersioningApi._parse` is pure regex matching whose only constructor requirement —
-  at least one of `<major>`/`<minor>`/`<patch>` — the pattern satisfies. The pattern matches
-  the value under native JS `RegExp`, **and under RE2** — Renovate logs
-  `DEBUG: Using RE2 regex engine`, and the pattern was subsequently tested against the real
-  `re2` module: identical results to native `RegExp`, describe-shaped value matched, foreign
-  tag streams still rejected. **RE2 is therefore eliminated as well.**
-
-  **The mechanism of the original stall is now proven, and the caching hypothesis that once
-  sat here is refuted** (standards#440, read against Renovate's shipped dist). `skipReason:
-  "invalid-value"` for this dep is assigned in `workers/repository/process/lookup/index.js`:
-  `isValid = isString(compareValue) && versioningApi.isValid(compareValue)`, and when that is
-  false the `else if (compareValue)` branch sets the skip because the copier dep carries no
-  digest (`!pinDigests && !currentDigest`). Instantiating Renovate's own `RegExpVersioningApi`
-  with both patterns settles it: the `$`-anchored regex returns `isValid = false` for
-  `template/v1.55.29-5-g3d6fc78`, the current pattern returns `true`, and both still reject
-  `audit/v1.19.0` and bare `v1.2.3`.
-
-  Two caches were checked and **neither can be the cause**. The **repository cache** is
-  eliminated structurally: `invalid-value` is a *lookup*-stage skipReason, while the extract
-  cache stores *extract*-stage `packageFiles`, so a reused entry cannot carry it. (Worth
-  recording anyway, since it is true and surprising: `getFilteredManagerConfig` in
-  `workers/repository/extract/extract-fingerprint-config.js` enumerates the fingerprint fields
-  — manager, managerFilePatterns, npmrc, npmrcMerge, enabled, ignorePaths, includePaths,
-  skipInstalls, registryAliases, fileList — and **`versioning` and `packageRules` are absent**,
-  so a `versioning` edit really does not invalidate that cache.) The **preset cache** is
-  eliminated too: `config/presets/index.js` persists resolved presets for 15 minutes only when
-  `presetCachePersistence` is on, and `.github-private`'s `renovate/config.js` never sets it,
-  so it defaults to `false` and every run refetches `copier.json`.
-
-  What remains unexplained is only the single drain observation above, which is **not
-  reproducible** against current state. Do not replace it with a new confident story; the
-  point of this paragraph is that every layer with a plausible mechanism has been checked.
-
-  Practical consequence, and the part that actually matters: **do not rely on diagnosing this
-  class of failure — it is silent by construction.** An unparseable `_commit` produces no
-  error, no warning, and dashboard state identical to a healthy repo awaiting its PR. The
-  reliable repair is to normalize the offending repo's `_commit` to an exact
-  `template/vX.Y.Z` tag, the shape every converged repo carries. The durable fix is detection,
-  and it has shipped: `COPIER-COMMIT-EXACT-TAG` (standards#438, on `stable` since
-  `template/v1.55.48`) FAILs a present-but-malformed `_commit` on the repo's own next PR —
-  absent is a WARN, because 13 test fixtures build minimal answers files. The `prerelease`
-  group is kept as defence in depth — it is now known to parse the
-  value correctly under Renovate's real engine — but it has never been observed to unblock a
-  repo, so it must not be treated as the mechanism anything depends on.
-
-  It is a **separate file so that centrally dispatched repos needing bespoke repo-owned Renovate
-  configuration can extend it directly using `extends`** (`github>Rubio-Enterprises/.github:copier`) without
-  inheriting the whole org preset — see `mac-dev-playbook`, whose repo-owned `renovate.json` carries
-  ~60 hand-tuned Docker managers and must not pick up `config:best-practices`, the 7-day
-  `minimumReleaseAge`, or the blanket automerge rule. That repository is centrally dispatched; its
-  bespoke configuration changes policy, not dispatch ownership. Both config paths therefore share
-  ONE definition of the copier rule instead of copying it.
-
-  **Ordering caveat:** Renovate concatenates a preset's `packageRules` *before* the extending
-  config's own (`mergeChildConfig`: `parent.concat(child)`), so the copier rule sits *ahead*
-  of `default.json`'s own rules. Ordinary stable template re-renders keep their native automerge
-  and force-mode admission behavior. The final held-draft rule overrides automerge for a major
-  template update, as it does for every manager; it leaves the copier versioning and age
-  exemption intact.
 - **`renovate.json`** is *this repo's own* config and merely `extends` the preset above.
 
 ## Agent skills

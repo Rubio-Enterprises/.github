@@ -1,9 +1,7 @@
 name: Copilot Setup Steps
 
 # Public-repo override for this bootstrap repo (.github is the org community-health
-# + reusable-workflow repo, not a copier consumer, so it can't render the is_public
-# gate — this is a hand-maintained copy of what the standards template produces).
-# GitHub blocks self-hosted runners on public repos, so the org-default Copilot
+# + reusable-workflow repo, not standards-onboarded). GitHub blocks self-hosted runners on public repos, so the org-default Copilot
 # runner (labeled `code-quality`, self-hosted) would queue this repo's reviews ~24h
 # and cancel them. Pin Copilot code review + coding agent to a GitHub-hosted Ubuntu
 # x64 runner (free for public repos) by declaring the job's `runs-on`.

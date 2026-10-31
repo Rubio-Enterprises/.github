@@ -2,17 +2,14 @@
 
 Org community files and shared workflows
 
-Organization GitHub Actions workflows for `Rubio-Enterprises`: the Gate Family
-workflows (`standards-gates.yml`, `typecheck-ts.yml`, `lint-hooks.yml`,
-`build.yml`) injected by organization rulesets, plus the smaller set of
-reusables that consumers thin-call directly. The Build gate's repository
-interface is in [`docs/build-gate.md`](./docs/build-gate.md).
-
-Standards v2 replaces those Gate Family workflows with one injected workflow,
-[`standards.yml`](./.github/workflows/standards.yml) (the Standards Check; see
-[`docs/standards-check.md`](./docs/standards-check.md)). It runs on repositories
-with the `standards-v2` custom property; the old gates stay until every
-repository has migrated.
+Organization GitHub Actions workflows for `Rubio-Enterprises`: one injected
+workflow, [`standards.yml`](./.github/workflows/standards.yml) (the Standards
+Check; see [`docs/standards-check.md`](./docs/standards-check.md)), which the
+`standards` organization ruleset runs on every repository with
+`standards-onboarded = true`, plus the reusables that repositories call directly.
+The Copier-era Gate Family workflows (`standards-gates.yml`, `typecheck-ts.yml`,
+`lint-hooks.yml`, `build.yml`) and `cloud-setup-smoke.yml` were retired on the
+standards v2 flag day.
 In this workspace, the repository is checked out as `Governance/dot-github`;
 its GitHub repository name remains `.github`.
 
@@ -39,9 +36,10 @@ git clone https://github.com/Rubio-Enterprises/.github.git dot-github
 cd dot-github
 ```
 
-Consumer repositories adopt standards through Copier (`/onboard-repo`), which
-renders their workflow callers. Organization rulesets inject the Gate workflows;
-there is no `workflow-templates/` picker installation.
+Repositories adopt standards with `npm init @rubio-enterprises/standards`, which
+copies the starter `standards.yml` caller and `test-gate.yml`. The organization
+ruleset injects the Standards Check; there is no `workflow-templates/` picker
+installation.
 
 ## Usage
 
@@ -53,9 +51,9 @@ Use the shared Renovate preset in a consumer's `renovate.json`:
 }
 ```
 
-The Renovate runner must have access to the consumer repository. Consumers with
-bespoke Renovate policy can extend `github>Rubio-Enterprises/.github:copier`
-without inheriting the whole preset. See the workflow contracts below before
+The Renovate runner must have access to the consumer repository. The preset
+updates repository-owned runtime pins in `mise.toml` (the `mise` manager) and
+disables the retired `copier` manager. See the workflow contracts below before
 adding a reusable caller.
 
 The shared preset extends the native Dev Container manager to read
@@ -90,8 +88,8 @@ public `.github` repository's default branch. Any local issue template or
 `ISSUE_TEMPLATE/config.yml` overrides **the entire inherited set**, not just one
 form. Review all local template locations (root, `.github/`, and `docs/`) and
 remove redundant overrides through reviewed changes; a repository retaining an
-override must maintain its complete local chooser. No Copier release, renderer,
-or synchronization job is needed.
+override must maintain its complete local chooser. No release, renderer or
+synchronization job is needed.
 
 Before publishing, prepare compatible issue consumers, ensure the lowercase
 native types and `needs-triage` label exist where used, and pilot the complete
@@ -103,26 +101,25 @@ particularly in private repositories or for API/CLI-created issues.
 
 | Workflow | Purpose |
 | --- | --- |
-| [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness; runs an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `has_swift` suites run on `RUNNERS.macos` |
+| [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness for a suite that needs its own job; runs `mise run setup`, then an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `ci-platform = macos` callers run on `RUNNERS.macos` |
 | [`devcontainer-image.yml`](./.github/workflows/devcontainer-image.yml) | Builds native amd64/arm64 Dev Container images, publishes a private GHCR multi-arch image, and prunes untagged versions; see [its contract](./docs/reusable-workflows/devcontainer-image.md) |
-| [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
+| [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-range gitleaks scan runs in the package's `check:pr`) |
 | [`standards.yml`](./.github/workflows/standards.yml) | Injected, not called: the Standards Check. Installs the repository's Standards Release and runs `mise run check` and `mise run check:pr`; routed by the `ci-platform`/`ci-size` properties; see [its contract](./docs/standards-check.md) |
 | [`release-please.yml`](./.github/workflows/release-please.yml) | release-please with the `rubio-release-please` App token, a root `uv.lock` refresh and auto-merge on the release PR; called by the starter `standards.yml` when `release-please-config.json` exists; see [its contract](./docs/reusable-workflows/release-please.md) |
-| [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages for repos declaring `has_codewiki`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
+| [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages when the starter caller finds `docs/codewiki/metadata.json`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
-A repository workflow that runs mise in a full standards consumer
-calls the [`standards-bootstrap`](./actions/standards-bootstrap/action.yml)
-composite action first. It provisions a full-history Shared Config Directory
-at one resolved standards `legacy/copier` commit, exports `STANDARDS_PIN`, and runs mise
-without a standards token route. See [`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md)
-for the stub and secrets contract.
+A repository workflow that needs the package's tools runs `jdx/mise-action` and
+`mise run setup` with `NODE_AUTH_TOKEN` and `packages: read`. The
+[`standards-bootstrap`](./actions/standards-bootstrap/action.yml) composite
+action is legacy: only the image builders still use it, for a repository that
+has not migrated off the Copier-era Shared Config Directory (see
+[`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md)).
 
-Canonical non-E2E tests are not centrally executed: each enforcing repository
-gates landing through its own `.github/workflows/test-gate.yml` required status
-(the Test Gate Contract — standards ADR-0020). The central `test-py.yml` /
-`rust-test.yml` gate workflows retired with their rulesets (standards#389).
+Tests are not centrally executed: each onboarded repository gates landing
+through its own starter `.github/workflows/test-gate.yml` required status (the
+Test Gate).
 
-E2E callers must grant `contents: read` and `checks: write` to their calling
+E2E callers must grant `contents: read`, `checks: write` and `packages: read` to their calling
 job, and their test runner must produce `reports/e2e/junit.xml`. The reusable
 publishes a JUnit GitHub Check on writable-token runs. Fork pull requests and
 Dependabot runs retain annotations, the job summary, and artifacts without
@@ -143,10 +140,10 @@ route has its own hosted fallback for public callers:
 | `macos` | `macos-arm64` | `macos-26` |
 
 The `e2e.yml` reusable uses `arm`, including the `ubuntu-24.04-arm` fallback
-when the private map is unavailable. A caller declaring `has_swift` runs on
-`macos` instead (hosted `macos-26` fallback), because an Apple suite needs Xcode
+when the private map is unavailable. A caller whose `ci-platform` property is
+`macos` runs on `macos` instead (hosted `macos-26` fallback), because an Apple suite needs Xcode
 and the iOS Simulator. The map has exactly seven active keys; `light`, `heavy`
-and `e2e` are retired, and non-Swift E2E workflows use `arm` instead
+and `e2e` are retired, and non-macOS E2E workflows use `arm` instead
 ([standards ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md)).
 
 The shared Renovate preset in `default.json` schedules ordinary updates on
@@ -155,28 +152,21 @@ package-specific schedules still apply.
 
 ### Workflow delivery
 
-Organization rulesets load Gate workflow files from `main`; Terraform owns
-their consuming rulesets and ref. Reusable workflows and actions also follow
+The organization ruleset loads `standards.yml` from `main`; Terraform owns
+the ruleset and ref. Reusable workflows and actions also follow
 `@main`. Reviewed merges take effect without release-please, floating tags or
 a separate publication request. Recover a regression with a reviewed revert.
 
 ## Standards dependency
 
-The `standards-gates.yml` workflow checks out private `standards` at the
-`legacy/copier` branch (the Copier-era tree, frozen while standards `main`
-becomes the v2 package) for every applicable consumer; there is no ring selection or Channel environment.
-Audit content therefore follows reviewed standards merges without a `.github`
-release. Starter inputs still reach consumers through Copier updates.
+The Standards Check installs `@rubio-enterprises/standards` (internal, GitHub
+Packages) at the repository's Standards Release: `latest`, or the Release Pin
+in its `mise.toml`. Check content therefore follows standards releases without
+a `.github` change.
 
 Internal `.github` workflow/action calls follow `@main`; the shared Renovate
 preset disables updates and digest pinning for that exact dependency, including
 TestFlight callers. Third-party actions retain SHA pins and normal updates.
-
-The rollout is staged: remaining full consumers convert before unconditional
-bootstrap lands; repository-owned callers and injected refs converge next.
-Legacy tag refs remain frozen pending the active-entry-point audit; their
-writers are retired. The branch bootstrap supplies no `STANDARDS_PIN`; pin
-provisioning activates only after the starter wave converges.
 
 ## scripts/
 

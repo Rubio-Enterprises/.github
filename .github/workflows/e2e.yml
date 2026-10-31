@@ -1,23 +1,25 @@
-# Reusable e2e workflow — the standards E2E Contract (`enforce_e2e`). A caller
-# provides either an apex scripts.e2e or a repo-owned mise e2e task (for
-# nested/non-Node roots and non-browser suites). Require a nonempty JUnit
-# report at reports/e2e/junit.xml; the consumer config owns the reporter path.
-# Optional scripts.e2e:setup installs the pinned browser.
+# Reusable e2e workflow. A caller provides either an apex scripts.e2e or a
+# repository-owned mise e2e task (for nested/non-Node roots and non-browser
+# suites). Require a nonempty JUnit report at reports/e2e/junit.xml; the
+# consumer config owns the reporter path. Optional scripts.e2e:setup installs
+# the pinned browser. Most repositories run `e2e` inside their own Test Gate
+# instead (standards Lifecycle Tasks); this reusable suits a suite that needs
+# its own runner or job.
 #
 # RUNNER ROUTING
 # --------------
-# A cheap `detect` job reads the consumer's `.copier-answers.yml`, because
-# `runs-on:` is evaluated before checkout. CAPABILITY outranks resource, as in
-# build.yml and lint-hooks.yml: a repository declaring `has_swift` runs its
-# suite on RUNNERS.macos (hosted macos-26 fallback), which has Xcode and the
+# The caller's `ci-platform` custom property selects the runner: `macos` runs
+# the suite on RUNNERS.macos (hosted macos-26 fallback), which has Xcode and the
 # iOS Simulator. An Apple suite drives an unsigned simulator build; this
 # workflow holds no signing or App Store Connect credentials. Every other
 # suite stays on ARM64 (RUNNERS.arm, hosted ubuntu-24.04-arm; standards
 # ADR-0030).
 #
-# The suite job keeps the id `e2e` and no `name:`. `.github-private` requires
-# the context `e2e / e2e` (caller job id / this job) wherever gate-e2e is
-# true, so renaming the job would strand every gated repository's check.
+# SETUP
+# -----
+# `mise run setup` (the repository's starter task) installs the Standards
+# Package, the repository's tools and its `setup:*` dependencies. The calling
+# job must grant `packages: read` for the internal package.
 #
 # DEV-SERVER CONTRACT (browser suites)
 # ------------------------------------
@@ -28,16 +30,13 @@
 #       first test runs). Single-process projects (Next.js dev, Vite dev, a
 #       static-site preview) fit cleanly here.
 #   (b) Skip this reusable entirely and call Playwright from the consumer's
-#       own `ci.yml`, with explicit prior steps for multi-process boots
+#       own workflow, with explicit prior steps for multi-process boots
 #       (e.g. `ng build` → `ng serve &` → `wait-on http://localhost:4200`
 #       → `playwright test` for Angular + Electron + Playwright shapes).
 # Option (b) is the expected path for any project where `config.webServer`
-# would have to orchestrate more than one long-running process. Don't try to
-# add `jobs.e2e.needs: <build-job>` to retrofit this reusable into multi-step
-# starts — the dev-server step must run *in the same job* as `playwright
-# test` because Playwright connects to localhost on the same runner.
-#
-# See also: rubio-standards README.md "Reusable e2e.yml contract" section.
+# would have to orchestrate more than one long-running process. The dev-server
+# step must run *in the same job* as `playwright test` because Playwright
+# connects to localhost on the same runner.
 name: e2e (reusable)
 "on":
   workflow_call:
@@ -45,63 +44,31 @@ name: e2e (reusable)
       retries: {type: number, default: 2}
       shard: {type: string, default: ''}
       timeout-minutes: {type: number, default: 30}
-    secrets:
-      # Org secrets reach a called workflow only when its caller forwards
-      # them. A consumer caller must, so the Shared Config
-      # Checkout can be cloned (standards ADR-0033).
-      STANDARDS_READER_APP_ID:
-        required: false
-      STANDARDS_READER_APP_PRIVATE_KEY:
-        required: false
 permissions:
   contents: read
 # Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
 # a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
-  detect:
-    # Resolve the suite's runner from the consumer's declared Facets (see
-    # RUNNER ROUTING above).
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
-    timeout-minutes: 120
-    outputs:
-      runner: ${{ steps.pick.outputs.runner }}
-    steps:
-      - name: Sparse-checkout the consumer's .copier-answers.yml
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          sparse-checkout: .copier-answers.yml
-          sparse-checkout-cone-mode: false
-      - name: Pick the runner from the Swift facet
-        id: pick
-        env:
-          MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]')) }}
-          # Keep hosted rendering on ARM64 too (standards ADR-0030)
-          ARM_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Capability outranks resource: an Apple suite needs Xcode and the
-          # Simulator. Only an explicit true selects macOS, as in build.yml.
-          if grep -qE '^has_swift:[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
-            runner="$MACOS_RUNNER"
-          else
-            runner="$ARM_RUNNER"
-          fi
-          runner="$(jq -ce . <<<"$runner")" || exit 1
-          printf 'runner=%s\n' "$runner" >> "$GITHUB_OUTPUT"
-          echo "e2e runner: $runner"
-
   e2e:
-    needs: detect
-    # Publishing the JUnit Check needs this grant from the calling job too.
+    # Publishing the JUnit Check and reading the Standards Package need these
+    # grants from the calling job too.
     permissions:
       contents: read
       checks: write
-    runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}
+      packages: read
+    runs-on: >-
+      ${{ github.event.repository.custom_properties['ci-platform'] == 'macos'
+      && (fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]'))
+      || (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) }}
+    env:
+      # renovate: datasource=github-releases depName=jdx/mise
+      MISE_VERSION: "2026.10.19"
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Prepare the macOS toolchain
         if: runner.os == 'macOS'
         shell: bash
@@ -118,72 +85,27 @@ jobs:
           # An Apple suite needs the selected Xcode and its simulator runtimes
           xcodebuild -version
           xcrun simctl list runtimes available
-      # uv on PATH routes mise's pipx-backend installs through uvx (pipx.uvx
-      # defaults true), enforcing minimum_release_age via uv's --exclude-newer.
-      # Without uv, mise >= 2026.6.2 falls back to pip's --uploaded-prior-to,
-      # which cold runners' bootstrap pip (< 26) rejects — install hard-fails.
+      # mise's pipx backend needs uv on PATH on a cold runner.
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.12.17"
-      # Fingerprint the uv-resolved python into the mise cache key (standards#331).
-      # mise routes pipx installs through uvx, whose venvs carry a shebang pointing
-      # at the uv-MANAGED python under ~/.local/share/uv/python — OUTSIDE the
-      # ~/.local/share/mise tree jdx/mise-action caches. When uv's default python
-      # bumps (e.g. 3.14.3 → 3.14.4), a cache restored onto a fresh runner VM hands
-      # back pipx venvs whose shebang points at an interpreter that VM lacks, so
-      # every tool dies with "couldn't exec process" — a permanently poisoned cache
-      # no re-run fixes. Folding the version into cache_key_prefix makes a python
-      # bump INVALIDATE the cache instead of poisoning it. `uv python find` never
-      # downloads and can fall back to a system python, so install first
-      # (idempotent — the same managed interpreter uvx would provision anyway),
-      # then read the managed version.
-      - name: Fingerprint the uv-resolved python for the mise cache key
-        id: uv-python
-        # Native cache seeds ignore consumer project bounds, matching uvx
-        env:
-          UV_NO_PROJECT: "true"
+      - id: week
+        name: Name this week's cache key
         shell: bash
-        run: |
-          set -euo pipefail
-          uv python install
-          version="$(uv python find --managed-python --show-version)"
-          if [ -z "$version" ]; then
-            echo "::error::could not resolve the uv-managed python version for the mise cache key" >&2
-            exit 1
-          fi
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-          echo "uv-resolved python for mise cache key: $version"
-      - name: Resolve installed mise version
-        id: mise-version
-        env:
-          # renovate: datasource=github-releases depName=jdx/mise
-          MISE_VERSION: "2026.10.19"
-        shell: bash
-        run: |
-          set -euo pipefail
-          binary="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/bin/mise"
-          version="$MISE_VERSION"
-          if [ -e "$binary" ]; then
-            [ -x "$binary" ] || { echo "::error::installed mise is not executable: $binary" >&2; exit 1; }
-            reported="$("$binary" version --json)"
-            version="$(jq -er '.version | strings | capture("^(?<number>[0-9]{4}[.][0-9]+[.][0-9]+)( |$)").number' <<<"$reported")"
-          fi
-          [[ "$version" =~ ^[0-9]{4}[.][0-9]+[.][0-9]+$ ]] || exit 1
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-          echo "mise action version: $version"
-      # standards ADR-0033: a native repository's .mise.toml includes shared
-      # pins from the private standards checkout at `.standards-config/`, so
-      # no mise command works until it is cloned. The shared action clones it
-      # through a read-only standards-reader token and removes the token route
-      # before any repository code runs.
-      - name: Bootstrap the Shared Config Checkout
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
+        run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
-          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-          mise-version: ${{ steps.mise-version.outputs.version }}
-          cache-key-prefix: mise-v1-uvpy${{ steps.uv-python.outputs.version }}
+          version: ${{ env.MISE_VERSION }}
+          install: false
+          cache: true
+          cache_key_prefix: mise-e2e-${{ steps.week.outputs.week }}
+      - name: Install the Standards Release, tools and dependencies
+        shell: bash
+        run: mise run setup
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Find the suite command
         id: command
         shell: bash
@@ -226,9 +148,11 @@ jobs:
           fi
         shell: bash
       - name: e2e-setup (package-pinned browser install, fixtures, etc.)
+        env:
+          SETUP: ${{ steps.command.outputs.setup }}
         run: |
           set -euo pipefail
-          if [ "${{ steps.command.outputs.setup }}" = script ]; then
+          if [ "$SETUP" = script ]; then
             npm run e2e:setup
           elif mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
             mise run e2e-setup
@@ -239,9 +163,10 @@ jobs:
         env:
           PW_RETRIES: ${{ inputs.retries }}
           PW_SHARD: ${{ inputs.shard }}
+          SUITE: ${{ steps.command.outputs.cmd }}
         run: |
           mkdir -p reports/e2e
-          ${{ steps.command.outputs.cmd }}
+          $SUITE
         timeout-minutes: ${{ inputs.timeout-minutes }}
       - name: Require executed E2E tests
         if: always()

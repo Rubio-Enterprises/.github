@@ -1,12 +1,4 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>Rubio-Enterprises/.github"],
-  "packageRules": [
-    {
-      "description": "This repository owns the cloud smoke implementation, not a template-rendered caller.",
-      "matchManagers": ["github-actions"],
-      "matchFileNames": [".github/workflows/cloud-setup-smoke.yml"],
-      "enabled": true
-    }
-  ]
+  "extends": ["github>Rubio-Enterprises/.github"]
 }

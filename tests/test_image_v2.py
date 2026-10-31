@@ -200,17 +200,6 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "file:/run/standards.tgz")
 
-    def test_legacy_sparse_route_does_not_require_a_full_consumer_checkout(self):
-        (self.repo / LINK).unlink()
-        (self.repo / 'mise.toml').unlink()
-        (self.repo / '.copier-answers.yml').write_text('lint_hooks_workload_class: small\n')
-        result = subprocess.run(['node', str(ASSETS.parent / 'devcontainer-run/route.mjs')], cwd=self.repo,
-                                env={**self.env, 'CI_IMAGE_REPOS': '[123]', 'ORIGINAL_RUNNER': '["linux-x64-small"]',
-                                     'GITHUB_REPOSITORY_ID': '123', 'GITHUB_REPOSITORY': 'Rubio-Enterprises/Example',
-                                     'PROJECT_TASK': 'lint-hooks'}, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.outputs()['mode'], 'direct')
-
     def test_native_build_mounts_private_state_without_baking_or_build_auth(self):
         dockerfile = (ASSETS / "Dockerfile.v2").read_text()
         self.assertEqual(dockerfile.count("type=secret,id=standards_package"), 2)
