@@ -1,0 +1,103 @@
+# The Standards Check (docs/standards-check.md). The `standards` org ruleset injects this workflow
+# into every repository whose custom property selects it. A thin shell: install the repository's
+# Standards Release and run the Conformance Tasks it ships (`check`, `check:pr`). No standards
+# logic lives here; change the checks in Rubio-Enterprises/standards.
+name: standards
+# Ruleset workflows ignore `types` and other filters: they run on opened, synchronize and reopened
+# (and merge_group checks_requested) only, so editing a title or description re-runs nothing.
+"on":
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+  packages: read # the internal @rubio-enterprises/standards package
+  pull-requests: read # Danger reads the pull request it checks
+concurrency:
+  group: standards-check-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  standards:
+    name: standards
+    # This repository is not onboarded; its own pull requests would fail `test -f lefthook.yml`.
+    if: github.repository != 'Rubio-Enterprises/.github'
+    # Route from the custom properties: ci-platform=macos → RUNNERS.macos; ci-size=medium →
+    # RUNNERS.medium; otherwise RUNNERS.small. Each key has a hosted fallback for public repositories,
+    # which cannot read RUNNERS. If the event payload carries no custom_properties (unverified, DV-1),
+    # add a `route` job that reads `gh api repos/$GITHUB_REPOSITORY/properties/values`, outputs the
+    # runner JSON, and make this `runs-on: ${{ fromJSON(needs.route.outputs.runner) }}`.
+    runs-on: >-
+      ${{ github.event.repository.custom_properties['ci-platform'] == 'macos'
+      && (fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]'))
+      || github.event.repository.custom_properties['ci-size'] == 'medium'
+      && (fromJSON(vars.RUNNERS || '{}').medium || fromJSON('["ubuntu-latest"]'))
+      || (fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]')) }}
+    timeout-minutes: 30
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      # renovate: datasource=github-releases depName=jdx/mise
+      MISE_VERSION: "2026.10.19"
+    steps:
+      # Full history: check:pr scans BASE_SHA..HEAD_SHA, and on a fork `check` needs
+      # origin/upstream and its merge-base. Measured on karakeep (94 MB): 4.7 s vs 2.2 s shallow.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require lefthook.yml
+        run: |
+          test -f lefthook.yml ||
+            { echo "::error::repository not onboarded: run npm init @rubio-enterprises/standards"; exit 1; }
+      - id: week
+        name: Name this week's cache keys
+        run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
+      # mise's pipx backend needs uv on PATH on a cold runner (AGENTS.md).
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.17"
+      # The cache key hashes the repository's mise files only: the conf.d link into .standards/ is
+      # dangling until `setup`, so the package's tool pins cannot enter the key. The weekly prefix
+      # bounds how long a cache misses tools a newer Standards Release added.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: ${{ env.MISE_VERSION }}
+          install: false
+          cache: true
+          cache_key_prefix: mise-standards-${{ steps.week.outputs.week }}
+      - name: Restore the trivy vulnerability database
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/trivy/db
+          key: trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+      - id: setup
+        name: Install the Standards Release, its tools and the repository's dependencies
+        run: mise run setup
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Require the package's own check and check:pr tasks
+        run: |
+          pkg="$(realpath .standards/node_modules/@rubio-enterprises/standards/mise/standards.toml)"
+          for task in check check:pr; do
+            src="$(mise tasks info "$task" --json | jq -r .source)"
+            [ "$(realpath "$src")" = "$pkg" ] ||
+              { echo "::error::$task comes from $src, not the Standards Package; delete the repository's $task task"; exit 1; }
+          done
+      - id: check
+        name: Every Check on every file
+        run: mise run check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # zizmor's online audits
+      - name: Pull-request Checks
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: mise run check:pr
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Lefthook 2.1 prints no per-job summary in CI when a Fixer's rewrite fails the run.
+      - name: Summarize what the Checks rewrote
+        if: ${{ failure() && steps.check.outcome == 'failure' }}
+        run: |
+          { echo '```'; git status --short; git diff --stat; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error::the Checks failed or a Fixer rewrote files; run 'mise run check' locally and commit the result"

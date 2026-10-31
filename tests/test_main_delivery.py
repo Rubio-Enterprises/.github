@@ -11,13 +11,20 @@ class MainDeliveryTests(unittest.TestCase):
             ".github/scripts/plumbing_ref.py",
             ".github/workflows/plumbing-ref-publish.yml",
             ".github/workflows/plumbing-ref-rollback.yml",
-            ".github/workflows/release-please.yml",
             ".github/workflows/floating-tag-floor-check.yml",
             "release-please-config.json",
             ".release-please-manifest.json",
         ):
             with self.subTest(path=path):
                 self.assertFalse((ROOT / path).exists())
+
+    def test_release_please_workflow_is_only_the_consumer_reusable(self):
+        # The file is the reusable that consumers call; it must never release this repository.
+        workflow = (ROOT / ".github/workflows/release-please.yml").read_text()
+        triggers = workflow.split('"on":', 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("workflow_call:", triggers)
+        for event in ("push:", "pull_request:", "schedule:", "workflow_dispatch:", "release:"):
+            self.assertNotIn(event, triggers)
 
     def test_workflow_validation_does_not_invoke_retired_publication_code(self):
         validation = (ROOT / ".github/workflows/workflow-validation.yml").read_text()
