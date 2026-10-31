@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +48,25 @@ CACHE_SKIP_PATTERNS = (
     "**/.cache/pip/**",
     "**/.cache/mise/npm/aube/store/**",
     "**/.cache/mise/downloads-cas/**",
+)
+
+ROOTED_PUBLIC_CACHE_SKIP_PATTERNS = (
+    "usr/local/share/mise/installs/**",
+    "home/*/.local/share/mise/installs/**",
+    "root/.local/share/mise/installs/**",
+    "mnt/devcontainer-cache/mise/installs/**",
+    "var/cache/devcontainer/gomod/**",
+    "mnt/devcontainer-cache/gomod/**",
+    "home/*/go/pkg/mod/**",
+    "root/go/pkg/mod/**",
+    "home/*/.bun/install/cache/**",
+    "root/.bun/install/cache/**",
+    "var/cache/devcontainer/bun/**",
+    "mnt/devcontainer-cache/bun/**",
+    "home/*/.local/share/pnpm/store/**",
+    "root/.local/share/pnpm/store/**",
+    "var/cache/devcontainer/uv/**",
+    "mnt/devcontainer-cache/uv/**",
 )
 
 
@@ -409,7 +431,7 @@ class ShellTests(unittest.TestCase):
                 self.assertNotIn(field, template)
             policy = (self.root / "trivy-secret.yaml").read_text()
             paths = [json.loads(line.strip()[2:]) for line in policy.splitlines() if line.startswith("  - ")]
-            self.assertEqual(paths, list(DEFAULT_SKIP_PATTERNS + CACHE_SKIP_PATTERNS))
+            self.assertEqual(paths, list(DEFAULT_SKIP_PATTERNS + CACHE_SKIP_PATTERNS + ROOTED_PUBLIC_CACHE_SKIP_PATTERNS))
             self.assertNotIn("/files/", policy)
             self.assertIn("exclude-block:", policy)
             self.assertNotIn("disable-rules", policy)
@@ -548,6 +570,108 @@ class RealTrivyTests(unittest.TestCase):
         for path in paths:
             self.assertNotIn(path, result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    def public_cache_fixtures(self) -> dict[str, str]:
+        private_key = "-----BEGIN " + "PRIVATE KEY-----\n" + "YWFh" * 16 + "\n-----END PRIVATE KEY-----\n"
+        stripe = "sk_live_" + "aB3dE6gH9jK2mN5pQ8sT1vW4"
+        go = "go/1.26.4/src/crypto/x509/platform_root_key.pem"
+        module = "golang.org/toolchain@v0.0.1-go1.26.4.linux-arm64/src/crypto/x509/platform_root_key.pem"
+        bun = "bun-types@1.3.14/docs/runtime/secrets.mdx"
+        return {
+            "usr/local/share/mise/installs/" + go: private_key,
+            "home/vscode/.local/share/mise/installs/" + go: private_key,
+            "root/.local/share/mise/installs/" + go: private_key,
+            "mnt/devcontainer-cache/mise/installs/" + go: private_key,
+            "var/cache/devcontainer/gomod/" + module: private_key,
+            "mnt/devcontainer-cache/gomod/" + module: private_key,
+            "home/vscode/go/pkg/mod/" + module: private_key,
+            "root/go/pkg/mod/" + module: private_key,
+            "home/vscode/.bun/install/cache/" + bun: stripe,
+            "root/.bun/install/cache/" + bun: stripe,
+            "var/cache/devcontainer/bun/" + bun: stripe,
+            "mnt/devcontainer-cache/bun/" + bun: stripe,
+            "home/vscode/.local/share/pnpm/store/v10/files/fixture": self.token,
+            "root/.local/share/pnpm/store/v10/files/fixture": self.token,
+            "var/cache/devcontainer/uv/archive-v0/pkg/credentials.env": self.token,
+            "mnt/devcontainer-cache/uv/archive-v0/pkg/credentials.env": self.token,
+        }
+
+    def test_rooted_public_toolchain_and_package_caches_are_excluded(self) -> None:
+        fixtures = self.public_cache_fixtures()
+        self.assertEqual(len(fixtures), len(ROOTED_PUBLIC_CACHE_SKIP_PATTERNS))
+        for name, content in fixtures.items():
+            self.put(name, content)
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    def test_rooted_cache_exclusions_keep_home_config_source_and_nonpackage_caches(self) -> None:
+        for name, content in self.public_cache_fixtures().items():
+            self.put(name, content)
+        protected = (
+            "home/vscode/.npmrc", "home/vscode/.config/mise/config.toml",
+            "home/vscode/.bun/bunfig.toml", "home/vscode/.npm/_logs/credentials.env",
+            "usr/local/share/mise/config.toml", "var/cache/devcontainer/turbo/credentials.env",
+            "workspaces/project/src/credentials.ts",
+            "workspaces/project/usr/local/share/mise/installs/go/credentials.env",
+            "workspaces/project/var/cache/devcontainer/gomod/credentials.env",
+            "workspaces/project/home/vscode/.bun/install/cache/credentials.env",
+        )
+        for name in protected:
+            self.put(name, "TOKEN=" + self.token)
+        fixtures = self.public_cache_fixtures()
+        self.put("home/vscode/.ssh/id_rsa", fixtures["usr/local/share/mise/installs/go/1.26.4/src/crypto/x509/platform_root_key.pem"])
+        self.put("workspaces/project/src/payment.ts", fixtures["home/vscode/.bun/install/cache/bun-types@1.3.14/docs/runtime/secrets.mdx"])
+        result = self.scan()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        for name in (*protected, "home/vscode/.ssh/id_rsa", "workspaces/project/src/payment.ts"):
+            self.assertIn(name, result.stdout)
+        for finding in ["github-pat (CRITICAL)", "private-key (HIGH)", "stripe-secret-token (CRITICAL)"]:
+            self.assertIn(finding, result.stdout)
+        for name in self.public_cache_fixtures():
+            self.assertNotIn(name, result.stdout)
+        self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    def scan_image(self, environment: list[str], history: list[dict]) -> subprocess.CompletedProcess[str]:
+        layer = io.BytesIO()
+        with tarfile.open(fileobj=layer, mode="w") as contents:
+            for name, content in self.public_cache_fixtures().items():
+                data = content.encode()
+                member = tarfile.TarInfo(name)
+                member.size = len(data)
+                contents.addfile(member, io.BytesIO(data))
+        image_config = json.dumps({
+            "architecture": "arm64", "os": "linux",
+            "config": {"Env": environment}, "history": history + [{"created_by": "COPY fixture /"}],
+            "rootfs": {"type": "layers", "diff_ids": ["sha256:" + hashlib.sha256(layer.getvalue()).hexdigest()]},
+        }).encode()
+        config_name = hashlib.sha256(image_config).hexdigest() + ".json"
+        archive = self.root / "fixture-image.tar"
+        entries = {config_name: image_config, "layer.tar": layer.getvalue(), "manifest.json": json.dumps([
+            {"Config": config_name, "RepoTags": ["cache-fixture:latest"], "Layers": ["layer.tar"]}
+        ]).encode()}
+        with tarfile.open(archive, "w") as contents:
+            for name, data in entries.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(data)
+                contents.addfile(member, io.BytesIO(data))
+        return subprocess.run([
+            os.environ["TRIVY_TEST_BINARY"], "image", "--input", str(archive),
+            "--scanners", "secret", "--image-config-scanners", "secret", "--exit-code", "1",
+            "--config", "", "--ignorefile", "", "--secret-config", str(self.config),
+            "--cache-dir", str(self.root / "image-cache"), "--disable-telemetry", "--skip-version-check",
+            "--format", "template", "--template", self.template,
+        ], capture_output=True, text=True, check=False)
+
+    def test_public_cache_skips_never_hide_image_environment_or_history(self) -> None:
+        result = self.scan_image([], [])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for environment, history in [(["TOKEN=" + self.token], []),
+                                     ([], [{"created_by": "RUN export TOKEN=" + self.token, "empty_layer": True}])]:
+            result = self.scan_image(environment, history)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("github-pat", result.stdout)
+            self.assertNotIn(self.token, result.stdout + result.stderr)
 
     def test_default_dependency_git_and_lockfile_paths_are_excluded(self) -> None:
         paths = (

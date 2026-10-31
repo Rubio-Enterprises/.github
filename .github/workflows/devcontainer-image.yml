@@ -241,6 +241,22 @@ jobs:
             - "**/.cache/pip/**"
             - "**/.cache/mise/npm/aube/store/**"
             - "**/.cache/mise/downloads-cas/**"
+            - "usr/local/share/mise/installs/**"
+            - "home/*/.local/share/mise/installs/**"
+            - "root/.local/share/mise/installs/**"
+            - "mnt/devcontainer-cache/mise/installs/**"
+            - "var/cache/devcontainer/gomod/**"
+            - "mnt/devcontainer-cache/gomod/**"
+            - "home/*/go/pkg/mod/**"
+            - "root/go/pkg/mod/**"
+            - "home/*/.bun/install/cache/**"
+            - "root/.bun/install/cache/**"
+            - "var/cache/devcontainer/bun/**"
+            - "mnt/devcontainer-cache/bun/**"
+            - "home/*/.local/share/pnpm/store/**"
+            - "root/.local/share/pnpm/store/**"
+            - "var/cache/devcontainer/uv/**"
+            - "mnt/devcontainer-cache/uv/**"
           # Keep the SDK prose guard for regular files in uncached install layouts.
           exclude-block:
             description: Anthropic SDK execution-identity documentation, not GCP credentials
