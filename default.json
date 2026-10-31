@@ -5,8 +5,7 @@
     ":semanticCommits",
     "schedule:weekends",
     "helpers:pinGitHubActionDigests",
-    "customManagers:dockerfileVersions",
-    "github>Rubio-Enterprises/.github:copier"
+    "customManagers:dockerfileVersions"
   ],
   "timezone": "America/Chicago",
   "dependencyDashboard": false,
@@ -18,6 +17,9 @@
   "minimumReleaseAge": "7 days",
   "rebaseWhen": "conflicted",
   "labels": ["dependencies"],
+  "copier": {
+    "enabled": false
+  },
   "devcontainer": {
     "managerFilePatterns": ["/^\\.github/\\.devcontainer/devcontainer\\.json$/"]
   },
@@ -42,20 +44,7 @@
       "enabled": false
     },
     {
-      "description": "Disable Renovate's built-in mise manager across onboarded consumers: consumer .mise.toml tool pins are TEMPLATE-OWNED (enforced by standards' normalize-mise-pins.sh against template/.mise.toml.jinja floors). Letting Renovate also bump .mise.toml created an infinite thrash (Renovate bumps up, copier-sync reverts to floor). Currency for these tools is driven from the template's .mise.toml.jinja via custom managers in the standards repo, so one reviewed bump propagates uniformly to the all onboarded consumers. NOTE: does NOT affect the jdx/mise CLI pin below — that is a custom.regex manager (workflow YAML), a different manager.",
-      "matchManagers": ["mise"],
-      "enabled": false
-    },
-    {
-      "description": "The standards template renders .tool-versions (full python_version Copier answer) for Python consumers and .python-version (X.Y) for scripts-packaged consumers. These interpreter pins must move with the template's uv floor, not via independent asdf/pyenv proposals: uv 0.12.1 cannot download Python 3.14.7 (its index stops at 3.14.6). Promote the Python answer and uv pin together through standards; standards owns its own pins.",
-      "matchManagers": ["asdf", "pyenv"],
-      "matchDepNames": ["python"],
-      "matchFileNames": [".tool-versions", ".python-version"],
-      "matchRepositories": ["!Rubio-Enterprises/standards"],
-      "enabled": false
-    },
-    {
-      "description": "Do not automatically raise the consumer-owned pyproject.toml requires-python compatibility FLOOR on every CPython patch. Renovate bumped >=3.14.6 to >=3.14.7 while the template-rendered .tool-versions and uv 0.12.1 still provide at most 3.14.6, making uv lock and CI fail. Raise the floor deliberately in the consumer alongside its python_version Copier answer and the template's uv pin; ordinary pep621 package updates stay enabled.",
+      "description": "Do not automatically raise the consumer-owned pyproject.toml requires-python compatibility FLOOR on every CPython patch. Renovate bumped >=3.14.6 to >=3.14.7 while the pinned Python and uv 0.12.1 still provided at most 3.14.6, making uv lock and CI fail. Raise the floor deliberately alongside the repository's Python pin in mise.toml; ordinary pep621 package updates stay enabled.",
       "matchManagers": ["pep621"],
       "matchDepTypes": ["requires-python"],
       "matchPackageNames": ["python"],
@@ -103,8 +92,7 @@
       "allowedVersions": "<7"
     },
     {
-      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. The require-review fallback sets platformAutomerge:false so Renovate's own engine performs the merge as the bypassed Renovate App. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original onboarded set had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. Renovate's own engine is stricter here because it waits for every check the consumer actually renders, not only the checks required before GitHub merges. Copier template re-renders are excluded: copier.json's rule arms GitHub-native auto-merge for them behind the independent audit-App approval, and because an extended preset's packageRules run before this file's own, matching them here would silently reset platformAutomerge to false.",
-      "matchManagers": ["!copier"],
+      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. The require-review fallback sets platformAutomerge:false so Renovate's own engine performs the merge as the bypassed Renovate App. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original onboarded set had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. Renovate's own engine is stricter here because it waits for every check the consumer actually renders, not only the checks required before GitHub merges.",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
       "matchCurrentVersion": "!/^v?0/",
       "automerge": true,
@@ -192,13 +180,10 @@
       "extractVersion": "^v?(?<version>.+)$"
     },
     {
-      "description": "Template-rendered workflow action pins are owned by standards and advance through Copier updates. Disable per-consumer github-actions updates in these files to avoid reverting Renovate changes at the next render. First-party .github calls follow main and are disabled separately for every caller.",
+      "description": "The starter standards.yml is copied from the standards package and reported as Starter Drift when it differs. Its action pins advance in the package's starter, so per-consumer github-actions updates in this file are disabled to keep it identical. First-party .github calls follow main and are disabled separately for every caller.",
       "matchManagers": ["github-actions"],
-      "matchFileNames": [
-        ".github/workflows/standards.yml",
-        ".github/workflows/cloud-setup-smoke.yml",
-        ".github/workflows/release-please.yml"
-      ],
+      "matchFileNames": [".github/workflows/standards.yml"],
+      "matchRepositories": ["!Rubio-Enterprises/.github"],
       "enabled": false
     },
     {

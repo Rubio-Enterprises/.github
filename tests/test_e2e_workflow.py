@@ -10,13 +10,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_ruby_workflows import extract_run_block, extract_step
+from test_ruby_workflows import extract_step
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/e2e.yml"
 TEXT = WORKFLOW.read_text(encoding="utf-8")
-PICK_STEP = "Pick the runner from the Swift facet"
 MACOS_STEP = "Prepare the macOS toolchain"
-RUNNERS = {"MACOS_RUNNER": '[\n  "macos-arm64"\n]', "ARM_RUNNER": '["linux-arm64"]'}
+SETUP_STEP = "Install the Standards Release, tools and dependencies"
 
 
 def job(name: str) -> str:
@@ -24,28 +23,6 @@ def job(name: str) -> str:
     jobs = TEXT.split("\njobs:\n", 1)[1]
     blocks = re.split(r"(?m)^  (?=[a-z][a-z0-9-]*:\n)", jobs)
     return next(block for block in blocks if block.startswith(f"{name}:\n"))
-
-
-def pick(answers: str | None) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
-    with tempfile.TemporaryDirectory() as tmp:
-        repo = Path(tmp)
-        if answers is not None:
-            (repo / ".copier-answers.yml").write_text(answers, encoding="utf-8")
-        output = repo / "github-output"
-        result = subprocess.run(
-            ["bash", "-c", extract_run_block(TEXT, PICK_STEP)],
-            cwd=repo,
-            env={**os.environ, **RUNNERS, "GITHUB_OUTPUT": str(output)},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        values = {}
-        if output.exists():
-            values = dict(
-                line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines()
-            )
-        return result, values
 
 
 def command_script() -> str:
@@ -86,51 +63,30 @@ def run_detector(*, tasks: list[str], package: dict | None = None) -> tuple[int,
 
 
 class E2ERouteTests(unittest.TestCase):
-    def test_detect_job_is_light_and_the_suite_follows_it(self) -> None:
-        self.assertIn(
-            "runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || "
-            "fromJSON('[\"ubuntu-slim\"]') }}",
-            job("detect"),
-        )
-        suite = job("e2e")
-        self.assertIn("needs: detect\n", suite)
-        self.assertIn("runs-on: ${{ fromJSON(needs.detect.outputs.runner) }}", suite)
-
-    def test_routes_keep_their_hosted_fallbacks(self) -> None:
-        step = extract_step(TEXT, PICK_STEP)
-        self.assertIn(
-            "MACOS_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').macos || "
-            "fromJSON('[\"macos-26\"]')) }}",
-            step,
-        )
-        self.assertIn(
-            "ARM_RUNNER: ${{ toJSON(fromJSON(vars.RUNNERS || '{}').arm || "
-            "fromJSON('[\"ubuntu-24.04-arm\"]')) }}",
-            step,
-        )
-
-    def test_required_context_job_keeps_its_id_and_name(self) -> None:
-        # .github-private requires "e2e / e2e": caller job id / this job id.
-        suite = job("e2e")
-        self.assertNotRegex(suite, r"(?m)^    name:")
+    def test_one_job_routes_from_the_ci_platform_property(self) -> None:
         self.assertEqual(re.findall(r"(?m)^  ([a-z][a-z0-9-]*):$", TEXT.split("\njobs:\n", 1)[1]),
-                         ["detect", "e2e"])
+                         ["e2e"])
+        suite = " ".join(job("e2e").split())
+        self.assertIn(
+            "github.event.repository.custom_properties['ci-platform'] == 'macos' "
+            "&& (fromJSON(vars.RUNNERS || '{}').macos || fromJSON('[\"macos-26\"]')) "
+            "|| (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('[\"ubuntu-24.04-arm\"]'))",
+            suite,
+        )
 
-    def test_swift_suites_route_to_macos_and_others_to_arm(self) -> None:
-        for answers, runner in (
-            ("has_swift: true\n", ["macos-arm64"]),
-            ("has_swift: true\nhas_typescript: true\n", ["macos-arm64"]),
-            ("has_swift: false\nhas_typescript: true\n", ["linux-arm64"]),
-            ("has_swift: 'true'\n", ["linux-arm64"]),
-            ("# has_swift: true\n", ["linux-arm64"]),
-            ("", ["linux-arm64"]),
-            (None, ["linux-arm64"]),
-        ):
-            with self.subTest(answers=answers):
-                result, out = pick(answers)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads(out["runner"]), runner)
-                self.assertNotIn("\n", out["runner"])
+    def test_suite_job_keeps_its_id_without_a_name(self) -> None:
+        self.assertNotRegex(job("e2e"), r"(?m)^    name:")
+
+    def test_copier_answers_are_not_read(self) -> None:
+        self.assertNotIn(".copier-answers.yml", TEXT)
+        self.assertNotIn("standards-bootstrap", TEXT)
+
+    def test_setup_installs_the_package_before_the_suite_is_found(self) -> None:
+        step = extract_step(TEXT, SETUP_STEP)
+        self.assertIn("run: mise run setup", step)
+        self.assertIn("NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", step)
+        self.assertIn("packages: read", job("e2e"))
+        self.assertLess(TEXT.index(f"- name: {SETUP_STEP}\n"), TEXT.index("id: command\n"))
 
     def test_macos_toolchain_is_prepared_only_on_macos(self) -> None:
         step = extract_step(TEXT, MACOS_STEP)
@@ -144,7 +100,7 @@ class E2ERouteTests(unittest.TestCase):
             for line in TEXT.splitlines()
             if "secrets." in line and not line.lstrip().startswith("#")
         }
-        self.assertEqual(secrets, {"STANDARDS_READER_APP_ID", "STANDARDS_READER_APP_PRIVATE_KEY"})
+        self.assertEqual(secrets, {"GITHUB_TOKEN"})
 
 
 class E2EDetectorTests(unittest.TestCase):

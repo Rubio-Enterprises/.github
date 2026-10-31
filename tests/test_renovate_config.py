@@ -7,11 +7,9 @@ import re
 import unittest
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "default.json").read_text(encoding="utf-8"))
-COPIER_CONFIG = json.loads((ROOT / "copier.json").read_text(encoding="utf-8"))
 
 REGISTRY_FIXTURE = """\
 [tools.pypi-only]
@@ -188,15 +186,15 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(CONFIG["rebaseWhen"], "conflicted")
         self.assertEqual(CONFIG["minimumReleaseAge"], "7 days")
 
-    def test_copier_native_automerge_does_not_widen_other_rules(self) -> None:
-        copier_rules = COPIER_CONFIG["packageRules"]
-        self.assertEqual(len(copier_rules), 1)
-        copier = copier_rules[0]
-        self.assertEqual(copier["matchManagers"], ["copier"])
-        self.assertTrue(copier["automerge"])
-        self.assertEqual(copier["automergeType"], "pr")
-        self.assertTrue(copier["platformAutomerge"])
+    def test_copier_is_retired(self) -> None:
+        self.assertEqual(CONFIG["copier"], {"enabled": False})
+        self.assertFalse((ROOT / "copier.json").exists())
+        self.assertFalse(any("copier" in preset for preset in CONFIG["extends"]))
+        for rule in CONFIG["packageRules"]:
+            with self.subTest(rule=rule.get("description", rule.get("groupName"))):
+                self.assertNotIn("copier", json.dumps(rule.get("matchManagers", [])))
 
+    def test_no_rule_arms_github_native_automerge(self) -> None:
         side_merge_rules = [
             rule
             for rule in CONFIG["packageRules"]
@@ -207,34 +205,6 @@ class RenovateConfigContractTests(unittest.TestCase):
         for rule in CONFIG["packageRules"]:
             with self.subTest(rule=rule.get("description", rule.get("groupName"))):
                 self.assertIsNot(rule.get("platformAutomerge"), True)
-
-    def test_copier_rerender_resolves_to_native_automerge(self) -> None:
-        # Renovate applies an extended preset's packageRules before the
-        # extending config's own, so every default.json rule that matches a
-        # Copier re-render runs after copier.json's rule and can override it.
-        dependency = {
-            "repository": "Rubio-Enterprises/org-ops",
-            "manager": "copier",
-            "depName": "https://github.com/Rubio-Enterprises/standards.git",
-            "packageName": "https://github.com/Rubio-Enterprises/standards.git",
-            "fileName": ".copier-answers.yml",
-            "currentVersion": "template/v1.55.108",
-            "updateType": "patch",
-        }
-        preset: dict[str, Any] = {}
-        for rule in COPIER_CONFIG["packageRules"]:
-            if _rule_matches(rule, dependency, preset):
-                preset.update(rule)
-        resolved = _resolve_dependency(
-            dependency,
-            {
-                key: preset[key]
-                for key in ("automerge", "platformAutomerge", "minimumReleaseAge")
-            },
-        )
-        self.assertTrue(resolved["automerge"])
-        self.assertTrue(resolved["platformAutomerge"])
-        self.assertEqual(resolved["minimumReleaseAge"], "0 days")
 
     def test_other_safe_class_updates_keep_renovate_side_merge(self) -> None:
         resolved = _resolve_dependency({
@@ -249,7 +219,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertTrue(resolved["automerge"])
         self.assertFalse(resolved["platformAutomerge"])
 
-    def test_python_interpreter_pins_and_floor_are_coordinated(self) -> None:
+    def test_python_interpreter_pins_update_and_the_floor_is_held(self) -> None:
         dependency = {
             "repository": "Rubio-Enterprises/org-ops",
             "depName": "python",
@@ -262,14 +232,9 @@ class RenovateConfigContractTests(unittest.TestCase):
             ("pyenv", ".python-version"),
         ):
             with self.subTest(manager=manager):
+                # Runtime pins are repository-owned: Renovate proposes them.
                 candidate = {**dependency, "manager": manager, "fileName": file_name}
-                self.assertFalse(_resolve_dependency(candidate)["enabled"])
-                self.assertNotIn(
-                    "enabled",
-                    _resolve_dependency(
-                        {**candidate, "repository": "Rubio-Enterprises/standards"}
-                    ),
-                )
+                self.assertNotIn("enabled", _resolve_dependency(candidate))
 
         consumer_manifest = {
             **dependency,
@@ -300,6 +265,19 @@ class RenovateConfigContractTests(unittest.TestCase):
                 {**dependency, "manager": "asdf", "fileName": ".tool-versions", "depName": "go"}
             ),
         )
+
+    def test_mise_manager_updates_repository_runtime_pins(self) -> None:
+        resolved = _resolve_dependency({
+            "repository": "Rubio-Enterprises/org-ops",
+            "manager": "mise",
+            "depName": "node",
+            "packageName": "node",
+            "fileName": "mise.toml",
+            "currentVersion": "24.1.0",
+            "updateType": "minor",
+        })
+        self.assertNotIn("enabled", resolved)
+        self.assertTrue(resolved["automerge"])
 
     def test_python_dev_tools_are_exact_pins_only_in_dev_groups(self) -> None:
         dependency = {
@@ -357,7 +335,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                     _resolve_dependency({**dependency, **changes})["minimumReleaseAge"], "7 days"
                 )
 
-    def test_template_rendered_workflow_pins_advance_only_through_the_template(self) -> None:
+    def test_starter_workflow_pins_advance_only_through_the_package(self) -> None:
         dependency = {
             "repository": "Rubio-Enterprises/org-ops",
             "manager": "github-actions",
@@ -367,16 +345,16 @@ class RenovateConfigContractTests(unittest.TestCase):
             "updateType": "digest",
         }
         first_party = {"depName": "Rubio-Enterprises/.github", "packageName": "Rubio-Enterprises/.github"}
-        for file_name in (
-            ".github/workflows/standards.yml",
-            ".github/workflows/cloud-setup-smoke.yml",
-            ".github/workflows/release-please.yml",
-        ):
-            with self.subTest(file_name=file_name):
-                self.assertFalse(_resolve_dependency({**dependency, "fileName": file_name})["enabled"])
-                self.assertFalse(
-                    _resolve_dependency({**dependency, **first_party, "fileName": file_name})["enabled"]
-                )
+        file_name = ".github/workflows/standards.yml"
+        self.assertFalse(_resolve_dependency({**dependency, "fileName": file_name})["enabled"])
+        self.assertFalse(
+            _resolve_dependency({**dependency, **first_party, "fileName": file_name})["enabled"]
+        )
+        # The injected Required Workflow in .github is not a starter copy.
+        injected = _resolve_dependency(
+            {**dependency, "repository": "Rubio-Enterprises/.github", "fileName": file_name}
+        )
+        self.assertTrue(injected.get("enabled", True))
 
         hand_authored = _resolve_dependency({**dependency, "fileName": ".github/workflows/deploy.yml"})
         self.assertTrue(hand_authored.get("enabled", True))
@@ -505,7 +483,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertNotIn("approveMajorUpdates", value)
                 self.assertNotIn("dependencyDashboardApproval", value)
 
-        for path in ("default.json", "copier.json", "renovate.json"):
+        for path in ("default.json", "renovate.json"):
             with self.subTest(path=path):
                 check(json.loads((ROOT / path).read_text(encoding="utf-8")))
 
@@ -719,8 +697,8 @@ class RenovateConfigContractTests(unittest.TestCase):
         fixtures = (
             ("npm", "zero-npm", "package.json", "npm"),
             ("cargo", "zero-crate", "Cargo.toml", "crate"),
-            ("custom.regex", "jdx/mise", ".github/workflows/build.yml", "github-releases"),
-            ("custom.regex", "astral-sh/uv", ".github/workflows/build.yml", "github-releases"),
+            ("custom.regex", "jdx/mise", ".github/workflows/e2e.yml", "github-releases"),
+            ("custom.regex", "astral-sh/uv", ".github/workflows/e2e.yml", "github-releases"),
             ("npm", "typescript", "package.json", "npm"),
             ("pep621", "typer", "pyproject.toml", "pypi"),
             ("pep621", "rubio-cli-kit", "pyproject.toml", "pypi"),
@@ -762,17 +740,6 @@ class RenovateConfigContractTests(unittest.TestCase):
         ):
             with self.subTest(versions=versions):
                 self.assertEqual(_resolve_dependency({**dependency, **versions})["draftPR"], held)
-
-    def test_major_copier_update_overrides_inherited_automerge(self) -> None:
-        resolved = _resolve_dependency({
-            "manager": "copier",
-            "depName": "https://github.com/Rubio-Enterprises/standards.git",
-            "packageName": "https://github.com/Rubio-Enterprises/standards.git",
-            "fileName": ".copier-answers.yml", "currentVersion": "template/v1.55.160",
-            "updateType": "major",
-        }, {"automerge": True, "platformAutomerge": True, "minimumReleaseAge": "0 days"})
-        self.assertEqual({key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE)
-        self.assertEqual(resolved["minimumReleaseAge"], "0 days")
 
     def test_stable_pin_digest_inherits_the_soaked_safe_lane(self) -> None:
         standing = next(
@@ -834,12 +801,8 @@ class RenovateConfigContractTests(unittest.TestCase):
         matcher = _python_regex(manager["matchStrings"][0])
         workflows = ROOT / ".github" / "workflows"
         expected = {
-            "standards-gates.yml": 1,
-            "lint-hooks.yml": 1,
-            "typecheck-ts.yml": 1,
+            "standards.yml": 1,
             "e2e.yml": 1,
-            "cloud-setup-smoke.yml": 1,
-            "build.yml": 1,
         }
         for filename, count in expected.items():
             text = (workflows / filename).read_text(encoding="utf-8")
@@ -848,24 +811,9 @@ class RenovateConfigContractTests(unittest.TestCase):
             self.assertEqual(len(pins), count, filename)
             self.assertEqual(matches, pins, filename)
             self.assertEqual(text.count('MISE_VERSION: "'), count, filename)
-            self.assertIn("version: ${{ steps.mise", text)
+            self.assertIn("version: ${{ env.MISE_VERSION }}", text)
             updated = text.replace(f'MISE_VERSION: "{pins[0]}"', 'MISE_VERSION: "2099.1.2"')
             self.assertEqual(matcher.findall(updated), ["2099.1.2"] * count, filename)
-
-    def test_source_repo_cloud_smoke_actions_are_not_template_owned(self) -> None:
-        local = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
-        dependency = {
-            "manager": "github-actions",
-            "depName": "ruby/setup-ruby",
-            "packageName": "ruby/setup-ruby",
-            "fileName": ".github/workflows/cloud-setup-smoke.yml",
-            "currentVersion": "1.328.0",
-            "updateType": "minor",
-        }
-        self.assertFalse(_resolve_dependency(dependency)["enabled"])
-        with patch.dict(CONFIG, {"packageRules": CONFIG["packageRules"] + local.get("packageRules", [])}):
-            self.assertTrue(_resolve_dependency(dependency)["enabled"])
-            self.assertFalse(_resolve_dependency({**dependency, "fileName": ".github/workflows/standards.yml"})["enabled"])
 
     def test_mise_cli_override_is_manager_independent(self) -> None:
         mise_update = {
@@ -938,7 +886,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                     "manager": "custom.regex",
                     "depName": "jdx/mise",
                     "packageName": "jdx/mise",
-                    "fileName": ".github/workflows/lint-hooks.yml",
+                    "fileName": ".github/workflows/e2e.yml",
                     "currentVersion": "v2026.8.1",
                     "updateType": "patch",
                 },
@@ -949,7 +897,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                     "manager": "custom.regex",
                     "depName": "astral-sh/uv",
                     "packageName": "astral-sh/uv",
-                    "fileName": ".github/workflows/lint-hooks.yml",
+                    "fileName": ".github/workflows/e2e.yml",
                     "currentVersion": "0.12.1",
                     "updateType": "patch",
                 },

@@ -1,13 +1,9 @@
 name: test-gate
-# Repository-local test gate (standards ADR 0020) for THIS repo's own contract
-# tests under tests/ — the ones that pin the gate workflows' shape. It proves
-# the suite actually EXECUTED (non-zero test count), not merely that a command
-# exited 0.
-#
-# Scope note: the gate workflows this repo *hosts* (standards-gates.yml,
-# typecheck-ts.yml) are what other repos run; they are not touched here.
-# workflow-validation.yml no longer runs this suite (its unittest step was
-# retired in favor of this gate); it keeps actionlint
+# Repository-local test gate for THIS repo's own contract tests under tests/
+# (the ones that pin the hosted workflows' shape). It proves the suite actually
+# EXECUTED (non-zero test count), not merely that a command exited 0. It is not
+# a reusable: repositories run their own starter test-gate.yml.
+# workflow-validation.yml keeps actionlint
 "on":
   pull_request:
   merge_group:

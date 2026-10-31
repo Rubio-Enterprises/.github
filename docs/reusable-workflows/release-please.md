@@ -7,7 +7,7 @@
 ## Purpose
 
 Releases a repository with release-please. It replaces the per-repository `release-please.yml`
-that the Copier template rendered, so the behavior changes in one place.
+that the retired Copier template rendered, so the behavior changes in one place.
 
 ## Interface
 

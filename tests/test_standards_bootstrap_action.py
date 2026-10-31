@@ -62,6 +62,18 @@ def outputs(path: Path) -> dict[str, str]:
     return dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line)
 
 
+class CallerTests(unittest.TestCase):
+    def test_only_the_image_builders_still_provision_the_legacy_checkout(self) -> None:
+        # The Copier-era gates are gone; the image builders keep the legacy path
+        # for repositories that still carry the Shared Config Directory.
+        callers = {
+            path.name
+            for path in (ROOT / ".github" / "workflows").glob("*.yml")
+            if "actions/standards-bootstrap@" in path.read_text(encoding="utf-8")
+        }
+        self.assertEqual(callers, {"repository-image.yml", "devcontainer-image.yml"})
+
+
 class InterfaceTests(unittest.TestCase):
     def test_inputs_and_defaults(self) -> None:
         self.assertEqual(action_inputs(), {

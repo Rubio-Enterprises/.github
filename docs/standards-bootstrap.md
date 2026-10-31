@@ -1,5 +1,10 @@
 # `standards-bootstrap` action
 
+> **Legacy.** Only the image builders (`repository-image.yml`, `devcontainer-image.yml`) still use
+> this action, for a repository that has not migrated to the `@rubio-enterprises/standards`
+> package and still carries the Copier-era stub below. Migrated repositories run
+> `mise run setup` instead. Delete the action once the image builders drop their legacy path.
+
 `actions/standards-bootstrap` provisions a repository's gitignored Shared Config
 Directory, `.standards-config/`, before mise loads its shared includes. Standards
 stays private; only the trusted provisioner receives its reader credential.
@@ -46,20 +51,9 @@ this action. An empty, malformed or wrong pin, dirty/shallow/missing checkout or
 wrong origin fails before setup. Bootstrap, repeated setup and later hooks use
 one pin without standards Git transport; they do not receive its App token.
 
-The central workflows use it: the `lint-hooks`, `typecheck-ts` and `build` gates
-and the `e2e`, `cloud-setup-smoke` and `devcontainer-image` reusables.
-
-## Repository-owned hook dependencies
-
-Bootstrap installs tool pins, not application dependencies. On non-image runs,
-`lint-hooks` installs the locked workspace packages before executing either fork
-or all-files hooks. Existing pnpm consumers retain their frozen, bounded-concurrency
-install and cache policy. A repository declaring `has_typescript: true` or
-`has_javascript: true`, with a root `package-lock.json` and no root pnpm lock, runs
-`npm ci` so repository-owned hooks can resolve their locked tools such as ESLint.
-The npm path adds no cache or lifecycle-script suppression, matching the existing
-pnpm install policy. A failed install fails the job. Image-mode execution skips
-both dependency-install paths because Repository Image setup owns them.
+The image builders use it (`repository-image.yml` and `devcontainer-image.yml`, with
+`bootstrap-parts: repos`). The Copier-era gates and the `e2e` and `cloud-setup-smoke`
+reusables that also used it are retired or migrated.
 
 ## Calling it from a repository workflow
 
@@ -149,8 +143,6 @@ Checked read-only on 2026-10-25:
 - `GET /repos/Rubio-Enterprises/<repo>/actions/organization-secrets` lists both
   `STANDARDS_READER_APP_ID` and `STANDARDS_READER_APP_PRIVATE_KEY` for all 100
   non-archived organization repositories, the 12 public ones included.
-- The injected `lint-hooks` gate already mints from these secrets in every
-  repository that carries the `gate-lint-hooks` property.
 
 GitHub withholds secrets in these cases, and a native job then fails at the
 credentials check:

@@ -1,6 +1,6 @@
 name: standards-bootstrap
 description: >-
-  Resolve the standards legacy/copier branch once and provision its full-history Shared Config
+  Legacy (image builders only). Resolve the standards legacy/copier branch once and provision its full-history Shared Config
   Directory before loading consumer mise config. Export STANDARDS_PIN, verify
   readiness without a standards credential, then bootstrap the requested tools.
   Usage: docs/standards-bootstrap.md.

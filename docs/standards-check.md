@@ -1,8 +1,8 @@
 # The Standards Check (`standards.yml`)
 
-- **Status:** Implemented in `.github/workflows/standards.yml`. It replaces the Gate Family workflows
-  (`standards-gates.yml`, `lint-hooks.yml`, `typecheck-ts.yml`, `build.yml`) once every repository
-  has migrated; until then both sets live here.
+- **Status:** Implemented in `.github/workflows/standards.yml`. It replaced the Gate Family workflows
+  (`standards-gates.yml`, `lint-hooks.yml`, `typecheck-ts.yml`, `build.yml`), deleted on the
+  standards v2 flag day.
 - **Delivery:** injected as a Required Workflow by the `standards` org ruleset in
   `.github-private` Terraform, at `.github/workflows/standards.yml@refs/heads/main`.
 
