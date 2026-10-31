@@ -114,15 +114,59 @@ function walk(root, visit, relative = '') {
   }
 }
 
+export function qualifySubmodules(workspace, src) {
+  const git = args => execFileSync('git', ['-C', workspace, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const gitlinks = git(['ls-tree', '-rz', 'HEAD']).split('\0').filter(record => record.startsWith('160000 ')).map(record => {
+    const match = /^160000 commit ([a-f0-9]{40})\t(.+)$/.exec(record);
+    if (!match || /[\x00-\x1f\x7f]/.test(match[2])) throw new Error('Unsafe submodule path');
+    return { sha: match[1], name: match[2] };
+  });
+  if (!gitlinks.length) return;
+  const modulesFile = path.join(src, '.gitmodules');
+  if (!fs.existsSync(modulesFile) || !fs.lstatSync(modulesFile).isFile()) {
+    throw new Error('Submodules require a regular committed .gitmodules file');
+  }
+  let entries;
+  try {
+    entries = git(['config', '--no-includes', '--null', '--blob', 'HEAD:.gitmodules', '--list']);
+  } catch {
+    throw new Error('Cannot parse committed submodule qualification');
+  }
+  const modules = new Map();
+  for (const entry of entries.split('\0').filter(Boolean)) {
+    const separator = entry.indexOf('\n');
+    const field = /^submodule\.(.+)\.(path|url)$/.exec(separator < 0 ? entry : entry.slice(0, separator));
+    if (!field) continue;
+    const module = modules.get(field[1]) || {};
+    if (Object.hasOwn(module, field[2])) throw new Error('Duplicate submodule qualification');
+    module[field[2]] = separator < 0 ? '' : entry.slice(separator + 1);
+    modules.set(field[1], module);
+  }
+  const paths = new Map();
+  for (const module of modules.values()) {
+    const url = /^https:\/\/github\.com\/Rubio-Enterprises\/([A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(module.url || '');
+    if (!module.path || !url || ['.', '..'].includes(url[1]) || paths.has(module.path)) {
+      throw new Error('Submodules require an exact credential-free organization HTTPS URL and unique path');
+    }
+    paths.set(module.path, module.url);
+  }
+  if (paths.size !== gitlinks.length) throw new Error('Submodule declarations do not match committed gitlinks');
+  for (const { name, sha } of gitlinks) {
+    if (!paths.has(name)) throw new Error('Submodule declarations do not match committed gitlinks');
+    const directory = path.join(src, name);
+    if (!fs.existsSync(directory) || !fs.lstatSync(directory).isDirectory() || fs.readdirSync(directory).length) {
+      throw new Error('Qualified submodule must remain an empty non-symlink directory');
+    }
+    console.log(`::notice::Omitted organization submodule ${JSON.stringify(name).replaceAll('%', '%25')} at ${sha}`);
+  }
+}
+
 function prepare() {
   const workspace = process.env.GITHUB_WORKSPACE;
   if (!/^[a-f0-9]{40}$/.test(process.env.STANDARDS_PIN || '')) throw new Error('Invalid STANDARDS_PIN');
   const config = process.env.CONFIG;
   if (!config || path.isAbsolute(config) || config.split('/').includes('..')) throw new Error('Unsafe config path');
   if (run('git', ['-C', workspace, 'rev-parse', 'HEAD']) !== process.env.GITHUB_SHA) throw new Error('Checkout SHA mismatch');
-  if (run('git', ['-C', workspace, 'ls-tree', '-r', 'HEAD']).split('\n').some(line => line.startsWith('160000 '))) {
-    throw new Error('Submodules need an explicit image-source qualification');
-  }
   const context = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'repository-image-'));
   pendingContext = context;
   const src = path.join(context, 'src');
@@ -130,6 +174,7 @@ function prepare() {
   execFileSync('git', ['-C', workspace, 'archive', '--format=tar', '-o', path.join(context, 'source.tar'), 'HEAD']);
   run('tar', ['-xf', path.join(context, 'source.tar'), '-C', src]);
   fs.rmSync(path.join(context, 'source.tar'));
+  qualifySubmodules(workspace, src);
   const pins = path.join(context, 'pins');
   fs.mkdirSync(pins);
   walk(src, name => {

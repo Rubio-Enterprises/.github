@@ -383,7 +383,7 @@ done
             (self.root / "docker-calls").unlink()
         self.assertTrue(safe_archive.exists())
 
-    def prepare_consumer(self, name, links, extra_files=None, untracked_files=None):
+    def prepare_consumer(self, name, links, extra_files=None, untracked_files=None, gitlinks=None):
         src = self.root / name
         files = {
             ".gitignore": "/.standards-config/\n",
@@ -411,6 +411,8 @@ done
         for name in extra_files or {}:
             if name.startswith(".standards-config/"):
                 git("add", "--force", "--", name)
+        for name, sha in (gitlinks or {}).items():
+            git("update-index", "--add", "--cacheinfo", f"160000,{sha},{name}")
         git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: consumer fixture")
         policy = src / ".standards-config/config/tombi.toml"
         policy.parent.mkdir(parents=True, exist_ok=True)
@@ -428,6 +430,88 @@ done
             "BASE": "ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "a" * 64,
             "CONFIG": ".github/.devcontainer/devcontainer.json", "DEVCONTAINER": str(cli)}, capture_output=True, text=True)
         return src, result
+
+    def test_prepare_omits_org_gitlinks_at_pinned_sha_without_fetching_or_copying_checkout(self):
+        for index, url in enumerate(["https://github.com/Rubio-Enterprises/aw-webui.git",
+                                     "https://github.com/Rubio-Enterprises/.github"]):
+            name, sha = 'nested/web ui%0A"quoted', "c" * 40
+            modules = f'[submodule "different-name"]\n path = {json.dumps(name)}\n url = {url}\n'
+            src, result = self.prepare_consumer(f"org-submodule-{index}", {}, {".gitmodules": modules},
+                                                {f"{name}/untracked-secret": "not archived"}, {name: sha})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(sha, result.stdout)
+            self.assertIn("web ui%250A", result.stdout)
+            self.assertNotIn(url, result.stdout + result.stderr)
+            outputs = dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
+            source = Path(outputs["context"]) / "src"
+            self.assertTrue((source / name).is_dir())
+            self.assertFalse((source / name).is_symlink())
+            self.assertEqual(list((source / name).iterdir()), [])
+            self.assertTrue((src / name / "untracked-secret").exists())
+            for kind in ["nonempty", "symlink", "missing"]:
+                with self.subTest(kind=kind):
+                    directory = source / name
+                    if kind == "nonempty":
+                        (directory / "unexpected").write_text("not allowed")
+                    elif kind == "symlink":
+                        (directory / "unexpected").unlink()
+                        directory.rmdir()
+                        directory.symlink_to(src / name)
+                    else:
+                        directory.unlink()
+                    checked = self.node("qualifySubmodules", [str(src), str(source)])
+                    self.assertNotEqual(checked.returncode, 0)
+                    self.assertIn("empty non-symlink directory", checked.stderr)
+            (source / ".gitmodules").unlink()
+            (source / ".gitmodules").symlink_to(src / ".gitmodules")
+            checked = self.node("qualifySubmodules", [str(src), str(source)])
+            self.assertNotEqual(checked.returncode, 0)
+            self.assertIn("regular committed .gitmodules", checked.stderr)
+
+    def test_prepare_rejects_unqualified_gitlinks_and_metadata_mismatches(self):
+        good = "https://github.com/Rubio-Enterprises/ui.git"
+        urls = ["https://github.com/ActivityWatch/ui.git", "git@github.com:Rubio-Enterprises/ui.git",
+                "ssh://git@github.com/Rubio-Enterprises/ui.git", "../ui.git", "./ui",
+                "https://token@github.com/Rubio-Enterprises/ui.git",
+                "https://github.com/Rubio-Enterprises/ui.git?token=secret",
+                "https://github.com/Rubio-Enterprises/ui.git#main",
+                "https://github.com/Rubio-Enterprises/ui.git/", "https://github.com/Rubio-Enterprises/../ui",
+                "https://github.com/Rubio-Enterprises.evil/ui.git", "https://githubXcom/Rubio-Enterprises/ui",
+                "https://github.com/rubio-enterprises/ui", "https://github.com/Rubio-Enterprises/..", ""]
+        cases = [{".gitmodules": f'[submodule "ui"]\n path = ui\n url = {json.dumps(url)}\n'} for url in urls]
+        cases.extend([
+            {},
+            {".gitmodules": "not valid git config"},
+            {".gitmodules": f'[submodule "ui"]\n path = other\n url = {good}\n'},
+            {".gitmodules": f'[submodule "ui"]\n path = ui\n url = {good}\n url = {good}\n'},
+            {".gitmodules": f'[submodule "ui"]\n path = ui\n url = {good}\n[submodule "extra"]\n path = ui\n url = {good}\n'},
+            {".gitmodules": f'[submodule "ui"]\n path = ui\n url = {good}\n',
+             ".gitattributes": "ui export-ignore\n"},
+        ])
+        for index, files in enumerate(cases):
+            with self.subTest(index=index):
+                _, result = self.prepare_consumer(f"unqualified-{index}", {}, files, gitlinks={"ui": "c" * 40})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("token@", result.stdout + result.stderr)
+                self.assertFalse((self.root / "output").exists())
+                self.assertFalse(list(self.root.glob("repository-image-*")))
+
+    def test_gitlink_qualification_reads_committed_modules_and_keeps_source_guards(self):
+        good = '[submodule "ui"]\n path = ui\n url = https://github.com/Rubio-Enterprises/ui.git\n'
+        for index, (links, files) in enumerate([
+            ({"escape": "../outside"}, {".gitmodules": good}),
+            ({}, {".gitmodules": good, ".standards-config/private": "tracked policy"}),
+        ]):
+            with self.subTest(index=index):
+                _, result = self.prepare_consumer(f"gitlink-guard-{index}", links, files, gitlinks={"ui": "c" * 40})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / "output").exists())
+                self.assertFalse(list(self.root.glob("repository-image-*")))
+        bad = good.replace("Rubio-Enterprises", "ActivityWatch")
+        _, result = self.prepare_consumer("untracked-module-rewrite", {}, {".gitmodules": bad},
+                                          {".gitmodules": good}, {"ui": "c" * 40})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("organization HTTPS URL", result.stderr)
 
     def test_prepare_omits_exact_shared_config_stub_without_changing_runtime_checkout(self):
         src, result = self.prepare_consumer("consumer", {
