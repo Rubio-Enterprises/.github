@@ -26,7 +26,10 @@ Features **before** tool/dependency setup. Its feature metadata stays on the
 Repository Image. A neighboring `devcontainer-lock.json` is used when present.
 
 The reusable defaults to these floating public indices, resolves them once per
-run, and shares immutable references across native amd64/arm64 jobs:
+run, and shares immutable references across native amd64/arm64 jobs. Resolution
+reads them anonymously through the GHCR registry API and checks every
+digest-addressed manifest and config against its digest, so the resolving job
+runs on the `small` route without a Docker daemon:
 
 - `ghcr.io/rubio-enterprises/devcontainers/base:latest`
 - `ghcr.io/rubio-enterprises/devcontainers/base-ci:latest`
