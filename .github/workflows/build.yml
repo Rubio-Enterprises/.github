@@ -169,7 +169,7 @@ jobs:
       # installs the exact Gemfile.lock set before the build task runs.
       - name: Install Ruby and locked bundle
         if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.has_ruby == 'true')
-        uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
+        uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
         with:
           bundler-cache: true
       # uv on PATH routes mise's pipx-backend installs through uvx; without it
@@ -177,10 +177,10 @@ jobs:
       # runners' bootstrap pip (< 26) rejects.
       - name: Install uv (routes mise pipx installs through uvx)
         if: needs.detect.outputs.image_mode == ''
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          version: "0.13.5"
       # Key the mise cache to the uv-managed Python (standards#331); see
       # lint-hooks.yml for why a Python bump must invalidate the cache.
       - name: Fingerprint the uv-resolved python for the mise cache key
