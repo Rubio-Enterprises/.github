@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
-export const CRANE = 'gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1'; // v0.22.1
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const assets = path.dirname(fileURLToPath(import.meta.url));
 const sharedConfigStubLinks = new Map([
@@ -12,7 +12,35 @@ const sharedConfigStubLinks = new Map([
 ]);
 let pendingContext;
 const run = (command, args) => execFileSync(command, args, { encoding: 'utf8' }).trim();
-const crane = (...args) => run('docker', ['run', '--rm', CRANE, ...args]);
+const MANIFEST_TYPES = [
+  'application/vnd.oci.image.index.v1+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json',
+  'application/vnd.oci.image.manifest.v1+json',
+  'application/vnd.docker.distribution.manifest.v2+json',
+].join(',');
+const sha256 = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+
+// Anonymous pulls of the public base packages, so prepare needs no Docker daemon.
+// Digest-addressed content is verified against its digest, as crane does.
+export async function ghcrRepository(name) {
+  const repository = name.slice('ghcr.io/'.length);
+  const response = await fetch(`https://ghcr.io/token?scope=repository:${repository}:pull&service=ghcr.io`);
+  if (!response.ok) throw new Error(`Registry token request failed: ${response.status}`);
+  const { token } = await response.json();
+  const get = async (kind, reference, accept) => {
+    const url = `https://ghcr.io/v2/${repository}/${kind}/${reference}`;
+    const result = await fetch(url, { headers: { Authorization: `Bearer ${token}`, ...(accept && { Accept: accept }) } });
+    if (!result.ok) throw new Error(`Registry request failed: ${result.status} ${kind}/${reference}`);
+    const bytes = Buffer.from(await result.arrayBuffer());
+    const digest = sha256(bytes);
+    if (reference.startsWith('sha256:') && digest !== reference) throw new Error('Registry content does not match its digest');
+    return { digest, json: JSON.parse(bytes.toString('utf8')) };
+  };
+  return {
+    manifest: reference => get('manifests', reference, MANIFEST_TYPES),
+    blob: digest => get('blobs', digest),
+  };
+}
 
 export function baseReference(value, kind) {
   const name = `ghcr.io/rubio-enterprises/devcontainers/${kind}`;
@@ -56,24 +84,30 @@ function output(key, value) {
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
 }
 
-function resolve() {
+export async function resolve(env = process.env) {
   const refs = {};
-  for (const [kind, input] of [['base', process.env.BASE], ['base-ci', process.env.BASE_CI]]) {
+  const images = {};
+  for (const [kind, input] of [['base', env.BASE], ['base-ci', env.BASE_CI]]) {
     const name = baseReference(input, kind);
-    const digest = crane('digest', input);
-    if (!digestPattern.test(digest)) throw new Error('Invalid registry index digest');
-    refs[kind] = `${name}@${digest}`;
-    const index = JSON.parse(crane('manifest', refs[kind]));
+    const registry = await ghcrRepository(name);
+    const index = await registry.manifest(input.slice(name.length + 1));
+    if (!digestPattern.test(index.digest)) throw new Error('Invalid registry index digest');
+    refs[kind] = `${name}@${index.digest}`;
+    images[kind] = {};
     for (const arch of ['amd64', 'arm64']) {
-      if (index.manifests?.filter(entry => entry.platform?.os === 'linux' && entry.platform?.architecture === arch).length !== 1) {
+      const entries = index.json.manifests?.filter(entry => entry.platform?.os === 'linux' && entry.platform?.architecture === arch);
+      if (entries?.length !== 1) {
         throw new Error('Base index must have exactly one image for each native architecture');
       }
+      const manifest = (await registry.manifest(entries[0].digest)).json;
+      if (!digestPattern.test(manifest.config?.digest ?? '')) throw new Error('Invalid image config digest');
+      images[kind][arch] = { manifest, config: (await registry.blob(manifest.config.digest)).json };
     }
   }
   for (const arch of ['amd64', 'arm64']) {
-    const fetch = (command, ref) => JSON.parse(crane(command, '--platform', `linux/${arch}`, ref));
-    validatePair(fetch('manifest', refs.base), fetch('manifest', refs['base-ci']),
-      fetch('config', refs.base), fetch('config', refs['base-ci']), refs.base.split('@')[1], arch);
+    const base = images.base[arch];
+    const ci = images['base-ci'][arch];
+    validatePair(base.manifest, ci.manifest, base.config, ci.config, refs.base.split('@')[1], arch);
   }
   for (const [key, ref] of Object.entries(refs)) output(key, ref);
 }
@@ -166,7 +200,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const operation = { resolve, prepare, verify }[process.argv[2]];
     if (!operation) throw new Error('Unknown image operation');
-    operation();
+    await operation();
   } catch (error) {
     if (pendingContext) fs.rmSync(pendingContext, { recursive: true, force: true });
     console.error(`::error::${error.message}`);
