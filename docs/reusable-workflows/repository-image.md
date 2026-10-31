@@ -1,7 +1,9 @@
 # Repository image builder
 
-`repository-image.yml` is the additive generic builder for ADR-0036. It does not
-change `devcontainer-image.yml` or its existing Dockerfile-based callers.
+`repository-image.yml` is the generic builder for ADR-0036. It supports both the
+Standards Package (v2) and Copier-era consumers during migration. The
+`devcontainer-image.yml` entry point delegates v2 generic definitions here and
+retains its original Dockerfile build path for legacy consumers.
 
 ## Contract
 
@@ -52,6 +54,12 @@ without following them:
 | --- | --- |
 | `tombi.toml` | `.standards-config/config/tombi.toml` |
 
+The exact v2 `.config/mise/conf.d/standards.toml` symlink to
+`../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml`
+is preserved in both the source and tool-input contexts, without dereferencing its
+cold target. Other package wiring links are not substituted. Tracked `.standards/`
+payloads are rejected alongside Git and legacy standards checkouts.
+
 Runtime checkouts and workspace bind mounts retain those stubs. A regular,
 repository-owned `tombi.toml` remains in the snapshot. Other links into standards,
 escaping symlinks and tracked Git or standards directories still fail closed;
@@ -84,6 +92,8 @@ Dockerfile. The complete source and language lockfiles feed ordinary
 mise config skip tool/project setup. A mise-bearing repository must expose a
 build-safe `setup` task; Linux cannot provide Xcode/Homebrew build steps.
 
+### Copier-era provisioning
+
 `standards-bootstrap` independently provisions a clean full-history checkout and
 exports `STANDARDS_PIN` before preparation. The build mounts standards read-only
 as a named BuildKit context for the tool and setup steps. A separate read-only
@@ -96,6 +106,49 @@ re-owns that home when it remaps the remote user's UID/GID on Linux; fixed
 paths outside the home would retain the build UID. Do not mount over the home
 or cache tree if baked caches must remain available. Current standards and a
 validated runtime pin must be provisioned again before runtime setup.
+
+### Standards Package provisioning (v2)
+
+Detection happens before loading consumer mise configuration. V2 requires the exact
+package symlink and root `setup`/`standards:install` tasks, without answers or the
+legacy bootstrap file. Mixed or incomplete wiring fails closed. Copier consumers
+retain their bootstrap/pin/readiness path. Repositories without mise retain the
+source-only build path and its legacy provisioning.
+
+The preparation job resolves `latest` or the root `STANDARDS_VERSION` exact Release
+Pin once to a version and SHA-512 integrity. Each native job uses npm to pack that
+exact release with its existing repository token, verifies the tarball, and removes
+job-local registry cache/log state. The token stays outside Docker: only the
+credential-free tarball is supplied as a BuildKit secret. No token build argument,
+image environment or credential file is involved.
+
+The v2 Dockerfile installs Node from the repository's runtime pin, installs the
+package into tmpfs, then installs the tool pins. Project setup runs unchanged as
+`mise run setup`, with build-local `STANDARDS_VERSION=file:/run/standards.tgz`.
+A transient `mise.repository-image.toml` profile supplies that override because
+root mise `[env]` values take precedence over inherited environment variables.
+That profile name is reserved and rejected in committed v2 source. The file is
+bind-mounted only during setup, not copied. This is the same local-candidate
+package mechanism as the Standards Release Check, not a permanent Release Pin. Package prefix, npm cache/logs and setup's temporary Git
+metadata are tmpfs mounts; the package tarball remains a secret mount. Setup runs
+as vscode. The source snapshot has no Git DB, so temporary Git state lets its
+ordinary `lefthook install` run without bypassing hooks. Neither package contents
+nor temporary Git state become image layers. Npm-only download caches from that
+RUN are deliberately not baked; installed project dependencies and other caches
+remain. A separate package-identity context invalidates the cache when the release
+changes, because BuildKit secret bytes alone do not invalidate it.
+
+Both artifacts' all-layer audits reject package prefix/Git files, copied package
+content and compressed tarballs, including copies hidden in dependency caches.
+Only the exact runtime package-wiring symlink is allowed. Trivy's broad dependency
+exclusions do not supply this package-absence guarantee.
+
+At runtime, the real checkout runs `mise run setup` with `NODE_AUTH_TOKEN` (a Dev
+Container uses `remoteEnv.NODE_AUTH_TOKEN`). There is no standards Git checkout or
+pin to provision, and the image has no build-time Release Pin. A fresh offline
+workspace cannot install the internal package; warm workspace/npm state is the
+package model's offline path, not an image-baked fallback. Setup always reconciles
+current standards and dependencies independently of the image build.
 
 ## Artifacts and safety gates
 
@@ -166,7 +219,7 @@ versions per package, never deleting tagged history or index children.
 
 ## Caller and migration
 
-T1 owns the template and fleet migration. A caller uses the actual default branch
+Consumer migration is coordinated separately. A legacy caller uses the actual default branch
 (`master` where applicable), all setup/tool/dependency input paths and a
 repository-specific staggered weekly cron. There is no base-change trigger.
 For example (choose a distinct cron slot, do not copy one slot fleet-wide):
@@ -217,7 +270,12 @@ jobs:
 Do not add a duplicate caller concurrency group. Source is a workspace snapshot;
 source-only changes need not rebuild unless setup consumes them.
 
-**bookmark-scraper and karakeep remain on `devcontainer-image.yml@main`.** Their
+For v2 callers, no reader-App secrets are needed; the caller grants package access
+through its existing `GITHUB_TOKEN`. The copy-once v2 workflow can call this reusable
+when the generic build-definition file exists. V2 definitions with Dockerfiles are
+rejected rather than adapted with token-bearing build arguments.
+
+**For unmigrated bookmark-scraper and karakeep revisions**, their
 current build definitions include Dockerfiles, baseline Features and cache paths;
 the new path deliberately rejects that shape. T1 must migrate definitions/locks,
 build-safe setup and runtime cache mounts together, then point callers at this

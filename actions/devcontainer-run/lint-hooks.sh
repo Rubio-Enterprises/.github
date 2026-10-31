@@ -36,6 +36,9 @@ if ! mise exec -- lefthook run pre-commit --no-stage-fixed --files-from-stdin < 
 fi
 echo "fork-mode lefthook hooks passed"
 }
+if [[ "${STANDARDS_SHAPE:-}" = v2 ]]; then
+  mise run check
+else
 if [ "${IS_FORK:-false}" = true ]; then
   run_fork
 else
@@ -44,11 +47,14 @@ fi
 if [ "${HAS_KNOWLEDGEBASE:-false}" = true ]; then
 mise exec -- lefthook run kb-check
 fi
+fi
 if git diff --quiet HEAD --; then
   echo "no hook rewrote a tracked file"
   exit 0
 fi
-if [ "$IS_FORK" = "true" ]; then
+if [[ "${STANDARDS_SHAPE:-}" = v2 ]]; then
+  fix="run 'mise run check'"
+elif [ "$IS_FORK" = "true" ]; then
   fix="run 'mise exec -- lefthook run pre-commit' on the changed files"
 else
   fix="run 'mise exec -- lefthook run pre-commit --all-files'"

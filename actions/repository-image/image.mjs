@@ -7,6 +7,79 @@ import { isDeepStrictEqual } from 'node:util';
 
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const assets = path.dirname(fileURLToPath(import.meta.url));
+const packageLink = '.config/mise/conf.d/standards.toml';
+const packageTarget = '../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml';
+const packageName = '@rubio-enterprises/standards';
+const npmAuth = ['--@rubio-enterprises:registry=https://npm.pkg.github.com', '--//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}'];
+const present = file => { try { return fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return; throw error; } };
+
+export function standardsShape(root) {
+  const link = present(path.join(root, packageLink));
+  const legacy = ['.copier-answers.yml', '.config/mise-bootstrap.toml'].filter(name => present(path.join(root, name)));
+  const configs = ['mise.toml', '.mise.toml'].filter(name => present(path.join(root, name)));
+  if (link) {
+    if (legacy.length || configs.length !== 1 || !link.isSymbolicLink() ||
+        fs.readlinkSync(path.join(root, packageLink)) !== packageTarget) {
+      throw new Error('Ambiguous standards shape: v2 requires the package link and no Copier artifacts');
+    }
+    if (fs.readdirSync(root).some(name => /^\.?mise\.repository-image(?:\.local)?\.toml$/.test(name))) {
+      throw new Error('mise.repository-image.toml is reserved for transient image setup');
+    }
+    const config = path.join(root, configs[0]);
+    if (!fs.lstatSync(config).isFile()) throw new Error('Root mise config must be a regular file');
+    const data = JSON.parse(run('python3', ['-c', 'import json,sys,tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], "rb"))))', config]));
+    if (!data.tasks?.setup || !data.tasks?.['standards:install']) throw new Error('Incomplete v2 setup tasks');
+    const release = data.env?.STANDARDS_VERSION ?? 'latest';
+    if (typeof release !== 'string' || !/^(latest|[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$/.test(release)) {
+      throw new Error('Image builds require latest or an exact Standards Release Pin');
+    }
+    return { shape: 'v2', release };
+  }
+  if (legacy.length === 2 && configs.length === 1) return { shape: 'legacy' };
+  if (!legacy.length && !configs.length) return { shape: 'none' };
+  throw new Error('Incomplete standards shape: finish v2 onboarding or restore Copier bootstrap wiring');
+}
+
+function inspect() {
+  const result = standardsShape(process.env.GITHUB_WORKSPACE);
+  output('shape', result.shape);
+  if (result.release) output('release', result.release);
+}
+
+function npm(args) {
+  try {
+    return JSON.parse(execFileSync('npm', [...args, ...npmAuth, '--ignore-scripts', '--loglevel=error'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }));
+  }
+  catch { throw new Error('Standards Package registry operation failed; verify packages read access'); }
+}
+
+function release() {
+  const spec = process.env.STANDARDS_RELEASE;
+  if (!/^(latest|[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$/.test(spec || '')) throw new Error('Invalid release selector');
+  const result = npm(['view', `${packageName}@${spec}`, 'version', 'dist.integrity', '--json']);
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(result.version || '') ||
+      !/^sha512-[A-Za-z0-9+/]{86}==$/.test(result['dist.integrity'] || '')) throw new Error('Invalid package identity');
+  output('version', result.version);
+  output('integrity', result['dist.integrity']);
+}
+
+function pack() {
+  const context = process.env.CONTEXT;
+  const expected = JSON.parse(fs.readFileSync(path.join(context, 'expected/package.json'), 'utf8'));
+  const directory = path.join(context, 'package');
+  fs.mkdirSync(directory);
+  const [result] = npm(['pack', `${packageName}@${expected.version}`, '--pack-destination', directory, '--json']);
+  if (!result || result.name !== packageName || result.version !== expected.version || result.integrity !== expected.integrity ||
+      path.basename(result.filename || '') !== result.filename) throw new Error('Packed package identity mismatch');
+  const archive = path.join(directory, result.filename);
+  const bytes = fs.readFileSync(archive);
+  if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== expected.integrity) throw new Error('Packed package integrity mismatch');
+  if (process.env.NODE_AUTH_TOKEN && bytes.includes(Buffer.from(process.env.NODE_AUTH_TOKEN))) throw new Error('Credential in package archive');
+  fs.renameSync(archive, path.join(directory, 'standards.tgz'));
+}
+
 const sharedConfigStubLinks = new Map([
   ['tombi.toml', '.standards-config/config/tombi.toml'],
 ]);
@@ -131,10 +204,14 @@ export function validateDefinition(config) {
 function walk(root, visit, relative = '') {
   for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
     const name = path.join(relative, entry.name);
-    if (['.standards-config', '.git'].includes(entry.name)) throw new Error('Tracked Git or standards checkout rejected');
+    if (['.standards-config', '.standards', '.git'].includes(entry.name)) throw new Error('Tracked Git or standards checkout rejected');
     if (entry.isSymbolicLink()) {
       const link = path.join(root, name);
       const destination = fs.readlinkSync(link);
+      if (name === packageLink && destination === packageTarget) {
+        visit(name, true);
+        continue;
+      }
       if (sharedConfigStubLinks.get(name) === destination) {
         fs.unlinkSync(link);
         continue;
@@ -197,7 +274,6 @@ export function qualifySubmodules(workspace, src) {
 
 function prepare() {
   const workspace = process.env.GITHUB_WORKSPACE;
-  if (!/^[a-f0-9]{40}$/.test(process.env.STANDARDS_PIN || '')) throw new Error('Invalid STANDARDS_PIN');
   const config = process.env.CONFIG;
   if (!config || path.isAbsolute(config) || config.split('/').includes('..')) throw new Error('Unsafe config path');
   if (run('git', ['-C', workspace, 'rev-parse', 'HEAD']) !== process.env.GITHUB_SHA) throw new Error('Checkout SHA mismatch');
@@ -209,16 +285,20 @@ function prepare() {
   run('tar', ['-xf', path.join(context, 'source.tar'), '-C', src]);
   fs.rmSync(path.join(context, 'source.tar'));
   qualifySubmodules(workspace, src);
+  const { shape } = standardsShape(src);
+  if (process.env.STANDARDS_SHAPE && shape !== process.env.STANDARDS_SHAPE) throw new Error('Standards shape changed after resolution');
+  if (shape !== 'v2' && !/^[a-f0-9]{40}$/.test(process.env.STANDARDS_PIN || '')) throw new Error('Invalid STANDARDS_PIN');
   const pins = path.join(context, 'pins');
   fs.mkdirSync(pins);
-  walk(src, name => {
+  walk(src, (name, symlink) => {
     if (/^(?:\.mise(?:\..+)?\.toml|mise(?:\..+)?\.toml|mise\.lock|package\.json)$/.test(name) || name.startsWith(`.config${path.sep}`)) {
       fs.mkdirSync(path.dirname(path.join(pins, name)), { recursive: true });
-      fs.copyFileSync(path.join(src, name), path.join(pins, name));
+      if (symlink) fs.symlinkSync(fs.readlinkSync(path.join(src, name)), path.join(pins, name));
+      else fs.copyFileSync(path.join(src, name), path.join(pins, name));
     }
   });
   const definition = JSON.parse(run(process.env.DEVCONTAINER, ['read-configuration', '--workspace-folder', src, '--config', path.join(src, config)]));
-  fs.mkdirSync(path.join(pins, '.standards-config'));
+  fs.mkdirSync(path.join(pins, shape === 'v2' ? '.standards' : '.standards-config'));
   const { configFilePath, ...configuration } = definition.configuration;
   validateDefinition(configuration);
   fs.mkdirSync(path.join(context, 'features'));
@@ -228,7 +308,18 @@ function prepare() {
   const lock = path.join(src, path.dirname(config), 'devcontainer-lock.json');
   if (fs.existsSync(lock)) fs.copyFileSync(lock, path.join(context, 'features/devcontainer-lock.json'));
   fs.mkdirSync(path.join(context, 'expected'));
-  fs.writeFileSync(path.join(context, 'expected/pin'), process.env.STANDARDS_PIN);
+  if (shape !== 'v2') fs.writeFileSync(path.join(context, 'expected/pin'), process.env.STANDARDS_PIN);
+  if (shape === 'v2') {
+    const version = process.env.STANDARDS_VERSION;
+    const integrity = process.env.STANDARDS_INTEGRITY;
+    if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(version || '') ||
+        !/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity || '')) throw new Error('Missing resolved Standards Package identity');
+    fs.writeFileSync(path.join(context, 'expected/package.json'), JSON.stringify({ version, integrity }));
+    fs.writeFileSync(path.join(context, 'expected/profile.toml'), '[env]\nSTANDARDS_VERSION = "file:/run/standards.tgz"\nNODE_AUTH_TOKEN = ""\nnpm_config_cache = "/run/npm-cache"\n');
+    fs.copyFileSync(path.join(context, 'expected/profile.toml'), path.join(pins, 'mise.repository-image.toml'));
+  }
+  fs.writeFileSync(path.join(context, 'expected/shape'), shape);
+  output('shape', shape);
   fs.mkdirSync(path.join(context, 'empty'));
   output('assets', assets);
   output('context', context);
@@ -243,7 +334,8 @@ function verify() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const operation = { resolve, prepare, verify }[process.argv[2]];
+    const operation = { resolve, prepare, verify, inspect, release, pack,
+      shape: () => console.log(standardsShape(process.cwd()).shape) }[process.argv[2]];
     if (!operation) throw new Error('Unknown image operation');
     await operation();
   } catch (error) {

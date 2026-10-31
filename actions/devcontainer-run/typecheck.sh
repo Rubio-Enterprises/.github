@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${STANDARDS_SHAPE:-}" = v2 ]]; then exec mise run typecheck; fi
 if ! mise tasks info typecheck >/dev/null 2>&1; then
   echo "::notice::no 'typecheck' mise task; typecheck gate passes (defensive)"
   exit 0
