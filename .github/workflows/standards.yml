@@ -12,6 +12,7 @@ permissions:
   contents: read
   packages: read # the internal @rubio-enterprises/standards package
   pull-requests: read # Danger reads the pull request it checks
+  issues: read # Danger fetches it through GET /repos/{o}/{r}/issues/{n}
 concurrency:
   group: standards-check-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
