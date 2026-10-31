@@ -51,9 +51,27 @@ without following them:
 
 Runtime checkouts and workspace bind mounts retain those stubs. A regular,
 repository-owned `tombi.toml` remains in the snapshot. Other links into standards,
-escaping symlinks, tracked Git or standards directories and submodules still fail
-closed; this is not a path-wide exclusion or an all-layer audit exemption. A
-future template stub needs an explicit reviewed pair here and in preparation.
+escaping symlinks and tracked Git or standards directories still fail closed;
+this is not a path-wide exclusion or an all-layer audit exemption. A future
+template stub needs an explicit reviewed pair here and in preparation.
+
+Submodules qualify for **omission only** when every committed gitlink has one
+unique matching path in the committed `.gitmodules`, with an exact
+credential-free `https://github.com/Rubio-Enterprises/<name>` URL (optional `.git`
+suffix). Git's native config parser reads that committed blob without includes;
+working-checkout overrides cannot qualify a third-party URL. Third-party, SSH,
+relative, credential-bearing, malformed, duplicate or mismatched declarations
+fail closed. The archived `.gitmodules` must be a regular file. Each gitlink
+must remain the empty, non-symlink directory emitted by `git archive`; nonempty
+or missing directories fail. Notices contain only the escaped path and pinned
+commit SHA, never the URL. Preparation never fetches submodule content or uses
+extra credentials. This URL qualification does not establish remote visibility,
+availability or commit reachability.
+
+Repository setup must work without submodule content, as default CI checkouts
+already do. A setup needing that content requires a separate design. Service
+packaging with recursive submodule checkout is independent and unchanged;
+workspace bind mounts retain any locally initialized submodules.
 
 A separate pin-sensitive context contains top-level mise TOML/lock files, `package.json`
 and `.config/`; source-only changes do not invalidate that tool context. Projects
