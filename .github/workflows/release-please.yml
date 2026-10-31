@@ -1,0 +1,71 @@
+# Reusable release-please (docs/reusable-workflows/release-please.md). Caller: the starter
+# standards.yml on push to main, with `secrets: inherit`. Opens or updates the release PR with the
+# rubio-release-please App token (so the PR's own workflows run), refreshes a root uv.lock on it,
+# and arms auto-merge, which waits for the required checks.
+name: release-please
+"on":
+  workflow_call:
+    outputs:
+      release_created: { value: "${{ jobs.release-please.outputs.release_created }}" }
+      tag_name: { value: "${{ jobs.release-please.outputs.tag_name }}" }
+      version: { value: "${{ jobs.release-please.outputs.version }}" }
+      prs_created: { value: "${{ jobs.release-please.outputs.prs_created }}" }
+permissions: {} # every write goes through the App token
+jobs:
+  release-please:
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 15
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      prs_created: ${{ steps.release.outputs.prs_created }}
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      # The open release PR, whether or not this run opened it, so a re-run repairs a failed one.
+      - id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: >-
+          gh pr list -R "$GITHUB_REPOSITORY" --label 'autorelease: pending' --limit 1 --json number,headRefName
+          --jq '.[] | "number=\(.number)\nbranch=\(.headRefName)"' >>"$GITHUB_OUTPUT"
+      - if: steps.pr.outputs.branch != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          token: ${{ steps.app-token.outputs.token }} # pushes the uv.lock refresh below
+      # The version bump leaves a root uv.lock stale, which the standards check rejects.
+      - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.17"
+      - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          uv lock
+          git diff --quiet -- uv.lock && exit 0
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'chore: refresh uv lock' -- uv.lock
+          git push origin "HEAD:$BRANCH"
+      - if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          method=--merge # shared-history forks allow merge commits only
+          if [ "$(gh repo view "$GITHUB_REPOSITORY" --json squashMergeAllowed --jq .squashMergeAllowed)" = true ]; then method=--squash; fi
+          gh pr merge "$PR" -R "$GITHUB_REPOSITORY" "$method" --auto
