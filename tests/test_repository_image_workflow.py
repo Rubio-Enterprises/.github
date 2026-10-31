@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import importlib.util
 import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -58,6 +61,9 @@ class Contracts(unittest.TestCase):
         self.assertIn("steps: *build-steps", TEXT)
         self.assertNotIn("continue-on-error", TEXT)
         self.assertNotIn("qemu", TEXT.lower())
+        prepare = TEXT.split("\n  prepare:\n", 1)[1].split("\n  validate:\n", 1)[0]
+        self.assertIn(".small || fromJSON('[\"ubuntu-slim\"]')", prepare)
+        self.assertNotIn("docker", prepare.lower())
 
     def test_assets_are_owned_by_the_shared_action_and_refs_pinned(self):
         action = (ASSETS / "action.yml").read_text()
@@ -167,6 +173,84 @@ class Fixtures(unittest.TestCase):
             if field == "compressed": args[1]["layers"][0]["digest"] = "other"
             if field == "uncompressed": args[3]["rootfs"]["diff_ids"][0] = "other"
             self.assertNotEqual(self.node("validatePair", args).returncode, 0, field)
+
+    def resolve(self, base=None, base_ci=None, tamper=None):
+        """Run resolve against an in-memory registry; returns (process, outputs)."""
+        def blob(value):
+            data = json.dumps(value).encode()
+            return "sha256:" + hashlib.sha256(data).hexdigest(), data
+
+        content, indices = {}, {}
+        base_digest = None
+        for kind in ["base", "base-ci"]:
+            entries = []
+            for arch in ["amd64", "arm64"]:
+                args = self.pair(arch)
+                image_config = args[2] if kind == "base" else args[3]
+                if kind == "base-ci":
+                    image_config["config"]["Labels"]["org.opencontainers.image.base.digest"] = base_digest
+                config_digest, config_data = blob(image_config)
+                image = dict(args[0] if kind == "base" else args[1], config={"digest": config_digest})
+                image_digest, image_data = blob(image)
+                content[f"{kind}/blobs/{config_digest}"] = config_data
+                content[f"{kind}/manifests/{image_digest}"] = image_data
+                entries.append({"digest": image_digest, "platform": {"os": "linux", "architecture": arch}})
+            index_digest, index_data = blob({"manifests": entries})
+            content[f"{kind}/manifests/latest"] = content[f"{kind}/manifests/{index_digest}"] = index_data
+            indices[kind] = index_digest
+            if kind == "base":
+                base_digest = index_digest
+        if tamper:
+            tamper(content, indices)
+        responses = {f"https://ghcr.io/v2/rubio-enterprises/devcontainers/{key}": base64.b64encode(value).decode()
+                     for key, value in content.items()}
+        name = "ghcr.io/rubio-enterprises/devcontainers/"
+        env = {"BASE": base or name + "base:latest", "BASE_CI": base_ci or name + "base-ci:latest"}
+        source = f"""
+        const responses = {json.dumps(responses)};
+        globalThis.fetch = async (url, options = {{}}) => {{
+          if (url.startsWith('https://ghcr.io/token?')) return new Response(JSON.stringify({{ token: 't' }}));
+          if (options.headers?.Authorization !== 'Bearer t') return new Response('', {{ status: 401 }});
+          const body = responses[url];
+          return body ? new Response(Buffer.from(body, 'base64')) : new Response('', {{ status: 404 }});
+        }};
+        const {{ resolve }} = await import({json.dumps(MODULE)});
+        await resolve({json.dumps(env)});
+        """
+        result = subprocess.run(["node", "--input-type=module", "-e", source], env=self.env, capture_output=True, text=True)
+        output = self.root / "output"
+        values = dict(line.split("=", 1) for line in output.read_text().splitlines()) if output.exists() else {}
+        output.unlink(missing_ok=True)
+        return result, values, indices
+
+    def test_resolve_pins_both_indices_through_the_registry_api_without_docker(self):
+        bin_dir = self.root / "bin"  # node alone: no docker or crane on PATH
+        bin_dir.mkdir()
+        (bin_dir / "node").symlink_to(shutil.which("node"))
+        self.env["PATH"] = str(bin_dir)
+        result, values, indices = self.resolve()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        name = "ghcr.io/rubio-enterprises/devcontainers/"
+        self.assertEqual(values, {"base": f"{name}base@{indices['base']}", "base-ci": f"{name}base-ci@{indices['base-ci']}"})
+        pinned, again, _ = self.resolve(values["base"], values["base-ci"])
+        self.assertEqual((pinned.returncode, again), (0, values))
+
+    def test_resolve_rejects_tampered_content_and_mismatched_pairs(self):
+        def corrupt(content, indices):
+            key = next(key for key in content if key.startswith("base-ci/blobs/"))
+            content[key] = content[key].replace(b"linux", b"Linux")
+
+        def one_arch(content, indices):
+            index = json.loads(content["base/manifests/latest"])
+            index["manifests"] = index["manifests"][:1]
+            content["base/manifests/latest"] = json.dumps(index).encode()
+
+        name = "ghcr.io/rubio-enterprises/devcontainers/"
+        for label, kwargs in [("tampered blob", {"tamper": corrupt}), ("one architecture", {"tamper": one_arch}),
+                              ("unknown digest", {"base": f"{name}base@sha256:" + "0" * 64})]:
+            result, values, _ = self.resolve(**kwargs)
+            self.assertNotEqual(result.returncode, 0, label)
+            self.assertEqual(values, {}, label)
 
     def rebased(self):
         dev, ci = config(), config()
