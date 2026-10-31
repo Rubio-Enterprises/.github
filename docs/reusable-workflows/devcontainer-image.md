@@ -80,7 +80,8 @@ Native callers add only these named secrets to the image job (never
 ```yaml
     secrets:
       STANDARDS_READER_APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
-      STANDARDS_READER_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
 ```
 
 After checkout, `standards-bootstrap@main` resolves standards `main` once,
@@ -122,7 +123,8 @@ with the caller's own manifests/config already staged in `/tmp/mise-pins`:
 ARG STANDARDS_PIN
 RUN --mount=type=bind,from=standards,target=/tmp/mise-pins/.standards-config \
     cd /tmp/mise-pins && bash -euc '[[ "$STANDARDS_PIN" =~ ^[0-9a-f]{40}$ ]]' \
-    && MISE_TRUSTED_CONFIG_PATHS=/tmp/mise-pins mise bootstrap repos status --missing \
+    && MISE_TRUSTED_CONFIG_PATHS=/tmp/mise-pins \
+       mise bootstrap repos status --missing \
     && MISE_TRUSTED_CONFIG_PATHS=/tmp/mise-pins mise install --system
 ```
 
@@ -263,6 +265,38 @@ image, document, binary and archive extensions. Its additional cache scopes are:
 | `**/.cache/mise/npm/aube/store/**` | mise's npm backend package store |
 | `**/.cache/mise/downloads-cas/**` | mise's content-addressed tool downloads |
 
+Additional **scan-root-anchored** scopes cover the builder's public install and
+package-cache layouts (Trivy paths have no leading slash):
+
+- System mise: `usr/local/share/mise/installs/`.
+- User mise: `home/*/.local/share/mise/installs/` and
+  `root/.local/share/mise/installs/`.
+- Legacy mise: `mnt/devcontainer-cache/mise/installs/`.
+- Go modules/toolchains:
+  `{var/cache/devcontainer,mnt/devcontainer-cache}/gomod/`,
+  `home/*/go/pkg/mod/` and `root/go/pkg/mod/`.
+- Bun package cache: `home/*/.bun/install/cache/`, `root/.bun/install/cache/`
+  and `{var/cache/devcontainer,mnt/devcontainer-cache}/bun/`.
+- Default pnpm store: `home/*/.local/share/pnpm/store/` and
+  `root/.local/share/pnpm/store/`.
+- Builder uv cache: `{var/cache/devcontainer,mnt/devcontainer-cache}/uv/`.
+
+Braces abbreviate separate patterns, not a glob syntax dependency.
+There are no version, package, finding-ID or fixture-filename exceptions. The
+mise install roots are public tool/package trees; Go distributes public test keys
+there and in the module/toolchain cache. Bun's package cache likewise carries
+public documentation with sample credentials. The relocations must not turn
+those upstream fixtures into credential findings.
+
+Only these named subtrees are added, not the whole mise data directory,
+`/var/cache/devcontainer`, home configuration or logs. `.npmrc`, `.ssh`, mise and
+Bun configuration, npm logs, first-party build caches and repository source stay
+in scope. A repository path merely containing one of the new root paths does not
+match. Image environment/history scanning, detectors, severities, redacted
+reporting and scan-error publication gates are unchanged in both reusables.
+Credentials must not be placed in excluded public install/cache trees: path
+exclusions do not authenticate contents or prove that an excluded file is safe.
+
 **Third-party package contents are out of scope**, consistent with Trivy's
 default dependency exclusions. Package installs can be hardlinks into these
 caches; their hashed cache names also hide the original test/example paths from
@@ -335,7 +369,9 @@ and `types/beta/{agent_create_params,agent_update_params,`
 `beta_managed_agents_session_thread_agent}.py` (one each), under `anthropic/`.
 Real-scanner regressions check that unrelated credentials in first-party source
 and uncached SDK/venv files still fail without exposing matched content, while
-default dependency paths and the six package-cache scopes remain excluded.
+default dependency paths and the package/toolchain-cache scopes remain excluded.
+Rooted-cache regressions cover private-key, Stripe and GitHub token fixtures,
+protected home/source/lookalike paths, and real image environment/history scans.
 
 References: [Docker build checks](https://docs.docker.com/build/checks/),
 [`SecretsUsedInArgOrEnv`](https://docs.docker.com/reference/build-checks/secrets-used-in-arg-or-env/),
@@ -357,7 +393,7 @@ checks workflow syntax; zizmor checks security. YAML anchors share the two build
 jobs' matrix and steps while preserving separate token scopes. Also audit an
 alias-expanded temporary copy because zizmor warns about anchor support.
 Set `TRIVY_TEST_BINARY` to a checksum-verified Trivy 0.76.1 binary when running
-`tests/test_devcontainer_image_workflow.py` to include the four real-scanner
+`tests/test_devcontainer_image_workflow.py` to include the seven real-scanner
 regressions; without it, only those optional integration tests are skipped.
 
 Only a real caller can prove native builds, GHCR permissions/private visibility,
