@@ -115,9 +115,10 @@ Docker/KVM/ARM project jobs stay on Machine Pools; macOS native jobs stay native
 The checksum-pinned Trivy 0.76.1 policy is identical in both reusables, scanning
 both local artifacts' filesystem and image config/history with no caller ignore
 policy and no matched secret text. Public mise install trees and Go/Bun/package
-caches use scan-root-anchored exclusions; home configuration, repository source
-and environment/history remain scanned at the same severities. The exact scopes,
-preserved defaults and blind spots are documented in
+caches, including RubyGems/Bundler install/cache subtrees, use scan-root-anchored
+exclusions. Home credentials/configuration, first-party source outside preserved
+dependency exclusions, and environment/history retain the same severities. The
+exact scopes, preserved defaults and blind spots are documented in
 [the legacy reusable](devcontainer-image.md#secret-checks).
 No scan failure/scanner error can proceed to external push. A failed native job
 blocks both multiarch moving tags and pruning. A successful peer may already

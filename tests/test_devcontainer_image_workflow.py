@@ -70,6 +70,34 @@ ROOTED_PUBLIC_CACHE_SKIP_PATTERNS = (
 )
 
 
+RUBY_PUBLIC_CACHE_SKIP_PATTERNS = (
+    "usr/local/bundle/gems/**",
+    "usr/local/bundle/cache/**",
+    "usr/local/bundle/*/*/gems/**",
+    "usr/local/bundle/*/*/cache/**",
+    "home/*/.gem/gems/**",
+    "home/*/.gem/cache/**",
+    "root/.gem/gems/**",
+    "root/.gem/cache/**",
+    "home/*/.gem/*/*/gems/**",
+    "home/*/.gem/*/*/cache/**",
+    "root/.gem/*/*/gems/**",
+    "root/.gem/*/*/cache/**",
+    "home/*/.local/share/gem/*/*/gems/**",
+    "home/*/.local/share/gem/*/*/cache/**",
+    "root/.local/share/gem/*/*/gems/**",
+    "root/.local/share/gem/*/*/cache/**",
+    "home/*/.cache/*/bundle/*/*/gems/**",
+    "home/*/.cache/*/bundle/*/*/cache/**",
+    "root/.cache/*/bundle/*/*/gems/**",
+    "root/.cache/*/bundle/*/*/cache/**",
+    "home/*/.bundle/cache/**",
+    "root/.bundle/cache/**",
+    "workspaces/*/.bundle/*/*/gems/**",
+    "workspaces/*/.bundle/*/*/cache/**",
+)
+
+
 def script(name: str) -> str:
     lines = TEXT.splitlines()
     start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
@@ -431,7 +459,7 @@ class ShellTests(unittest.TestCase):
                 self.assertNotIn(field, template)
             policy = (self.root / "trivy-secret.yaml").read_text()
             paths = [json.loads(line.strip()[2:]) for line in policy.splitlines() if line.startswith("  - ")]
-            self.assertEqual(paths, list(DEFAULT_SKIP_PATTERNS + CACHE_SKIP_PATTERNS + ROOTED_PUBLIC_CACHE_SKIP_PATTERNS))
+            self.assertEqual(paths, list(DEFAULT_SKIP_PATTERNS + CACHE_SKIP_PATTERNS + ROOTED_PUBLIC_CACHE_SKIP_PATTERNS + RUBY_PUBLIC_CACHE_SKIP_PATTERNS))
             self.assertNotIn("/files/", policy)
             self.assertIn("exclude-block:", policy)
             self.assertNotIn("disable-rules", policy)
@@ -571,6 +599,43 @@ class RealTrivyTests(unittest.TestCase):
             self.assertNotIn(path, result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
+    def public_ruby_gem_fixtures(self) -> dict[str, str]:
+        prefixes = (
+            "usr/local/bundle/gems/", "usr/local/bundle/cache/",
+            "usr/local/bundle/ruby/3.4.0/gems/", "usr/local/bundle/ruby/3.4.0/cache/",
+            "home/vscode/.gem/gems/", "home/vscode/.gem/cache/",
+            "root/.gem/gems/", "root/.gem/cache/",
+            "home/vscode/.gem/ruby/3.4.0/gems/", "home/vscode/.gem/ruby/3.4.0/cache/",
+            "root/.gem/ruby/3.4.0/gems/", "root/.gem/ruby/3.4.0/cache/",
+            "home/vscode/.local/share/gem/ruby/3.4.0/gems/", "home/vscode/.local/share/gem/ruby/3.4.0/cache/",
+            "root/.local/share/gem/ruby/3.4.0/gems/", "root/.local/share/gem/ruby/3.4.0/cache/",
+            "home/vscode/.cache/app/bundle/ruby/3.4.0/gems/",
+            "home/vscode/.cache/app/bundle/ruby/3.4.0/cache/",
+            "root/.cache/app/bundle/ruby/3.4.0/gems/",
+            "root/.cache/app/bundle/ruby/3.4.0/cache/",
+            "home/vscode/.bundle/cache/git/", "root/.bundle/cache/git/",
+            "workspaces/project/.bundle/ruby/3.4.0/gems/", "workspaces/project/.bundle/ruby/3.4.0/cache/",
+        )
+        fixtures = {prefix + "public-package/lib/credential.rb": "TOKEN=" + self.token for prefix in prefixes}
+        self.assertEqual(len(fixtures), len(RUBY_PUBLIC_CACHE_SKIP_PATTERNS))
+        return fixtures
+
+    @unittest.skipUnless(os.environ.get("PUBLIC_RUBY_GEM_CLIENT"), "PUBLIC_RUBY_GEM_CLIENT must name the verified public SDK source")
+    def test_public_gem_documentation_is_skipped_without_hiding_first_party_jwts(self) -> None:
+        data = Path(os.environ["PUBLIC_RUBY_GEM_CLIENT"]).read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), "d7ad9595238c4f05b573ba7ab67d34dc56154caef5c7b9adffca66a6e7934651")
+        public = "home/vscode/.cache/app/bundle/ruby/3.4.0/gems/aws-sdk-core-3.261.0/lib/aws-sdk-ssooidc/client.rb"
+        self.put(public, data.decode())
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        source = "workspaces/project/src/client.rb"
+        self.put(source, data.decode())
+        result = self.scan()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(source, result.stdout)
+        self.assertNotIn(public, result.stdout)
+        self.assertEqual(result.stdout.count("jwt-token (MEDIUM)"), 4)
+
     def public_cache_fixtures(self) -> dict[str, str]:
         private_key = "-----BEGIN " + "PRIVATE KEY-----\n" + "YWFh" * 16 + "\n-----END PRIVATE KEY-----\n"
         stripe = "sk_live_" + "aB3dE6gH9jK2mN5pQ8sT1vW4"
@@ -594,11 +659,12 @@ class RealTrivyTests(unittest.TestCase):
             "root/.local/share/pnpm/store/v10/files/fixture": self.token,
             "var/cache/devcontainer/uv/archive-v0/pkg/credentials.env": self.token,
             "mnt/devcontainer-cache/uv/archive-v0/pkg/credentials.env": self.token,
+            **self.public_ruby_gem_fixtures(),
         }
 
     def test_rooted_public_toolchain_and_package_caches_are_excluded(self) -> None:
         fixtures = self.public_cache_fixtures()
-        self.assertEqual(len(fixtures), len(ROOTED_PUBLIC_CACHE_SKIP_PATTERNS))
+        self.assertEqual(len(fixtures), len(ROOTED_PUBLIC_CACHE_SKIP_PATTERNS + RUBY_PUBLIC_CACHE_SKIP_PATTERNS))
         for name, content in fixtures.items():
             self.put(name, content)
         result = self.scan()
@@ -616,6 +682,17 @@ class RealTrivyTests(unittest.TestCase):
             "workspaces/project/usr/local/share/mise/installs/go/credentials.env",
             "workspaces/project/var/cache/devcontainer/gomod/credentials.env",
             "workspaces/project/home/vscode/.bun/install/cache/credentials.env",
+            "home/vscode/.gem/credentials", "root/.gem/credentials",
+            "home/vscode/.bundle/config", "root/.bundle/config", "usr/local/bundle/config",
+            "home/vscode/.gemrc", "home/vscode/.config/gem/credentials",
+            "home/vscode/.gem/ruby/3.4.0/config", "usr/local/bundle/ruby/3.4.0/config",
+            "home/vscode/.cache/app/bundle/install.log",
+            "home/vscode/.cache/app/bundle/ruby/3.4.0/config",
+            "workspaces/project/.bundle/config", "workspaces/project/src/credentials.rb",
+            "workspaces/project/.bundle/ruby/3.4.0/config",
+            "workspaces/project/home/vscode/.gem/ruby/3.4.0/gems/pkg/credentials.rb",
+            "workspaces/project/home/vscode/.cache/app/bundle/ruby/3.4.0/gems/pkg/credentials.rb",
+            "workspaces/project/usr/local/bundle/gems/pkg/credentials.rb",
         )
         for name in protected:
             self.put(name, "TOKEN=" + self.token)
