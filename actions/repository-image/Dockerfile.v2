@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+# check=skip=InvalidDefaultArgInFrom
+ARG BASE
+FROM ${BASE}
+ARG REPO
+USER root
+ENV MISE_PYTHON_COMPILE=0 \
+    MISE_CACHE_DIR=/home/vscode/.cache/mise \
+    UV_CACHE_DIR=/home/vscode/.cache/uv \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_INSTALL_DIR=/usr/local/share/mise/python \
+    pnpm_config_store_dir=/home/vscode/.cache/pnpm-store \
+    npm_config_cache=/home/vscode/.cache/npm \
+    GOMODCACHE=/home/vscode/.cache/gomod \
+    GOFLAGS=-modcacherw
+RUN install -d -o vscode -g vscode /usr/local/share/mise /home/vscode/.cache \
+    "$MISE_CACHE_DIR" "$UV_CACHE_DIR" "$pnpm_config_store_dir" "$npm_config_cache" "$GOMODCACHE"
+# Secret contents do not invalidate BuildKit cache, so identity is a separate input
+RUN --mount=type=bind,from=pins,target=/workspaces/.mise-pins \
+    --mount=type=bind,from=expected,target=/run/expected \
+    --mount=type=secret,id=standards_package,target=/run/standards.tgz,uid=1000,gid=1000,required=true \
+    --mount=type=tmpfs,target=/workspaces/.mise-pins/.standards \
+    --mount=type=tmpfs,target=/run/npm-cache \
+    cat /run/expected/package.json >/dev/null \
+ && chown vscode:vscode /workspaces/.mise-pins/.standards /run/npm-cache \
+ && cd /workspaces/.mise-pins \
+ && runuser -u vscode -- env HOME=/home/vscode CI=true MISE_YES=1 \
+      MISE_TRUSTED_CONFIG_PATHS=/workspaces/.mise-pins npm_config_cache=/run/npm-cache \
+      MISE_ENV=repository-image \
+      bash -euc 'mise install --system node; mise run standards:install; mise install --system' \
+ && rm -rf /home/vscode/.cache/mise /home/vscode/.local/state
+ENV PATH=/usr/local/share/mise/shims:${PATH}
+COPY --chown=vscode:vscode --from=src / /workspaces/${REPO}/
+WORKDIR /workspaces/${REPO}
+RUN --mount=type=bind,from=expected,target=/run/expected \
+    --mount=type=bind,from=expected,source=profile.toml,target=/workspaces/${REPO}/mise.repository-image.toml \
+    --mount=type=secret,id=standards_package,target=/run/standards.tgz,uid=1000,gid=1000,required=true \
+    --mount=type=tmpfs,target=/workspaces/${REPO}/.standards \
+    --mount=type=tmpfs,target=/workspaces/${REPO}/.git \
+    --mount=type=tmpfs,target=/run/npm-cache \
+    cat /run/expected/package.json >/dev/null \
+ && chown vscode:vscode .standards .git /run/npm-cache \
+ && runuser -u vscode -- env HOME=/home/vscode CI=true MISE_YES=1 \
+      MISE_ENV=repository-image \
+      bash -euc 'git init -q; mise trust -q; mise run setup' \
+ && rm -rf /home/vscode/.cache/mise
+USER vscode

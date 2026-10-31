@@ -178,7 +178,9 @@ class WorkflowTests(unittest.TestCase):
 
     def assert_pinned_actions(self, text: str) -> None:
         for ref, comment in re.findall(r"uses: (\S+)(.*)", text):
-            if ref == "Rubio-Enterprises/.github/actions/standards-bootstrap@main":
+            if ref in {"Rubio-Enterprises/.github/actions/standards-bootstrap@main",
+                       "Rubio-Enterprises/.github/actions/repository-image@main",
+                       "Rubio-Enterprises/.github/.github/workflows/repository-image.yml@main"}:
                 continue
             self.assertRegex(ref, r"@[a-f0-9]{40}$")
             self.assertRegex(comment, r" # v[0-9]")

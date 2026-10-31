@@ -30,8 +30,10 @@ jobs:
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     outputs:
+      shape: ${{ steps.standards.outputs.shape }}
       image: ${{ steps.image.outputs.image }}
       package: ${{ steps.image.outputs.package }}
       publish: ${{ steps.image.outputs.publish }}
@@ -58,11 +60,36 @@ jobs:
             exit 1
           fi
           printf 'image=%s\npackage=%s\npublish=%s\n' "$image" "$package" "$PUBLISH" >> "$GITHUB_OUTPUT"
+      - name: Check out standards wiring
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Detect standards shape
+        id: standards
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        with:
+          operation: inspect
+
+  v2:
+    needs: prepare
+    if: needs.prepare.outputs.shape == 'v2'
+    permissions:
+      contents: read
+      packages: write
+    uses: Rubio-Enterprises/.github/.github/workflows/repository-image.yml@main
+    with:
+      config: ${{ inputs.config }}
+      image-name: ${{ inputs.image-name }}
 
   validate:
     name: Validate (${{ matrix.arch }})
     needs: prepare
-    if: needs.prepare.outputs.publish == 'false'
+    if: needs.prepare.outputs.publish == 'false' && needs.prepare.outputs.shape != 'v2'
     permissions:
       contents: read
       packages: read
@@ -313,7 +340,7 @@ jobs:
   build:
     name: Build (${{ matrix.arch }})
     needs: prepare
-    if: needs.prepare.outputs.publish == 'true'
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.shape != 'v2'
     permissions:
       contents: read
       packages: write

@@ -17,7 +17,7 @@ inputs:
     description: CI_IMAGE_REPOS org variable, for routing only
     default: ""
   token:
-    description: Repository-scoped GITHUB_TOKEN with packages read, hosted pulls only
+    description: Repository-scoped GITHUB_TOKEN with packages read, for hosted pulls and v2 setup
     default: ""
 outputs:
   runner:

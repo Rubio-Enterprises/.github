@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
+assets="${BASH_SOURCE[0]%/*}"
+shape_asset="$assets/image.mjs"
+if [[ ! -f "$shape_asset" ]]; then shape_asset="$assets/../repository-image/image.mjs"; fi
+shape="$(node "$shape_asset" shape)"
+if [[ "$shape" = v2 ]]; then
+  if [[ "${1:-}" = ready ]]; then
+    test -f .standards/node_modules/@rubio-enterprises/standards/mise/standards.toml
+    mise tasks info check >/dev/null
+  fi
+  exit 0
+fi
+[[ "$shape" = legacy ]] || { echo '::error::project execution requires standards setup'; exit 1; }
 [[ "${STANDARDS_PIN:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid independent STANDARDS_PIN" >&2; exit 1; }
 test -d .standards-config/.git
 test "$(git -C .standards-config config --get remote.origin.url)" = https://github.com/Rubio-Enterprises/standards.git

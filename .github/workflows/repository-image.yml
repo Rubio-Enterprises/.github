@@ -38,8 +38,13 @@ jobs:
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
+      packages: read
     outputs:
+      shape: ${{ steps.standards.outputs.shape }}
+      version: ${{ steps.release.outputs.version }}
+      integrity: ${{ steps.release.outputs.integrity }}
       image: ${{ steps.image.outputs.image }}
       package: ${{ steps.image.outputs.package }}
       publish: ${{ steps.image.outputs.publish }}
@@ -75,6 +80,30 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      - name: Check out standards wiring
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Detect standards shape
+        id: standards
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        with:
+          operation: inspect
+      - name: Resolve the Standards Release
+        id: release
+        if: steps.standards.outputs.shape == 'v2'
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          STANDARDS_RELEASE: ${{ steps.standards.outputs.release }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        with:
+          operation: release
+      - name: Remove registry cache and logs
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/standards-registry-cache"
       - name: Resolve and validate the public base pair
         id: bases
         uses: Rubio-Enterprises/.github/actions/repository-image@main
@@ -109,12 +138,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Provision native shared config
+        if: needs.prepare.outputs.shape != 'v2'
         uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           bootstrap-parts: repos
       - name: Require the image build pin
+        if: needs.prepare.outputs.shape != 'v2'
         shell: bash
         run: |
           set -euo pipefail
@@ -157,10 +188,24 @@ jobs:
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         env:
           DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          STANDARDS_SHAPE: ${{ needs.prepare.outputs.shape }}
+          STANDARDS_VERSION: ${{ needs.prepare.outputs.version }}
+          STANDARDS_INTEGRITY: ${{ needs.prepare.outputs.integrity }}
         with:
           operation: prepare
           config: ${{ inputs.config }}
           base: ${{ needs.prepare.outputs.base }}
+      - name: Fetch the verified Standards Package
+        if: needs.prepare.outputs.shape == 'v2'
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        with:
+          operation: pack
       - name: Install checksum-pinned Trivy
         shell: bash
         env:
@@ -317,6 +362,7 @@ jobs:
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
           ARCH: ${{ matrix.arch }}
         run: |
+          rm -rf "$RUNNER_TEMP/standards-registry-cache"
           docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
           docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
           if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi

@@ -17,13 +17,13 @@ ASSETS = ROOT / 'actions/devcontainer-run'
 WORKFLOWS = ROOT / '.github/workflows'
 
 
-def invoke_route(raw, runner, task='lint-hooks', answers='', name='Mixed.Repo', repo_id='123'):
-    source = f"import {{route}} from {json.dumps((ASSETS / 'route.mjs').as_uri())}; console.log(JSON.stringify(route(JSON.parse(process.argv[1]), process.argv[2])));"
+def invoke_route(raw, runner, task='lint-hooks', answers='', name='Mixed.Repo', repo_id='123', shape='legacy'):
+    source = f"import {{route}} from {json.dumps((ASSETS / 'route.mjs').as_uri())}; console.log(JSON.stringify(route(JSON.parse(process.argv[1]), process.argv[2], process.argv[3])));"
     return subprocess.run(['node', '--input-type=module', '-e', source, json.dumps({
         'CI_IMAGE_REPOS': raw, 'ORIGINAL_RUNNER': json.dumps(runner),
         'PROJECT_TASK': task, 'GITHUB_REPOSITORY': 'Rubio-Enterprises/' + name,
         'GITHUB_REPOSITORY_ID': repo_id,
-    }), answers], text=True, capture_output=True)
+    }), answers, shape], text=True, capture_output=True)
 
 
 class Routing(unittest.TestCase):
@@ -61,6 +61,14 @@ class Routing(unittest.TestCase):
             result = invoke_route('all', ['macos-26'], answers=answer)
             self.assertEqual(json.loads(result.stdout)['mode'], '')
 
+    def test_v2_uses_existing_size_without_answers_and_preserves_capabilities(self):
+        for size in ['small', 'medium']:
+            result = invoke_route('all', ['linux-x64-' + size], shape='v2')
+            self.assertEqual(json.loads(result.stdout), {'runner': ['ci-123-mixed-repo-' + size], 'mode': 'direct'})
+        for runner in [['linux-x64-large'], ['linux-arm64'], ['macos-26']]:
+            result = invoke_route('all', runner, shape='v2')
+            self.assertEqual(json.loads(result.stdout), {'runner': runner, 'mode': ''})
+
     def test_no_fallback_for_custom_or_malformed_contracts(self):
         for runner in (['custom'], ['self-hosted', 'ubuntu-latest'], ['linux-x64-small', 'other'], []):
             self.assertNotEqual(invoke_route('all', runner).returncode, 0)
@@ -75,6 +83,10 @@ class Runtime(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.repo = self.root / 'checkout with spaces'
         self.repo.mkdir()
+        (self.repo / '.copier-answers.yml').write_text('repo_type: native\n')
+        (self.repo / '.mise.toml').write_text('[tools]\n')
+        (self.repo / '.config').mkdir()
+        (self.repo / '.config/mise-bootstrap.toml').write_text('# bootstrap\n')
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         self.env = {**os.environ, 'GIT_CONFIG_GLOBAL': str(self.root / 'gitconfig'),
@@ -87,6 +99,7 @@ class Runtime(unittest.TestCase):
                     'PROJECT_TASK': 'typecheck', 'GITHUB_REPOSITORY': 'Rubio-Enterprises/Test',
                     'GITHUB_RUN_ID': '1', 'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_JOB': 'test',
                     'GITHUB_ACTOR': 'test', 'GITHUB_BASE_REF': '', 'IMAGE_PULL_TOKEN': 'not-a-real-token',
+                    'NODE_AUTH_TOKEN': '',
                     'PATH': str(self.bin) + os.pathsep + os.environ['PATH'],
                     'TRACE': str(self.root / 'trace'), 'FIXTURE': str(self.root)}
         for key in ['CONFIG', 'DATA', 'STATE', 'CACHE']:
@@ -104,6 +117,14 @@ class Runtime(unittest.TestCase):
         self.executable(self.bin / 'mise', '''#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ['TRACE'], 'a') as f: f.write('mise ' + ' '.join(sys.argv[1:]) + '\\n')
+if os.getenv('STANDARDS_SHAPE') == 'v2':
+ from pathlib import Path
+ if sys.argv[1:3] == ['run', 'setup']:
+  assert os.environ['NODE_AUTH_TOKEN'] == 'package-token-fixture'
+  package = Path('.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml')
+  package.parent.mkdir(parents=True, exist_ok=True)
+  package.write_text('[tools]')
+ else: assert not os.getenv('NODE_AUTH_TOKEN')
 if sys.argv[1:3] == ['tasks', 'info'] and os.getenv('NO_TASK'): sys.exit(1)
 if sys.argv[1] == 'exec':
  if os.getenv('REWRITE_TRACKED'):
@@ -139,6 +160,8 @@ root = pathlib.Path(os.environ['FIXTURE'])
 config = json.loads(pathlib.Path(args[args.index('--config') + 1]).read_text())
 assert not os.getenv('IMAGE_PULL_TOKEN')
 assert not (pathlib.Path(args[args.index('--config') + 1]).parent / 'auth').exists()
+if config['remoteEnv'].get('STANDARDS_SHAPE') == 'v2':
+ assert os.getenv('NODE_AUTH_TOKEN', '') == ('package-token-fixture' if args[0] == 'run-user-commands' else '')
 with open(os.environ['TRACE'], 'a') as f: f.write('cli ' + args[0] + '\\n')
 if args[0] == 'read-configuration':
  (root / 'config-copy.json').write_text(json.dumps(config))
@@ -222,6 +245,39 @@ elif args[0] == 'run-user-commands':
         self.assertNotIn('initializeCommand', config)
         self.assertIn('docker rm -f ' + 'b' * 64, trace)
         self.assert_clean()
+
+    def prepare_v2(self):
+        for name in ['.copier-answers.yml', '.mise.toml', '.config/mise-bootstrap.toml']:
+            (self.repo / name).unlink()
+        (self.repo / 'mise.toml').write_text('[tasks.setup]\nrun = "true"\n[tasks."standards:install"]\nrun = "true"\n')
+        link = self.repo / '.config/mise/conf.d/standards.toml'
+        link.parent.mkdir(parents=True)
+        link.symlink_to('../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml')
+
+    def test_v2_hosted_setup_has_symbolic_token_no_pin_and_no_auth_during_inspection(self):
+        self.prepare_v2()
+        result = self.run_image(NODE_AUTH_TOKEN='package-token-fixture', STANDARDS_PIN='bad')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads((self.root / 'config-copy.json').read_text())
+        self.assertNotIn('STANDARDS_PIN', config['remoteEnv'])
+        self.assertEqual(config['remoteEnv']['NODE_AUTH_TOKEN'], '${localEnv:NODE_AUTH_TOKEN}')
+        self.assertNotIn('mise install', config['postCreateCommand'])
+        self.assertNotIn('package-token-fixture', json.dumps(config) + self.trace())
+        self.assert_clean()
+
+    def test_v2_direct_cold_setup_installs_package_before_task_without_retaining_token(self):
+        self.prepare_v2()
+        hook = self.root / 'bash-env'
+        hook.write_text('test() { case "${2:-}" in /opt/actions-runner/bin/Runner.Listener|/usr/local/share/mise|/var/cache/devcontainer) return 0 ;; *) builtin test "$@" ;; esac; }\n')
+        self.executable(self.bin / 'id', '#!/bin/sh\necho 1000\n')
+        result = self.run_image(IMAGE_MODE='direct', RUNNER_ENVIRONMENT='self-hosted', BASH_ENV=str(hook),
+                                UV_LINK_MODE='copy', NODE_AUTH_TOKEN='package-token-fixture', PROJECT_TASK='lint-hooks', STANDARDS_PIN='bad')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('mise run setup', self.trace())
+        self.assertIn('mise run check', self.trace())
+        self.assertNotIn('mise install', self.trace())
+        self.assertNotIn('docker ', self.trace())
+        self.assertNotIn('package-token-fixture', self.trace())
 
     def test_host_git_credentials_are_never_forwarded(self):
         for repo in ['private-module', 'knowledgebase-framework', 'knowledgebase-framework.git', 'standards', 'unrelated']:
@@ -374,7 +430,7 @@ class Wiring(unittest.TestCase):
         self.assertLess(run.index('bash /run/project-image/preflight.sh'), run.index('"$cli" run-user-commands'))
         direct = run.split('[ "$IMAGE_MODE" = hosted ]', 1)[0]
         self.assertNotIn('"$cli"', direct)
-        self.assertIn('mise install\n  mise run setup', direct)
+        self.assertIn('mise install\n    mise run setup', direct)
         self.assertNotIn('bootstrap --only', run)
 
 

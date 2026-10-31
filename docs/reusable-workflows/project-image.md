@@ -6,6 +6,11 @@ CT-01/Docker, KVM, ARM, macOS, image builders and repository-agnostic workflows
 keep their existing execution paths. Shared e2e is ARM/macOS and is unchanged;
 canonical tests remain repository-owned (`test-gate`).
 
+The v2 injected `standards` workflow and copy-once Test Gate currently run setup
+and tasks directly on their selected plain runners. Neither calls this adapter or
+selects a CI Image. V2 support below is compatibility for existing adapter calls,
+not a new consumer or rollout switch.
+
 ## Rollout contract
 
 `CI_IMAGE_REPOS` is an organization Actions configuration variable:
@@ -113,6 +118,30 @@ remain untouched for opt-out jobs; images supply the opt-in warm environment.
 Failures propagate. EXIT/INT/TERM cleanup removes only containers carrying this
 invocation's unique label plus its temporary auth/config/scripts, never shared
 images or volumes. A hard-killed hosted VM remains the platform's cleanup boundary.
+
+## Standards Package compatibility (v2)
+
+The adapter recognizes the exact conf.d package link and root setup tasks without
+Copier answers/bootstrap artifacts. Mixed or incomplete wiring fails closed. Its
+v2 route uses the existing small/medium runner label rather than retired facets
+or workload-class answers. Capability exceptions remain on their current runners;
+CI_IMAGE_REPOS is unchanged. Legacy sparse answers-only route callers retain their
+original interpretation.
+
+V2 preflight does not read STANDARDS_PIN or `.standards-config`. Canonical
+`mise run setup` installs `.standards/`, followed by a ready-package check. A
+lint-hooks request executes `mise run check`; typecheck/build requests execute the
+corresponding v2 Lifecycle Task without the legacy dependency-install helpers.
+
+The existing token input (or an explicit NODE_AUTH_TOKEN) supplies package auth.
+Direct execution exposes it only to setup. Hosted execution forwards the symbolic
+`${localEnv:NODE_AUTH_TOKEN}` reference, not a token literal in generated JSON.
+The value is absent during configuration inspection and container bring-up, set
+only while lifecycle/setup executes, then removed before the project task. Thus
+it is not written into the CLI's configuration evidence. V2 has no remote pin and
+no extra standards Git transport; legacy credential/preflight behaviour above
+remains unchanged. Fresh offline startup still needs package/cache state, as in
+ordinary v2 Dev Containers.
 
 ## Evidence boundary
 

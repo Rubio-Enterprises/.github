@@ -63,7 +63,7 @@ class Contracts(unittest.TestCase):
         self.assertNotIn("qemu", TEXT.lower())
         prepare = TEXT.split("\n  prepare:\n", 1)[1].split("\n  validate:\n", 1)[0]
         self.assertIn(".small || fromJSON('[\"ubuntu-slim\"]')", prepare)
-        self.assertNotIn("docker", prepare.lower())
+        self.assertNotIn("docker info", prepare.lower())
 
     def test_assets_are_owned_by_the_shared_action_and_refs_pinned(self):
         action = (ASSETS / "action.yml").read_text()
@@ -364,7 +364,8 @@ class Fixtures(unittest.TestCase):
 
     def test_build_audit_receives_prepared_source_not_the_working_checkout(self):
         build = (ASSETS / "build.sh").read_text()
-        self.assertIn('python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$GITHUB_WORKSPACE/.standards-config" "$STANDARDS_PIN" "$CONTEXT/src"', build)
+        self.assertIn('python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$standards" "$pin" "$CONTEXT/src"', build)
+        self.assertIn('standards="$GITHUB_WORKSPACE/.standards-config"', build)
 
     def test_layer_audit_catches_deleted_bundle_paths_content_and_pin_in_config_history(self):
         standards = self.root / "standards"
@@ -405,6 +406,7 @@ class Fixtures(unittest.TestCase):
         context = self.root / "context"
         for directory in ["features", "pins", "src", "empty", "expected", "verify"]:
             (context / directory).mkdir(parents=True, exist_ok=True)
+        (context / "expected/shape").write_text("legacy")
         standards = self.root / "workspace/.standards-config/config"
         standards.mkdir(parents=True)
         (standards / "private.yml").write_text("private fixture\n" * 20)
@@ -649,6 +651,9 @@ done
         (src / ".github/.devcontainer/devcontainer.json").write_text('{// JSONC\n"features":{}}')
         (src / ".mise.toml").write_text('[tools]\n')
         (src / "source.py").write_text("print('safe')")
+        (src / ".copier-answers.yml").write_text("repo_type: native\n")
+        (src / ".config").mkdir()
+        (src / ".config/mise-bootstrap.toml").write_text("# bootstrap\n")
         def git(*args):
             return subprocess.check_output(["git", "-C", str(src), *args], env=self.env, text=True).strip()
         git("init", "-q")

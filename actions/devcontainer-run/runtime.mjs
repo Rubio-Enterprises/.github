@@ -28,6 +28,11 @@ for (const key of ['GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_REPOSITORY_ID'
   'MISE_GITHUB_TOKEN']) {
   if (process.env[key]) remoteEnv[key] = '${localEnv:' + key + '}';
 }
+if (process.env.STANDARDS_SHAPE === 'v2') {
+  delete remoteEnv.STANDARDS_PIN;
+  remoteEnv.NODE_AUTH_TOKEN = '${localEnv:NODE_AUTH_TOKEN}';
+  remoteEnv.STANDARDS_SHAPE = 'v2';
+}
 const config = {
   image: process.env.PROJECT_IMAGE_ID,
   workspaceFolder: remote,
@@ -35,6 +40,8 @@ const config = {
   mounts: ['type=bind,source=' + state + ',target=/run/project-image,readonly'],
   containerUser: 'vscode', remoteUser: 'vscode', updateRemoteUserUID: true, userEnvProbe: 'none',
   remoteEnv,
-  postCreateCommand: 'bash /run/project-image/preflight.sh && mise install && mise run setup',
+  postCreateCommand: process.env.STANDARDS_SHAPE === 'v2'
+    ? 'bash /run/project-image/preflight.sh && mise run setup'
+    : 'bash /run/project-image/preflight.sh && mise install && mise run setup',
 };
 fs.writeFileSync(path.join(state, 'devcontainer.json'), JSON.stringify(config), {mode: 0o600});

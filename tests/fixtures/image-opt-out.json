@@ -61,9 +61,7 @@
   },
   "unchanged": {
     "e2e.yml": "96ca7ff1136832d6a61f121bd54a1cf27a7f0ed9e57fe4a07e5019b3ccb33e0a",
-    "cloud-setup-smoke.yml": "bb90ec6ec7aed65972d9a0919bcd901309ff2811988b4597758a50b2af7fa4b7",
-    "repository-image.yml": "6fd94427769bda6424d0e671a44bc2e138d9f7034a92ba3b2f6e8b281393af91",
-    "devcontainer-image.yml": "763e2cdb9cd46f70a038659a3f4f30c12409e66fd41e392311023e2757ca1c87"
+    "cloud-setup-smoke.yml": "bb90ec6ec7aed65972d9a0919bcd901309ff2811988b4597758a50b2af7fa4b7"
   },
   "legacy_conditions": {
     "lint-hooks.yml": {

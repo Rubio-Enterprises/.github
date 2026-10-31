@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${STANDARDS_SHAPE:-}" = v2 ]]; then exec mise run check; fi
 run_fork() {
 set -euo pipefail
 files=/tmp/lefthook-changed-files.txt

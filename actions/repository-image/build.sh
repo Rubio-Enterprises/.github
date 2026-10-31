@@ -35,13 +35,26 @@ crane() { docker run --rm --network host "$crane_image" "$@"; }
   --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
 docker push "$local_ref/features:build"
 features_digest="$(crane digest --insecure "$local_ref/features:build")"
-args=(--platform "linux/$ARCH" --file "$ASSETS/Dockerfile"
+shape="$(< "$CONTEXT/expected/shape")"
+dockerfile="$ASSETS/Dockerfile"
+standards="$GITHUB_WORKSPACE/.standards-config"
+pin="${STANDARDS_PIN:-}"
+case "$shape" in
+  v2) dockerfile="$ASSETS/Dockerfile.v2"; standards="$CONTEXT/package/standards.tgz"; pin= ;;
+  legacy|none) ;;
+  *) echo '::error::invalid prepared standards shape'; exit 1 ;;
+esac
+args=(--platform "linux/$ARCH" --file "$dockerfile"
   --build-context "pins=$CONTEXT/pins" --build-context "src=$CONTEXT/src"
-  --build-context "standards=$GITHUB_WORKSPACE/.standards-config"
   --build-context "expected=$CONTEXT/expected"
   --build-arg "BASE=$local_ref/features@$features_digest"
   --build-arg "REPO=${GITHUB_REPOSITORY#*/}"
   --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY")
+if [[ "$shape" = v2 ]]; then
+  args+=(--secret "id=standards_package,src=$standards")
+else
+  args+=(--build-context "standards=$standards")
+fi
 docker build --check "${args[@]}" "$CONTEXT/empty"
 docker build --provenance=false --sbom=false "${args[@]}" \
   --cache-from "$IMAGE:main-$ARCH" --build-arg BUILDKIT_INLINE_CACHE=1 \
@@ -65,7 +78,7 @@ docker tag "$local_ref/dev:build" "$IMAGE:sha-$GITHUB_SHA-$ARCH"
 docker tag "$local_ref/ci:build" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH"
 for artifact in "$IMAGE" "$CI_IMAGE"; do
   docker image save "$artifact:sha-$GITHUB_SHA-$ARCH" -o "$CONTEXT/artifact.tar"
-  python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$GITHUB_WORKSPACE/.standards-config" "$STANDARDS_PIN" "$CONTEXT/src"
+  python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$standards" "$pin" "$CONTEXT/src"
   rm "$CONTEXT/artifact.tar"
 done
 docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-limit 512 \
@@ -81,6 +94,9 @@ docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-
     test "$(id -u)" = 1000
     if sudo -n true 2>/dev/null; then exit 1; fi
     test -z "${STANDARDS_PIN:-}"
+    test -z "${NODE_AUTH_TOKEN:-}"
+    test -z "${STANDARDS_VERSION:-}"
+    test ! -e .standards/node_modules
   '
 for artifact in "$IMAGE" "$CI_IMAGE"; do
   for uid in 1000 1001; do
