@@ -65,7 +65,7 @@ docker tag "$local_ref/dev:build" "$IMAGE:sha-$GITHUB_SHA-$ARCH"
 docker tag "$local_ref/ci:build" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH"
 for artifact in "$IMAGE" "$CI_IMAGE"; do
   docker image save "$artifact:sha-$GITHUB_SHA-$ARCH" -o "$CONTEXT/artifact.tar"
-  python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$GITHUB_WORKSPACE/.standards-config" "$STANDARDS_PIN"
+  python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$GITHUB_WORKSPACE/.standards-config" "$STANDARDS_PIN" "$CONTEXT/src"
   rm "$CONTEXT/artifact.tar"
 done
 docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-limit 512 \

@@ -83,7 +83,9 @@ Default names match the inventory contract:
 
 `image-name` optionally changes the first untagged GHCR name within the caller's
 owner; the second is that name plus `-ci`. The source label points at the caller.
-Private source may be baked into private repository images; standards may not.
+Private source may be baked into private repository images; provisioned standards
+may not. A tracked source file remains repository source even when its complete
+contents match a bundle file, such as the rendered `treefmt.toml` bridge.
 The workflow never changes GHCR visibility, package links or access grants.
 Verify both packages' visibility and same-repository token access before adoption.
 
@@ -95,10 +97,15 @@ base-ci ENV/USER/labels are not assumed to become the CI environment.
 
 Before external push, both saved artifacts are inspected across **all layers**,
 including files hidden/deleted by later layers, for persisted standards paths,
-links, exact bundle-file hashes (files at least 128 bytes) and the build pin.
-Config/history is inspected too. This catches direct copies, not arbitrary
-transformations of policy by trusted project setup; source/mount discipline is
-still necessary. Reports never render matching contents. The CI smoke runs as
+links, exact bundle-only file hashes (files at least 128 bytes) and the build pin.
+The content comparison excludes fingerprints already present in regular files
+from the prepared `git archive` source snapshot. The builder passes that snapshot,
+not the working checkout; untracked files, symlink targets and Git/standards
+checkout metadata cannot supply exemptions. Standards paths/links and pin checks
+remain unconditional, even for source-matched content. Config/history is inspected
+too. This catches direct bundle-only copies, not arbitrary transformations of
+policy by trusted project setup; source/mount discipline is still necessary.
+Reports never render matching contents. The CI smoke runs as
 UID 1000 under no-new-privileges and checks the runner, mise/gh/jq, writable
 cache/tool/runner paths and uv copy mode. This is not a test of arbitrary Feature
 lifecycle commands: plain Container Pool runners do not interpret Dev Container
@@ -170,7 +177,8 @@ jobs:
     uses: Rubio-Enterprises/.github/.github/workflows/repository-image.yml@main
     secrets:
       STANDARDS_READER_APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
-      STANDARDS_READER_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
 ```
 
 Do not add a duplicate caller concurrency group. Source is a workspace snapshot;
