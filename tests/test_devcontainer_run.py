@@ -124,7 +124,10 @@ if os.getenv('STANDARDS_SHAPE') == 'v2':
   package = Path('.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml')
   package.parent.mkdir(parents=True, exist_ok=True)
   package.write_text('[tools]')
- else: assert not os.getenv('NODE_AUTH_TOKEN')
+ else:
+  assert not os.getenv('NODE_AUTH_TOKEN')
+  if sys.argv[1:3] == ['run', 'check'] and os.getenv('REWRITE_TRACKED'):
+   Path('tracked.txt').write_text('rewritten by check')
 if sys.argv[1:3] == ['tasks', 'info'] and os.getenv('NO_TASK'): sys.exit(1)
 if sys.argv[1] == 'exec':
  if os.getenv('REWRITE_TRACKED'):
@@ -253,6 +256,23 @@ elif args[0] == 'run-user-commands':
         link = self.repo / '.config/mise/conf.d/standards.toml'
         link.parent.mkdir(parents=True)
         link.symlink_to('../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml')
+        (self.repo / '.gitignore').write_text('.standards/\n.standards-config/\n')
+        (self.repo / 'tracked.txt').write_text('original')
+        self.git('init', '-q', str(self.repo))
+        self.git('-C', str(self.repo), 'add', '.')
+        self.git('-C', str(self.repo), 'commit', '-qm', 'test: v2 fixture')
+
+    def test_v2_lint_rejects_check_rewrites_and_prior_setup_rewrites(self):
+        self.prepare_v2()
+        for check_rewrites in ['1', '']:
+            with self.subTest(check_rewrites=check_rewrites):
+                (self.repo / 'tracked.txt').write_text('original' if check_rewrites else 'rewritten by setup')
+                result = subprocess.run(['bash', str(ASSETS / 'lint-hooks.sh')], cwd=self.repo,
+                                        env={**self.env, 'STANDARDS_SHAPE': 'v2', 'REWRITE_TRACKED': check_rewrites},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn('hooks rewrote tracked files', result.stdout)
+                self.assertIn("run 'mise run check'", result.stdout)
 
     def test_v2_hosted_setup_has_symbolic_token_no_pin_and_no_auth_during_inspection(self):
         self.prepare_v2()
