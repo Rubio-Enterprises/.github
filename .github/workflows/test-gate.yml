@@ -218,6 +218,9 @@ jobs:
           export CLI="$RUNNER_TEMP/devcontainer-cli/node_modules/.bin/devcontainer"
           export LOCAL_IMAGE="ghcr.io/rubio-enterprises/$SOURCE_REPO/devcontainer:sha-$SOURCE_SHA-$ARCH"
           export QUALIFIER="imagev2-$GITHUB_RUN_ID-$EXPECT_SHAPE-$ARCH"
+          runtime_failure() {
+            RUNTIME_LOG="$1" python3 -c 'import os,pathlib,re; text=pathlib.Path(os.environ["RUNTIME_LOG"]).read_text(); token=os.getenv("NODE_AUTH_TOKEN"); text=text.replace(token,"[redacted]") if token else text; lines=[re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]","",line) for line in text.splitlines() if re.search(r"error|not trusted|denied|ENET|EAI_|ENOTFOUND|ECONN|failed",line,re.I)]; print("\n".join(line[:500] for line in lines[-20:]))'
+          }
           package_token="$NODE_AUTH_TOKEN"
           unset NODE_AUTH_TOKEN
           "$CLI" read-configuration --workspace-folder "$SOURCE" --config "$SOURCE/.devcontainer/devcontainer.json" > "$RUNNER_TEMP/runtime-read.json"
@@ -243,8 +246,8 @@ jobs:
           args=(--workspace-folder "$SOURCE" --config "$RUNNER_TEMP/runtime.json" --id-label "imagev2.qualifier=$QUALIFIER-warm")
           test ! -e "$SOURCE/.standards/node_modules"
           export NODE_AUTH_TOKEN="$package_token"
-          "$CLI" up "${args[@]}" > "$RUNNER_TEMP/runtime.log" 2>&1 || { echo '::error::cold runtime setup failed'; exit 1; }
-          "$CLI" exec "${args[@]}" bash -euc 'test -f .standards/node_modules/@rubio-enterprises/standards/mise/standards.toml && mise run setup' >> "$RUNNER_TEMP/runtime.log" 2>&1 || { echo '::error::warm runtime setup failed'; exit 1; }
+          "$CLI" up "${args[@]}" > "$RUNNER_TEMP/runtime.log" 2>&1 || { echo '::error::cold runtime setup failed'; runtime_failure "$RUNNER_TEMP/runtime.log"; exit 1; }
+          "$CLI" exec "${args[@]}" bash -euc 'test -f .standards/node_modules/@rubio-enterprises/standards/mise/standards.toml && mise run setup' >> "$RUNNER_TEMP/runtime.log" 2>&1 || { echo '::error::warm runtime setup failed'; runtime_failure "$RUNNER_TEMP/runtime.log"; exit 1; }
           echo 'Real cold/warm startup passed: canonical setup installed .standards in the workspace.'
           git clone --quiet --shared "$SOURCE" "$RUNNER_TEMP/cold-source"
           node <<'NODE'
@@ -256,8 +259,8 @@ jobs:
           NODE
           status=0
           timeout 120 "$CLI" up --workspace-folder "$RUNNER_TEMP/cold-source" --config "$RUNNER_TEMP/offline.json" --id-label "imagev2.qualifier=$QUALIFIER-cold" > "$RUNNER_TEMP/offline.log" 2>&1 || status=$?
-          [[ "$status" != 0 && "$status" != 124 ]]
-          python3 -c 'import os,pathlib,re; assert re.search(r"ENETUNREACH|EAI_AGAIN|ENOTFOUND|ECONN|ENETDOWN", (pathlib.Path(os.environ["RUNNER_TEMP"]) / "offline.log").read_text())'
+          [[ "$status" != 0 && "$status" != 124 ]] || { runtime_failure "$RUNNER_TEMP/offline.log"; exit 1; }
+          python3 -c 'import os,pathlib,re; assert re.search(r"ENETUNREACH|EAI_AGAIN|ENOTFOUND|ECONN|ENETDOWN", (pathlib.Path(os.environ["RUNNER_TEMP"]) / "offline.log").read_text())' || { runtime_failure "$RUNNER_TEMP/offline.log"; exit 1; }
           echo 'Cold offline startup failed explicitly for unavailable package network, as designed.'
       - name: Clean every owned artifact without uploads
         if: always()
