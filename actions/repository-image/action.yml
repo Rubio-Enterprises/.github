@@ -2,7 +2,7 @@ name: Repository image assets
 description: Central generic build inputs and immutable base-pair validation
 inputs:
   operation:
-    description: resolve or prepare
+    description: resolve, inspect, release, prepare or pack
     required: true
   base:
     description: Public base tag or immutable index reference
@@ -14,6 +14,18 @@ inputs:
     description: Repository-relative extra-Features definition
     default: .github/.devcontainer/devcontainer.json
 outputs:
+  shape:
+    description: legacy, v2 or none
+    value: ${{ steps.run.outputs.shape }}
+  release:
+    description: Requested Standards Release
+    value: ${{ steps.run.outputs.release }}
+  version:
+    description: Resolved Standards Release
+    value: ${{ steps.run.outputs.version }}
+  integrity:
+    description: Resolved package integrity
+    value: ${{ steps.run.outputs.integrity }}
   base:
     description: Resolved base index reference
     value: ${{ steps.run.outputs.base }}

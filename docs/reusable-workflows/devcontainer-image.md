@@ -4,6 +4,17 @@
 
 `.github/workflows/devcontainer-image.yml` accepts `workflow_call` only.
 
+It detects the consumer's standards wiring before build selection. V2 consumers
+with a generic name/features definition delegate to
+[`repository-image.yml`](repository-image.md), including its Repository/CI Image
+pair, transient package provisioning, layer audits and publication gates. No
+reader-App secret or STANDARDS_PIN is used on that path. An unconverted v2
+Dockerfile definition fails the generic contract and must be migrated by its
+owner; the workflow never injects a package token into arbitrary Dockerfiles.
+
+The remaining Dockerfile contract below applies to Copier-era consumers only.
+Their existing build, pin, scans and publication behaviour is unchanged.
+
 | Input | Type | Default |
 | --- | --- | --- |
 | `config` | string | `.github/.devcontainer/devcontainer.json` |
@@ -15,8 +26,8 @@ outputs. The pilot consumer is `bookmark-scraper`.
 
 | Optional secret | Required when |
 | --- | --- |
-| `STANDARDS_READER_APP_ID` | Every full consumer |
-| `STANDARDS_READER_APP_PRIVATE_KEY` | Every full consumer |
+| `STANDARDS_READER_APP_ID` | Every Copier-era full consumer |
+| `STANDARDS_READER_APP_PRIVATE_KEY` | Every Copier-era full consumer |
 
 Callers explicitly forward both secrets as shown below; missing credentials
 fail before building. Fork PRs do not receive them and fail closed.

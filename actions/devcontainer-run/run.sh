@@ -6,6 +6,10 @@ export CI=true MISE_ENV=ci TURBO_CONCURRENCY=2 GIT_TERMINAL_PROMPT=0 GCM_INTERAC
 export IS_FORK="${IS_FORK:-false}" HAS_KNOWLEDGEBASE="${HAS_KNOWLEDGEBASE:-false}"
 cd -- "$GITHUB_WORKSPACE"
 bash "$GITHUB_ACTION_PATH/preflight.sh"
+export STANDARDS_SHAPE
+STANDARDS_SHAPE="$(node "$GITHUB_ACTION_PATH/../repository-image/image.mjs" shape)"
+package_token=
+if [[ "$STANDARDS_SHAPE" = v2 ]]; then package_token="${NODE_AUTH_TOKEN:-${IMAGE_PULL_TOKEN:-}}"; fi
 if [ "$IMAGE_MODE" = direct ]; then
   test "$RUNNER_ENVIRONMENT" = self-hosted
   test "$RUNNER_OS" = Linux
@@ -16,8 +20,14 @@ if [ "$IMAGE_MODE" = direct ]; then
   test -w /var/cache/devcontainer
   test "$UV_LINK_MODE" = copy
   unset IMAGE_PULL_TOKEN
-  mise install
-  mise run setup
+  if [[ "$STANDARDS_SHAPE" = v2 ]]; then
+    NODE_AUTH_TOKEN="$package_token" mise run setup
+    unset package_token NODE_AUTH_TOKEN
+    bash "$GITHUB_ACTION_PATH/preflight.sh" ready
+  else
+    mise install
+    mise run setup
+  fi
   exec bash "$GITHUB_ACTION_PATH/$PROJECT_TASK.sh"
 fi
 [ "$IMAGE_MODE" = hosted ] || { echo '::error::invalid image execution mode'; exit 1; }
@@ -48,6 +58,8 @@ image_id="$(docker image inspect --format '{{.Id}}' "$image")"
 [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
 rm -rf "$state/auth"
 unset IMAGE_PULL_TOKEN
+if [[ "$STANDARDS_SHAPE" = v2 ]]; then unset NODE_AUTH_TOKEN; fi
+cp "$GITHUB_ACTION_PATH/../repository-image/image.mjs" "$state/"
 cp "$GITHUB_ACTION_PATH/preflight.sh" "$GITHUB_ACTION_PATH/$PROJECT_TASK.sh" "$state/"
 # Do not inherit host Git credentials
 : > "$state/gitconfig"
@@ -65,5 +77,10 @@ gid="$(id -g)"
 # CLI remaps the home UID but not the image's writable tool/cache directories
 docker exec --user root "$cid" chown -R "$uid:$gid" /usr/local/share/mise /usr/local/share/mise-shims /var/cache/devcontainer
 "$cli" exec "${args[@]}" bash /run/project-image/preflight.sh
+if [[ "$STANDARDS_SHAPE" = v2 ]]; then export NODE_AUTH_TOKEN="$package_token"; fi
 "$cli" run-user-commands "${args[@]}" --default-user-env-probe none --skip-post-attach
+if [[ "$STANDARDS_SHAPE" = v2 ]]; then
+  unset NODE_AUTH_TOKEN package_token
+  "$cli" exec "${args[@]}" bash /run/project-image/preflight.sh ready
+fi
 "$cli" exec "${args[@]}" bash "/run/project-image/$PROJECT_TASK.sh"
