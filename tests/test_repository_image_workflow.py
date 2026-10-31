@@ -193,13 +193,17 @@ class Fixtures(unittest.TestCase):
             if field == "diff_ids": args[5]["rootfs"]["diff_ids"][-1] = "other"
             self.assertNotEqual(self.node("validateRebase", args).returncode, 0, field)
 
-    def make_archive(self, files, image_config=None):
+    def make_archive(self, files, image_config=None, links=None):
         layer = io.BytesIO()
         with tarfile.open(fileobj=layer, mode="w") as contents:
             for name, body in files.items():
                 member = tarfile.TarInfo(name)
                 member.size = len(body)
                 contents.addfile(member, io.BytesIO(body))
+            for name, (target, kind) in (links or {}).items():
+                member = tarfile.TarInfo(name)
+                member.type, member.linkname = kind, target
+                contents.addfile(member)
         archive = self.root / "artifact.tar"
         with tarfile.open(archive, "w") as saved:
             entries = {"manifest.json": json.dumps([{"Config": "config.json", "Layers": ["layer.tar"]}]).encode(),
@@ -209,6 +213,74 @@ class Fixtures(unittest.TestCase):
                 member.size = len(body)
                 saved.addfile(member, io.BytesIO(body))
         return archive
+
+    def test_source_provenance_uses_clean_tracked_snapshot_not_untracked_workspace(self):
+        owned = "Repository-owned bridge fixture\n" * 20
+        private = "Bundle-only fixture\n" * 20
+        src, result = self.prepare_consumer("source-provenance", {}, {"treefmt.toml": owned}, {
+            ".standards-config/config/treefmt.toml": owned,
+            ".standards-config/config/private.yml": private,
+            "untracked-policy.yml": private,
+        })
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
+        source = Path(outputs["context"]) / "src"
+        self.assertEqual((source / "treefmt.toml").read_text(), owned)
+        self.assertTrue((src / "untracked-policy.yml").is_file())
+        self.assertFalse((source / "untracked-policy.yml").exists())
+        self.assertFalse((source / ".standards-config").exists())
+        standards = src / ".standards-config"
+        archive = self.make_archive({"repo/treefmt.toml": owned.encode()})
+        with self.assertRaisesRegex(ValueError, "Shared Config Bundle content persisted"):
+            audit_module.audit(archive, standards, "b" * 40)
+        audit_module.audit(archive, standards, "b" * 40, source)
+        with self.assertRaisesRegex(ValueError, "Shared Config Bundle content persisted"):
+            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private.encode()}), standards, "b" * 40, source)
+
+    def test_source_provenance_never_waives_checkout_paths_links_or_pin_guards(self):
+        standards = self.root / "standards"
+        (standards / "config").mkdir(parents=True)
+        source = self.root / "source"
+        source.mkdir()
+        owned = b"Repository-owned bridge fixture\n" * 20
+        (standards / "config/treefmt.toml").write_bytes(owned)
+        (source / "treefmt.toml").write_bytes(owned)
+        pin = "a" * 40
+        with self.assertRaisesRegex(ValueError, "Shared Config Directory persisted"):
+            audit_module.audit(self.make_archive({"repo/.standards-config/config/treefmt.toml": owned}), standards, pin, source)
+        for kind in [tarfile.SYMTYPE, tarfile.LNKTYPE]:
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "Persistent link"):
+                audit_module.audit(self.make_archive({}, links={"repo/bridge": (".standards-config/config/treefmt.toml", kind)}), standards, pin, source)
+        pinned = (pin + "\n").encode() * 5
+        (source / "pin.txt").write_bytes(pinned)
+        (standards / "config/pin.txt").write_bytes(pinned)
+        with self.assertRaisesRegex(ValueError, "Build pin persisted in a layer"):
+            audit_module.audit(self.make_archive({"repo/pin.txt": pinned}), standards, pin, source)
+        for image_config in [{"config": {"Env": ["STANDARDS_PIN=other"]}}, {"history": [{"created_by": pin}]}]:
+            with self.assertRaisesRegex(ValueError, "Build pin persisted in image configuration/history"):
+                audit_module.audit(self.make_archive({}, image_config), standards, pin, source)
+
+    def test_source_provenance_never_follows_symlinks_or_includes_checkout_metadata(self):
+        standards = self.root / "standards"
+        (standards / "config").mkdir(parents=True)
+        private = b"Bundle-only fixture\n" * 20
+        (standards / "config/private.yml").write_bytes(private)
+        source = self.root / "source"
+        (source / ".standards-config/config").mkdir(parents=True)
+        (source / ".standards-config/config/private.yml").write_bytes(private)
+        (source / ".git").mkdir()
+        (source / ".git/copied-policy").write_bytes(private)
+        (source / "linked-policy").symlink_to(standards / "config/private.yml")
+        linked_source = self.root / "linked-source"
+        linked_source.symlink_to(source, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "Expected prepared source directory"):
+            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private}), standards, "a" * 40, linked_source)
+        with self.assertRaisesRegex(ValueError, "Shared Config Bundle content persisted"):
+            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private}), standards, "a" * 40, source)
+
+    def test_build_audit_receives_prepared_source_not_the_working_checkout(self):
+        build = (ASSETS / "build.sh").read_text()
+        self.assertIn('python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$GITHUB_WORKSPACE/.standards-config" "$STANDARDS_PIN" "$CONTEXT/src"', build)
 
     def test_layer_audit_catches_deleted_bundle_paths_content_and_pin_in_config_history(self):
         standards = self.root / "standards"
@@ -311,7 +383,7 @@ done
             (self.root / "docker-calls").unlink()
         self.assertTrue(safe_archive.exists())
 
-    def prepare_consumer(self, name, links, extra_files=None):
+    def prepare_consumer(self, name, links, extra_files=None, untracked_files=None):
         src = self.root / name
         files = {
             ".gitignore": "/.standards-config/\n",
@@ -344,6 +416,10 @@ done
         policy.parent.mkdir(parents=True, exist_ok=True)
         if not policy.exists():
             policy.write_text("Untracked policy fixture\n" * 20)
+        for name, body in (untracked_files or {}).items():
+            target = src / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body)
         cli = self.stub("devcontainer", 'printf \'{"configuration":{"features":{},"configFilePath":{}}}\'\n')
         output = Path(self.env["GITHUB_OUTPUT"])
         output.unlink(missing_ok=True)

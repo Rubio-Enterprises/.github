@@ -13,10 +13,22 @@ def bundle_hashes(standards):
     }
 
 
-def audit(archive, standards, pin):
+def audit(archive, standards, pin, source=None):
     fingerprints = bundle_hashes(standards)
     if not fingerprints:
         raise ValueError("Shared Config Bundle is missing")
+    if source is not None:
+        if source.is_symlink() or not source.is_dir():
+            raise ValueError("Expected prepared source directory")
+        for file in source.rglob("*"):
+            if (file.is_symlink() or not file.is_file() or file.stat().st_size < 128
+                    or {".git", ".standards-config"}.intersection(file.relative_to(source).parts)):
+                continue
+            checksum = hashlib.sha256()
+            with file.open("rb") as data:
+                while block := data.read(1024 * 1024):
+                    checksum.update(block)
+            fingerprints.discard(checksum.digest())
     with tarfile.open(archive) as saved:
         manifests = json.load(saved.extractfile("manifest.json"))
         if len(manifests) != 1:
@@ -50,7 +62,7 @@ def audit(archive, standards, pin):
 
 if __name__ == "__main__":
     try:
-        audit(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+        audit(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4]) if len(sys.argv) > 4 else None)
     except (ValueError, KeyError, tarfile.TarError) as error:
         print(f"::error::{error}", file=sys.stderr)
         sys.exit(1)
