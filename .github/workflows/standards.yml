@@ -76,12 +76,16 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # A repository task of the same name silently replaces a package task (mise precedence), so
+      # `check`/`check:pr` must be the package's: same file content as the installed release's
+      # mise/standards.toml (by content, not path: the standards repository links its own tree).
       - name: Require the package's own check and check:pr tasks
         run: |
-          pkg="$(realpath .standards/node_modules/@rubio-enterprises/standards/mise/standards.toml)"
+          pkg=.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml
+          want="$(git hash-object "$pkg")"
           for task in check check:pr; do
             src="$(mise tasks info "$task" --json | jq -r .source)"
-            [ "$(realpath "$src")" = "$pkg" ] ||
+            [ "$(git hash-object "$src")" = "$want" ] ||
               { echo "::error::$task comes from $src, not the Standards Package; delete the repository's $task task"; exit 1; }
           done
       - id: check
