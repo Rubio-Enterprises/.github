@@ -90,8 +90,12 @@ as a named BuildKit context for the tool and setup steps. A separate read-only
 context supplies the expected pin, avoiding pin build arguments in image history.
 Neither context is copied. No standards credential reaches Docker. Builds install
 tools with `mise install --system`, never fetch standards in-container, and set
-`UV_LINK_MODE=copy`. Current standards and a validated runtime pin must be
-provisioned again before runtime setup.
+`UV_LINK_MODE=copy`. Mutable uv/npm/pnpm/Go/mise caches live under
+`/home/vscode/.cache/`, owned by vscode during the build. The Dev Container CLI
+re-owns that home when it remaps the remote user's UID/GID on Linux; fixed
+paths outside the home would retain the build UID. Do not mount over the home
+or cache tree if baked caches must remain available. Current standards and a
+validated runtime pin must be provisioned again before runtime setup.
 
 ## Artifacts and safety gates
 
@@ -128,7 +132,11 @@ too. This catches direct bundle-only copies, not arbitrary transformations of
 policy by trusted project setup; source/mount discipline is still necessary.
 Reports never render matching contents. The CI smoke runs as
 UID 1000 under no-new-privileges and checks the runner, mise/gh/jq, writable
-cache/tool/runner paths and uv copy mode. This is not a test of arbitrary Feature
+cache/tool/runner paths and uv copy mode. Both dev and CI artifacts also seed
+nested cache metadata as UID 1000 and verify append/create/rename/delete as
+UID 1000 and, in a separate disposable container, UID/GID 1001 after the CLI's
+home-only ownership migration. Only that test's identity migration runs as root;
+cache writes and project setup run as vscode. This is not a test of arbitrary Feature
 lifecycle commands: plain Container Pool runners do not interpret Dev Container
 metadata. Runtime setup and Feature-specific behavior require caller qualification.
 Docker/KVM/ARM project jobs stay on Machine Pools; macOS native jobs stay native.

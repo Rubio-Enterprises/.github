@@ -56,6 +56,7 @@ ROOTED_PUBLIC_CACHE_SKIP_PATTERNS = (
     "root/.local/share/mise/installs/**",
     "mnt/devcontainer-cache/mise/installs/**",
     "var/cache/devcontainer/gomod/**",
+    "home/*/.cache/gomod/**",
     "mnt/devcontainer-cache/gomod/**",
     "home/*/go/pkg/mod/**",
     "root/go/pkg/mod/**",
@@ -597,6 +598,26 @@ class RealTrivyTests(unittest.TestCase):
             self.assertNotIn(path, result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
+    def test_repository_image_home_caches_exclude_packages_not_nearby_config(self) -> None:
+        from test_repository_image_cache import cache_environment
+        environment = cache_environment()
+        suffixes = {
+            "UV_CACHE_DIR": "/archive-v0/pkg/credentials.env",
+            "npm_config_cache": "/_cacache/content-v2/sha512/fixture",
+            "pnpm_config_store_dir": "/v11/files/ff/fixture",
+            "GOMODCACHE": "/example.com/pkg@v1.0.0/credentials.env",
+            "MISE_CACHE_DIR": "/downloads-cas/blobs/fixture",
+        }
+        for name, suffix in suffixes.items():
+            self.put((environment[name] + suffix).lstrip("/"), "TOKEN=" + self.token)
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.put("home/vscode/.cache/npm/.npmrc", "TOKEN=" + self.token)
+        result = self.scan()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("home/vscode/.cache/npm/.npmrc", result.stdout)
+        self.assertNotIn(self.token, result.stdout + result.stderr)
+
     def public_ruby_gem_fixtures(self) -> dict[str, str]:
         prefixes = (
             "usr/local/bundle/gems/", "usr/local/bundle/cache/",
@@ -646,6 +667,7 @@ class RealTrivyTests(unittest.TestCase):
             "root/.local/share/mise/installs/" + go: private_key,
             "mnt/devcontainer-cache/mise/installs/" + go: private_key,
             "var/cache/devcontainer/gomod/" + module: private_key,
+            "home/vscode/.cache/gomod/" + module: private_key,
             "mnt/devcontainer-cache/gomod/" + module: private_key,
             "home/vscode/go/pkg/mod/" + module: private_key,
             "root/go/pkg/mod/" + module: private_key,
@@ -674,6 +696,9 @@ class RealTrivyTests(unittest.TestCase):
             self.put(name, content)
         protected = (
             "home/vscode/.npmrc", "home/vscode/.config/mise/config.toml",
+            "home/vscode/.cache/npm/.npmrc", "home/vscode/.cache/mise/config.toml",
+            "home/vscode/.cache/credentials.env",
+            "workspaces/project/home/vscode/.cache/gomod/credentials.env",
             "home/vscode/.bun/bunfig.toml", "home/vscode/.npm/_logs/credentials.env",
             "usr/local/share/mise/config.toml", "var/cache/devcontainer/turbo/credentials.env",
             "workspaces/project/src/credentials.ts",

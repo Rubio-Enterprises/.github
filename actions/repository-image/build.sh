@@ -82,3 +82,10 @@ docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-
     if sudo -n true 2>/dev/null; then exit 1; fi
     test -z "${STANDARDS_PIN:-}"
   '
+for artifact in "$IMAGE" "$CI_IMAGE"; do
+  for uid in 1000 1001; do
+    docker run --rm -i --network none --security-opt no-new-privileges --user root \
+      --memory 1g --pids-limit 512 --entrypoint bash "$artifact:sha-$GITHUB_SHA-$ARCH" \
+      -s -- "$uid" < "$ASSETS/cache-smoke.sh"
+  done
+done

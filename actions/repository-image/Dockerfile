@@ -4,15 +4,18 @@ ARG BASE
 FROM ${BASE}
 ARG REPO
 USER root
+# Dev Container UID remapping re-owns only the remote user's home
 ENV MISE_PYTHON_COMPILE=0 \
-    UV_CACHE_DIR=/var/cache/devcontainer/.cache/uv \
+    MISE_CACHE_DIR=/home/vscode/.cache/mise \
+    UV_CACHE_DIR=/home/vscode/.cache/uv \
     UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/usr/local/share/mise/python \
-    pnpm_config_store_dir=/var/cache/devcontainer/pnpm-store \
-    npm_config_cache=/var/cache/devcontainer/_cacache \
-    GOMODCACHE=/var/cache/devcontainer/gomod \
+    pnpm_config_store_dir=/home/vscode/.cache/pnpm-store \
+    npm_config_cache=/home/vscode/.cache/npm \
+    GOMODCACHE=/home/vscode/.cache/gomod \
     GOFLAGS=-modcacherw
-RUN install -d -o vscode -g vscode /usr/local/share/mise /var/cache/devcontainer
+RUN install -d -o vscode -g vscode /usr/local/share/mise /home/vscode/.cache \
+    "$MISE_CACHE_DIR" "$UV_CACHE_DIR" "$pnpm_config_store_dir" "$npm_config_cache" "$GOMODCACHE"
 USER vscode
 RUN --mount=type=bind,from=pins,target=/workspaces/.mise-pins \
     --mount=type=bind,from=standards,target=/workspaces/.mise-pins/.standards-config \
