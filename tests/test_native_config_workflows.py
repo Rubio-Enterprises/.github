@@ -327,10 +327,11 @@ class OrganizationTemplateTests(unittest.TestCase):
         self.assertIn("PR_TEMPLATE_OUTCOME: ${{ steps.pr_template.outcome }}", setup)
         self.assertIn('require_success "organization PR template fetch"', setup)
 
-    def test_standards_content_follows_main_without_channel_environment(self) -> None:
-        checkout = extract_step(GATES, "Check out standards main")
+    def test_standards_content_follows_the_legacy_branch_without_channel_environment(self) -> None:
+        checkout = extract_step(GATES, "Check out standards legacy ref")
         self.assertIn("repository: Rubio-Enterprises/standards", checkout)
-        self.assertIn("ref: main", checkout)
+        self.assertIn("ref: ${{ env.STANDARDS_LEGACY_REF }}", checkout)
+        self.assertIn("STANDARDS_LEGACY_REF: legacy/copier", GATES)
         for token in ("STANDARDS_CHANNEL", "standards_channel", "property_value ring",
                       "outputs.channel", "config_model", "STANDARDS_PIN"):
             self.assertNotIn(token, GATES)

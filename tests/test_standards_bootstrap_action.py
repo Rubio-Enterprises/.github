@@ -16,7 +16,7 @@ from test_ruby_workflows import ROOT, extract_run_block, extract_step
 ACTION = (ROOT / "actions" / "standards-bootstrap" / "action.yml").read_text(encoding="utf-8")
 PREREQUISITES = "Check the native prerequisites"
 MINT = "Mint the standards read token"
-RESOLVE = "Resolve standards main once"
+RESOLVE = "Resolve the standards legacy ref once"
 CHECKOUT = "Check out the Shared Config Directory"
 UNROUTE = "Remove the standards read route"
 VALIDATE = "Validate and export the standards pin"
@@ -265,12 +265,18 @@ class ResolutionTests(unittest.TestCase):
                         gh.chmod(0o755)
                         result = run(RESOLVE, root, shell=shell, SHA=sha, CODE=str(code),
                                      ARGS=str(root / "args"), PATH=f"{root}:{os.environ['PATH']}",
+                                     STANDARDS_LEGACY_REF="legacy/copier",
                                      GITHUB_OUTPUT=str(root / "out"))
                         valid = code == 0 and bool(re.fullmatch("[0-9a-f]{40}", sha))
                         self.assertEqual(result.returncode == 0, valid, result.stderr)
                         self.assertEqual(outputs(root / "out"), {"sha": sha} if valid else {})
                         self.assertEqual((root / "args").read_text().strip(),
-                                         "api repos/Rubio-Enterprises/standards/commits/main --jq .sha")
+                                         "api repos/Rubio-Enterprises/standards/commits/legacy/copier --jq .sha")
+
+    def test_resolution_targets_the_legacy_branch_not_main(self) -> None:
+        step = extract_step(ACTION, RESOLVE)
+        self.assertIn("STANDARDS_LEGACY_REF: legacy/copier", step)
+        self.assertNotIn("commits/main", ACTION)
 
 
 class CheckoutTests(unittest.TestCase):

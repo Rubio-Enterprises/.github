@@ -37,13 +37,14 @@ runs on every `standards-onboarded` repo and reads its `gate-audit`,
 `gate-lint-config`, `gate-pr-conventions`, and `gate-secret-scan` properties to pick
 its checks (all set in `.github-private` Terraform). The org gate rulesets
 **inject** them into the consumer's PR checks. They are **not** thin-called
-from `standards.yml`. The content-bearing gate checks out `standards@main`
+from `standards.yml`. The content-bearing gate checks out standards `legacy/copier` (the Copier-era
+tree; standards `main` is now the v2 package; one `STANDARDS_LEGACY_REF` constant)
 at runtime without reading a ring property. Terraform owns the injected workflow
 ref at `refs/heads/main`. Reusable workflows and actions also follow `@main`.
 
 | Gate workflow | Gate Family | What it does | Standards content |
 | --- | --- | --- | --- |
-| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item; the rules come from this repo's `.github/PULL_REQUEST_TEMPLATE.md`, the organization default, read at the workflow's own commit and passed as `PR_TEMPLATE_PATH`), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | `main`, runtime-resolved |
+| `standards-gates.yml` | `standards-gates` | One job; the repository's `gate-audit` / `gate-lint-config` / `gate-pr-conventions` / `gate-secret-scan` properties select its checks: audit (Layer A `check.sh` + B `check-jsonschema` + C Conftest `--combine` + npm-lockfile integrity + managed-content strict gate), lint-config (canonical config drift, Classification Answers, hook override and nested-config policy), PR conventions (Danger JS: title, description, work item; the rules come from this repo's `.github/PULL_REQUEST_TEMPLATE.md`, the organization default, read at the workflow's own commit and passed as `PR_TEMPLATE_PATH`), and gitleaks on the PR range. Check logic is `standards` `ci/gate-*.sh`; this file installs only what the selected checks execute (`.github-private` ADR 0002) | `legacy/copier`, runtime-resolved |
 | `typecheck-ts.yml` | `gate-typescript` | `mise run typecheck` (repos declaring `has_typescript`), graceful no-task notice | — |
 | `build.yml` | `gate-build` | BD-01 non-publishing `mise run build` (`has_release_artifact`; Swift on `RUNNERS.macos`, unsigned) and CT-01 `compose.ci.yml` smoke with healthy and non-root assertions (`has_container_image`). A declared check with no task or descriptor fails. See [`docs/build-gate.md`](docs/build-gate.md) | — |
 
@@ -54,7 +55,7 @@ inherits lint configs, hooks and lint-tool pins from a gitignored Shared Config 
 up with the shared composite action
 [`actions/standards-bootstrap`](actions/standards-bootstrap/action.yml), which repository
 workflows use too ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). The action
-resolves standards `main` once, checks out that full-history SHA with the reader
+resolves standards `legacy/copier` once, checks out that full-history SHA with the reader
 App token and no persisted credentials, then exports `STANDARDS_PIN` for the job.
 It validates the clean checkout and credential-free origin before loading consumer config.
 

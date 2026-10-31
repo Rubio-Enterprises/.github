@@ -113,7 +113,7 @@ particularly in private repositories or for API/CLI-created issues.
 A repository workflow that runs mise in a full standards consumer
 calls the [`standards-bootstrap`](./actions/standards-bootstrap/action.yml)
 composite action first. It provisions a full-history Shared Config Directory
-at one resolved standards `main` commit, exports `STANDARDS_PIN`, and runs mise
+at one resolved standards `legacy/copier` commit, exports `STANDARDS_PIN`, and runs mise
 without a standards token route. See [`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md)
 for the stub and secrets contract.
 
@@ -162,8 +162,9 @@ a separate publication request. Recover a regression with a reviewed revert.
 
 ## Standards dependency
 
-The `standards-gates.yml` workflow checks out private `standards@main` for
-every applicable consumer; there is no ring selection or Channel environment.
+The `standards-gates.yml` workflow checks out private `standards` at the
+`legacy/copier` branch (the Copier-era tree, frozen while standards `main`
+becomes the v2 package) for every applicable consumer; there is no ring selection or Channel environment.
 Audit content therefore follows reviewed standards merges without a `.github`
 release. Starter inputs still reach consumers through Copier updates.
 

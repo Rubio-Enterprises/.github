@@ -24,6 +24,9 @@ jobs:
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     env:
+      # standards main is the v2 package; these gates run the Copier-era
+      # checks, which stay on this branch until the old gates retire.
+      STANDARDS_LEGACY_REF: legacy/copier
       # Bootstrap installs only what the applicable gates execute. A gate's
       # `mise exec` must never install the rest of a consumer or standards
       # toolchain (for example Rust), so a missing tool fails that gate instead.
@@ -85,7 +88,7 @@ jobs:
             echo "secret_scan=$secret_scan"
             echo "any_selected=$any_selected"
           } >> "$GITHUB_OUTPUT"
-          echo "::notice::standards main; selected: audit=$audit lint-config=$lint_config pr-conventions=$pr_conventions secret-scan=$secret_scan"
+          echo "::notice::standards legacy ref; selected: audit=$audit lint-config=$lint_config pr-conventions=$pr_conventions secret-scan=$secret_scan"
 
       - name: Check out the consumer repository
         id: consumer_checkout
@@ -221,13 +224,13 @@ jobs:
           repositories: standards
           permission-contents: read
 
-      - name: Check out standards main
+      - name: Check out standards legacy ref
         id: standards_checkout
         if: steps.applicability.outputs.setup_needed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/standards
-          ref: main
+          ref: ${{ env.STANDARDS_LEGACY_REF }}
           path: .standards
           token: ${{ steps.standards_token.outputs.token }}
           persist-credentials: false
@@ -240,7 +243,7 @@ jobs:
           set -euo pipefail
           sha="$(git -C .standards rev-parse HEAD)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "standards \`main\` resolved to \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "standards \`$STANDARDS_LEGACY_REF\` resolved to \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install uv
         id: setup_uv
