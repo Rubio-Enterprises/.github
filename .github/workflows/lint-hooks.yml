@@ -409,6 +409,15 @@ jobs:
         if: needs.detect.outputs.image_mode == '' && (hashFiles('pnpm-lock.yaml') != '')
         run: pnpm install --frozen-lockfile --network-concurrency=8 --child-concurrency=2
         shell: bash
+      - name: Install locked npm dependencies for repository-owned hooks
+        if: >-
+          needs.detect.outputs.image_mode == '' &&
+          hashFiles('package-lock.json') != '' && hashFiles('pnpm-lock.yaml') == ''
+        run: |
+          if grep -qE '^has_(javascript|typescript):[[:space:]]*true[[:space:]]*$' .copier-answers.yml 2>/dev/null; then
+            npm ci
+          fi
+        shell: bash
       - name: Run lefthook pre-commit across all files
         if: needs.detect.outputs.image_mode == '' && (needs.detect.outputs.is_fork != 'true')
         # MISE_ENV=ci is forwarded so any mise env-conditional config behaves

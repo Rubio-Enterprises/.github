@@ -141,6 +141,71 @@ class ForkFileListTests(unittest.TestCase):
         )
 
 
+class NpmDependenciesTests(unittest.TestCase):
+    def test_npm_install_is_frozen_facet_gated_and_skips_image_or_pnpm_paths(self):
+        name = "Install locked npm dependencies for repository-owned hooks"
+        block = WORKFLOW_TEXT.split(f"- name: {name}", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("needs.detect.outputs.image_mode == ''", block)
+        self.assertIn("^has_(javascript|typescript):", block)
+        self.assertIn("hashFiles('package-lock.json') != ''", block)
+        self.assertIn("hashFiles('pnpm-lock.yaml') == ''", block)
+        self.assertIn("npm ci", extract_run_block(name))
+        self.assertNotIn("ignore-scripts", block)
+        self.assertNotIn("continue-on-error", block)
+        self.assertNotIn("cache", block)
+        for step in (ALL_FILES_STEP, FORK_STEP):
+            self.assertLess(WORKFLOW_TEXT.index(f"- name: {name}"),
+                            WORKFLOW_TEXT.index(f"- name: {step}"))
+
+    def test_js_dependency_facet_is_declared_not_inferred_from_a_manifest(self):
+        body = extract_run_block("Install locked npm dependencies for repository-owned hooks")
+        for answers, expected in [
+            ("has_typescript: true\n", "true"),
+            ("has_javascript: true\n", "true"),
+            ("has_typescript: false\nhas_javascript: false\n", "false"),
+            ('has_typescript: "true"\n', "false"),
+            ("", "false"),
+        ]:
+            with self.subTest(answers=answers), tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp)
+                (repo / ".copier-answers.yml").write_text(answers)
+                (repo / "package.json").write_text('{}')
+                output = repo / "output"
+                npm = repo / "npm"
+                npm.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$NPM_TRACE"\n')
+                npm.chmod(0o755)
+                env = {**os.environ, "NPM_TRACE": str(output),
+                       "PATH": f"{repo}:{os.environ['PATH']}"}
+                result = subprocess.run(["bash", "-c", body], cwd=repo, env=env,
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.exists(), expected == "true")
+                if output.exists():
+                    self.assertEqual(output.read_text(), "ci\n")
+
+    def test_npm_install_failure_fails_the_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".copier-answers.yml").write_text("has_typescript: true\n")
+            npm = repo / "npm"
+            npm.write_text("#!/bin/sh\nexit 7\n")
+            npm.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-c", extract_run_block("Install locked npm dependencies for repository-owned hooks")],
+                cwd=repo, env={**os.environ, "PATH": f"{repo}:{os.environ['PATH']}"},
+                text=True, capture_output=True,
+            )
+        self.assertEqual(result.returncode, 7)
+
+    def test_existing_pnpm_install_policy_is_unchanged(self):
+        block = WORKFLOW_TEXT.split("- name: Install JS deps (so lefthook.local.yml pnpm hooks resolve workspace packages)", 1)[1]
+        block = block.split("\n      - name:", 1)[0]
+        self.assertIn("needs.detect.outputs.image_mode == ''", block)
+        self.assertIn("hashFiles('pnpm-lock.yaml') != ''", block)
+        self.assertIn("pnpm install --frozen-lockfile --network-concurrency=8 --child-concurrency=2", block)
+        self.assertNotIn("ignore-scripts", block)
+
+
 class HookToolDownloadTests(unittest.TestCase):
     def test_on_demand_hook_tools_receive_the_repo_token(self) -> None:
         for step in (ALL_FILES_STEP, FORK_STEP):
