@@ -280,20 +280,46 @@ package-cache layouts (Trivy paths have no leading slash):
 - Default pnpm store: `home/*/.local/share/pnpm/store/` and
   `root/.local/share/pnpm/store/`.
 - Builder uv cache: `{var/cache/devcontainer,mnt/devcontainer-cache}/uv/`.
+- RubyGems package subtrees (`gems/`) and downloaded archives (`cache/*.gem`)
+  under `usr/local/bundle/`, `{home/*,root}/.gem/` (flat or engine/API-version
+  scoped), and `{home/*,root}/.local/share/gem/<engine>/<api>/`. Bundler's
+  engine/API subdirectories under `usr/local/bundle/` are covered too.
+- App-scoped Bundler installs: only `gems/` and `cache/*.gem` beneath
+  `{home/*,root}/.cache/*/bundle/<engine>/<api>/`. This covers relocated public
+  gems without excluding the app's entire cache.
+- Project Bundler installs: only `gems/` and `cache/*.gem` beneath
+  `workspaces/*/.bundle/<engine>/<api>/`.
 
 Braces abbreviate separate patterns, not a glob syntax dependency.
 There are no version, package, finding-ID or fixture-filename exceptions. The
 mise install roots are public tool/package trees; Go distributes public test keys
 there and in the module/toolchain cache. Bun's package cache likewise carries
 public documentation with sample credentials. The relocations must not turn
-those upstream fixtures into credential findings.
+those upstream fixtures into credential findings. RubyGems/Bundler likewise
+install public gem source containing sample JWTs. Engine and API-version
+components are single-directory wildcards, not unrestricted descendants.
+RubyGems' [user-directory implementation](https://github.com/rubygems/rubygems/blob/v3.6.2/lib/rubygems/defaults.rb)
+and [Bundler's configuration reference](https://bundler.io/man/bundle-config.1.html)
+describe these layouts. The preserved upstream `vendor` allow rule already covers
+`vendor/bundle` and `vendor/cache`; no new vendor exclusion is added.
+
+Whole Ruby/Bundler cache directories are deliberately **not** excluded.
+[Bundler](https://github.com/rubygems/rubygems/blob/v3.6.2/bundler/lib/bundler/source/git.rb)
+can put bare Git repositories in `cache/bundler/git/` or its user cache; their
+`config` files can retain authenticated remote URLs. Only downloaded `.gem`
+archives are excluded there. Git-cache configs remain scanned in filesystem
+and saved-image regressions.
 
 Only these named subtrees are added, not the whole mise data directory,
 `/var/cache/devcontainer`, home configuration or logs. `.npmrc`, `.ssh`, mise and
 Bun configuration, npm logs, first-party build caches and repository source stay
-in scope. A repository path merely containing one of the new root paths does not
-match. Image environment/history scanning, detectors, severities, redacted
-reporting and scan-error publication gates are unchanged in both reusables.
+in scope outside preserved dependency exclusions. Ruby credentials/configuration
+such as `.gem/credentials`, `.gemrc`, `.config/gem/credentials`, `.bundle/config`
+and `usr/local/bundle/config` remain scanned. So do Bundler install logs outside
+the named package/cache subtrees. A repository path merely containing one of the
+new root paths does not match. Image environment/history scanning, detectors,
+severities, redacted reporting and scan-error publication gates remain unchanged
+in both reusables.
 Credentials must not be placed in excluded public install/cache trees: path
 exclusions do not authenticate contents or prove that an excluded file is safe.
 
@@ -393,8 +419,13 @@ checks workflow syntax; zizmor checks security. YAML anchors share the two build
 jobs' matrix and steps while preserving separate token scopes. Also audit an
 alias-expanded temporary copy because zizmor warns about anchor support.
 Set `TRIVY_TEST_BINARY` to a checksum-verified Trivy 0.76.1 binary when running
-`tests/test_devcontainer_image_workflow.py` to include the seven real-scanner
-regressions; without it, only those optional integration tests are skipped.
+`tests/test_devcontainer_image_workflow.py` to include the real-scanner
+regressions. Set `PUBLIC_RUBY_GEM_CLIENT` to the checksum-verified
+`aws-sdk-core` 3.261.0 `lib/aws-sdk-ssooidc/client.rb` to also
+exercise the actual public JWT documentation: excluded in the gem install, still
+MEDIUM findings when copied to first-party source. The hash is a test-provenance
+assertion, not a production scan exception. Unavailable integration inputs skip
+only their optional tests.
 
 Only a real caller can prove native builds, GHCR permissions/private visibility,
 first-build cache misses, cache reuse, manifest platforms, pruning, and runtime
