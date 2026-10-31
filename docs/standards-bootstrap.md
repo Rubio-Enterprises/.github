@@ -48,6 +48,18 @@ one pin without standards Git transport; they do not receive its App token.
 The central workflows use it: the `lint-hooks`, `typecheck-ts` and `build` gates
 and the `e2e`, `cloud-setup-smoke` and `devcontainer-image` reusables.
 
+## Repository-owned hook dependencies
+
+Bootstrap installs tool pins, not application dependencies. On non-image runs,
+`lint-hooks` installs the locked workspace packages before executing either fork
+or all-files hooks. Existing pnpm consumers retain their frozen, bounded-concurrency
+install and cache policy. A repository declaring `has_typescript: true` or
+`has_javascript: true`, with a root `package-lock.json` and no root pnpm lock, runs
+`npm ci` so repository-owned hooks can resolve their locked tools such as ESLint.
+The npm path adds no cache or lifecycle-script suppression, matching the existing
+pnpm install policy. A failed install fails the job. Image-mode execution skips
+both dependency-install paths because Repository Image setup owns them.
+
 ## Calling it from a repository workflow
 
 ```yaml
