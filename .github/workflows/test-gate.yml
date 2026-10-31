@@ -9,6 +9,20 @@ name: test-gate
 # workflow-validation.yml no longer runs this suite (its unittest step was
 # retired in favor of this gate); it keeps actionlint
 "on":
+  workflow_dispatch:
+    inputs:
+      v2-ref:
+        description: Approved org-ops v2 commit
+        required: true
+        type: string
+      legacy-ref:
+        description: Approved homebrew-tap legacy commit
+        required: true
+        type: string
+      legacy-pin:
+        description: Approved standards legacy/copier commit
+        required: true
+        type: string
   pull_request:
   merge_group:
 permissions:
@@ -20,6 +34,249 @@ concurrency:
 # a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
+  qualification-base:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 10
+    outputs:
+      base: ${{ steps.base.outputs.base }}
+      base-ci: ${{ steps.base.outputs.base-ci }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - id: base
+        env:
+          BASE: ghcr.io/rubio-enterprises/devcontainers/base:latest
+          BASE_CI: ghcr.io/rubio-enterprises/devcontainers/base-ci:latest
+        run: node actions/repository-image/image.mjs resolve
+
+  qualify-image:
+    if: github.event_name == 'workflow_dispatch'
+    needs: qualification-base
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shape: [v2, legacy]
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) || (fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]')) }}
+    timeout-minutes: 120
+    env:
+      ASSETS: ${{ github.workspace }}/actions/repository-image
+      SOURCE_REPO: ${{ matrix.shape == 'v2' && 'org-ops' || 'homebrew-tap' }}
+      SOURCE_SHA: ${{ matrix.shape == 'v2' && inputs.v2-ref || inputs.legacy-ref }}
+      STANDARDS_PIN: ${{ inputs.legacy-pin }}
+      ARCH: ${{ matrix.arch }}
+      EXPECT_SHAPE: ${{ matrix.shape }}
+      BASE: ${{ needs.qualification-base.outputs.base }}
+      BASE_CI: ${{ needs.qualification-base.outputs.base-ci }}
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Validate fixed source commits
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ && "$STANDARDS_PIN" =~ ^[a-f0-9]{40}$ ]]
+      - id: reader
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: Rubio-Enterprises
+          repositories: ${{ matrix.shape == 'v2' && 'org-ops' || 'standards' }}
+          permission-contents: read
+          skip-token-revoke: true
+      - name: Check out the representative
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/${{ env.SOURCE_REPO }}
+          ref: ${{ env.SOURCE_SHA }}
+          path: source/${{ env.SOURCE_REPO }}
+          token: ${{ matrix.shape == 'v2' && steps.reader.outputs.token || github.token }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Provision only the legacy checkout
+        if: matrix.shape == 'legacy'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/standards
+          ref: ${{ env.STANDARDS_PIN }}
+          path: source/homebrew-tap/.standards-config
+          token: ${{ steps.reader.outputs.token }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Normalize and verify the legacy source checkout
+        if: matrix.shape == 'legacy'
+        run: |
+          set -euo pipefail
+          shared="$GITHUB_WORKSPACE/source/homebrew-tap/.standards-config"
+          git -C "$shared" remote set-url origin https://github.com/Rubio-Enterprises/standards.git
+          [[ "$(git -C "$shared" rev-parse HEAD)" = "$STANDARDS_PIN" ]]
+          [[ "$(git -C "$shared" rev-parse --is-shallow-repository)" = false ]]
+          [[ -z "$(git -C "$shared" status --porcelain --untracked-files=all)" ]]
+      - name: Revoke the source reader before project code
+        if: always() && steps.reader.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.reader.outputs.token }}
+        run: gh api --method DELETE /installation/token >/dev/null
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Install the pinned CLI and extract unchanged production scans
+        run: |
+          set -euo pipefail
+          npm_config_cache="$RUNNER_TEMP/qualifier-cli-cache" npm install --prefix "$RUNNER_TEMP/devcontainer-cli" --ignore-scripts --no-audit --no-fund @devcontainers/cli@0.89.0
+          PYTHONPATH=tests python3 -c 'from test_repository_image_workflow import script; print(script("Install checksum-pinned Trivy"), end="")' > "$RUNNER_TEMP/install-trivy.sh"
+          PYTHONPATH=tests python3 -c 'from test_repository_image_workflow import script; print(script("Scan both local artifacts for secrets"), end="")' > "$RUNNER_TEMP/scan-images.sh"
+          bash "$RUNNER_TEMP/install-trivy.sh"
+      - id: shape
+        name: Inspect committed standards shape
+        run: |
+          set -euo pipefail
+          export GITHUB_WORKSPACE="$GITHUB_WORKSPACE/source/$SOURCE_REPO"
+          [[ "$(cd "$GITHUB_WORKSPACE" && node "$ASSETS/image.mjs" shape)" = "$EXPECT_SHAPE" ]]
+          node "$ASSETS/image.mjs" inspect
+      - id: release
+        if: matrix.shape == 'v2'
+        env:
+          STANDARDS_RELEASE: ${{ steps.shape.outputs.release }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        run: node "$ASSETS/image.mjs" release
+      - id: prepared
+        name: Prepare exact candidate build inputs
+        env:
+          STANDARDS_SHAPE: ${{ matrix.shape }}
+          STANDARDS_VERSION: ${{ steps.release.outputs.version }}
+          STANDARDS_INTEGRITY: ${{ steps.release.outputs.integrity }}
+          CONFIG: .github/.devcontainer/devcontainer.json
+        run: |
+          set -euo pipefail
+          export GITHUB_WORKSPACE="$GITHUB_WORKSPACE/source/$SOURCE_REPO" GITHUB_SHA="$SOURCE_SHA"
+          export DEVCONTAINER="$RUNNER_TEMP/devcontainer-cli/node_modules/.bin/devcontainer"
+          node "$ASSETS/image.mjs" prepare
+      - name: Pack only the verified v2 release
+        if: matrix.shape == 'v2'
+        env:
+          CONTEXT: ${{ steps.prepared.outputs.context }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        run: node "$ASSETS/image.mjs" pack
+      - name: Build, rebase, audit and scan without publication
+        env:
+          CONTEXT: ${{ steps.prepared.outputs.context }}
+        run: |
+          set -euo pipefail
+          export GITHUB_WORKSPACE="$GITHUB_WORKSPACE/source/$SOURCE_REPO" GITHUB_SHA="$SOURCE_SHA"
+          export GITHUB_REPOSITORY="Rubio-Enterprises/$SOURCE_REPO"
+          export IMAGE="ghcr.io/rubio-enterprises/$SOURCE_REPO/devcontainer" CI_IMAGE="ghcr.io/rubio-enterprises/$SOURCE_REPO/devcontainer-ci"
+          export DEVCONTAINER="$RUNNER_TEMP/devcontainer-cli/node_modules/.bin/devcontainer"
+          bash "$ASSETS/build.sh" > "$RUNNER_TEMP/build.log" 2>&1 || { tail -n 100 "$RUNNER_TEMP/build.log"; exit 1; }
+          if [[ "$EXPECT_SHAPE" = v2 ]]; then
+            before="$(docker image inspect --format '{{.Id}}' "$IMAGE:sha-$GITHUB_SHA-$ARCH")"
+            bash "$ASSETS/build.sh" > "$RUNNER_TEMP/cache-build.log" 2>&1 || { tail -n 100 "$RUNNER_TEMP/cache-build.log"; exit 1; }
+            after="$(docker image inspect --format '{{.Id}}' "$IMAGE:sha-$GITHUB_SHA-$ARCH")"
+            [[ "$before" = "$after" ]]
+            python3 -c 'import os,pathlib; assert "CACHED" in (pathlib.Path(os.environ["RUNNER_TEMP"]) / "cache-build.log").read_text()'
+            echo 'Second build reused cache with an identical image ID.'
+          fi
+          bash "$RUNNER_TEMP/scan-images.sh"
+          for artifact in "$IMAGE" "$CI_IMAGE"; do
+            docker image inspect --format '{{.Id}}' "$artifact:sha-$GITHUB_SHA-$ARCH"
+            docker history --no-trunc --format '{{.CreatedBy}}' "$artifact:sha-$GITHUB_SHA-$ARCH" > "$RUNNER_TEMP/history.txt"
+            python3 -c 'import os,pathlib,re; assert not re.search(r"NODE_AUTH_TOKEN=gh[a-z]_|STANDARDS_VERSION=file:", (pathlib.Path(os.environ["RUNNER_TEMP"]) / "history.txt").read_text())'
+          done
+          echo 'Both image artifacts passed native architecture, rebase, all-layer, cache-UID and production secret-scan checks.'
+      - name: Exercise real v2 cold and warm container setup
+        if: matrix.shape == 'v2'
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export SOURCE="$GITHUB_WORKSPACE/source/$SOURCE_REPO"
+          export CLI="$RUNNER_TEMP/devcontainer-cli/node_modules/.bin/devcontainer"
+          export LOCAL_IMAGE="ghcr.io/rubio-enterprises/$SOURCE_REPO/devcontainer:sha-$SOURCE_SHA-$ARCH"
+          export QUALIFIER="imagev2-$GITHUB_RUN_ID-$EXPECT_SHAPE-$ARCH"
+          package_token="$NODE_AUTH_TOKEN"
+          unset NODE_AUTH_TOKEN
+          "$CLI" read-configuration --workspace-folder "$SOURCE" --config "$SOURCE/.devcontainer/devcontainer.json" > "$RUNNER_TEMP/runtime-read.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const {configuration: raw} = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/runtime-read.json'));
+          const {configFilePath, ...config} = raw;
+          config.image = process.env.LOCAL_IMAGE;
+          config.remoteEnv = {...config.remoteEnv, NODE_AUTH_TOKEN: '${localEnv:NODE_AUTH_TOKEN}'};
+          config.workspaceMount = `source=${process.env.SOURCE},target=/workspaces/org-ops,type=bind`;
+          config.workspaceFolder = '/workspaces/org-ops';
+          const volumes = [];
+          config.mounts = (config.mounts || []).map((mount, index) => {
+            if (typeof mount !== 'string' || !mount.includes('type=volume')) throw new Error('Unexpected representative mount');
+            const name = process.env.QUALIFIER + '-' + index;
+            volumes.push(name);
+            return mount.replace(/source=[^,]+/, 'source=' + name);
+          });
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/owned-volumes', volumes.join('\n'));
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/runtime.json', JSON.stringify(config));
+          NODE
+          args=(--workspace-folder "$SOURCE" --config "$RUNNER_TEMP/runtime.json" --id-label "imagev2.qualifier=$QUALIFIER-warm")
+          test ! -e "$SOURCE/.standards/node_modules"
+          export NODE_AUTH_TOKEN="$package_token"
+          "$CLI" up "${args[@]}" > "$RUNNER_TEMP/runtime.log" 2>&1 || { echo '::error::cold runtime setup failed'; exit 1; }
+          "$CLI" exec "${args[@]}" bash -euc 'test -f .standards/node_modules/@rubio-enterprises/standards/mise/standards.toml && mise run setup' >> "$RUNNER_TEMP/runtime.log" 2>&1 || { echo '::error::warm runtime setup failed'; exit 1; }
+          echo 'Real cold/warm startup passed: canonical setup installed .standards in the workspace.'
+          git clone --quiet --shared "$SOURCE" "$RUNNER_TEMP/cold-source"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const config = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/runtime.json'));
+          config.workspaceMount = `source=${process.env.RUNNER_TEMP}/cold-source,target=/workspaces/org-ops,type=bind`;
+          config.runArgs = [...(config.runArgs || []), '--network=none'];
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/offline.json', JSON.stringify(config));
+          NODE
+          status=0
+          timeout 120 "$CLI" up --workspace-folder "$RUNNER_TEMP/cold-source" --config "$RUNNER_TEMP/offline.json" --id-label "imagev2.qualifier=$QUALIFIER-cold" > "$RUNNER_TEMP/offline.log" 2>&1 || status=$?
+          [[ "$status" != 0 && "$status" != 124 ]]
+          python3 -c 'import os,pathlib,re; assert re.search(r"ENETUNREACH|EAI_AGAIN|ENOTFOUND|ECONN|ENETDOWN", (pathlib.Path(os.environ["RUNNER_TEMP"]) / "offline.log").read_text())'
+          echo 'Cold offline startup failed explicitly for unavailable package network, as designed.'
+      - name: Clean every owned artifact without uploads
+        if: always()
+        env:
+          CONTEXT: ${{ steps.prepared.outputs.context }}
+        run: |
+          set -euo pipefail
+          qualifier="imagev2-$GITHUB_RUN_ID-$EXPECT_SHAPE-$ARCH"
+          for mode in warm cold; do
+            while IFS= read -r cid; do
+              if [[ -n "$cid" ]]; then docker rm -f "$cid" >/dev/null; fi
+            done < <(docker ps -aq --filter "label=imagev2.qualifier=$qualifier-$mode")
+          done
+          if [[ -f "$RUNNER_TEMP/owned-volumes" ]]; then
+            while IFS= read -r volume || [[ -n "$volume" ]]; do
+              [[ "$volume" = "$qualifier"-* ]] && docker volume rm "$volume" >/dev/null
+            done < "$RUNNER_TEMP/owned-volumes"
+          fi
+          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" >/dev/null 2>&1 || true
+          for suffix in devcontainer devcontainer-ci; do
+            docker image rm "ghcr.io/rubio-enterprises/$SOURCE_REPO/$suffix:sha-$SOURCE_SHA-$ARCH" >/dev/null 2>&1 || true
+          done
+          [[ "$CONTEXT" != "$RUNNER_TEMP"/repository-image-* ]] || rm -rf "$CONTEXT"
+          rm -rf "$GITHUB_WORKSPACE/source/$SOURCE_REPO" "$RUNNER_TEMP/standards-registry-cache" "$RUNNER_TEMP/trivy-cache" "$RUNNER_TEMP/cold-source" "$RUNNER_TEMP/devcontainer-cli" "$RUNNER_TEMP/qualifier-cli-cache" "$RUNNER_TEMP/trivy"
+          rm -f "$RUNNER_TEMP/runtime-read.json" "$RUNNER_TEMP/runtime.json" "$RUNNER_TEMP/offline.json" "$RUNNER_TEMP/runtime.log" "$RUNNER_TEMP/offline.log" "$RUNNER_TEMP/history.txt" "$RUNNER_TEMP/build.log" "$RUNNER_TEMP/cache-build.log" "$RUNNER_TEMP/trivy.tar.gz" "$RUNNER_TEMP/trivy-secret.yaml" "$RUNNER_TEMP/install-trivy.sh" "$RUNNER_TEMP/scan-images.sh" "$RUNNER_TEMP/owned-volumes"
+
   canonical-tests:
     name: canonical tests
     runs-on: ubuntu-24.04
