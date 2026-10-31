@@ -11,8 +11,13 @@ name: test-gate
 "on":
   workflow_dispatch:
     inputs:
+      shape:
+        description: Qualification matrix selection
+        type: choice
+        options: [both, v2]
+        default: both
       v2-ref:
-        description: Approved org-ops v2 commit
+        description: Approved public rubio-cli-kit v2 commit
         required: true
         type: string
       legacy-ref:
@@ -64,13 +69,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shape: [v2, legacy]
+        shape: ${{ fromJSON(inputs.shape == 'v2' && '["v2"]' || '["v2","legacy"]') }}
         arch: [amd64, arm64]
     runs-on: ${{ matrix.arch == 'arm64' && (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) || (fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]')) }}
     timeout-minutes: 120
     env:
       ASSETS: ${{ github.workspace }}/actions/repository-image
-      SOURCE_REPO: ${{ matrix.shape == 'v2' && 'org-ops' || 'homebrew-tap' }}
+      SOURCE_REPO: ${{ matrix.shape == 'v2' && 'rubio-cli-kit' || 'homebrew-tap' }}
       SOURCE_SHA: ${{ matrix.shape == 'v2' && inputs.v2-ref || inputs.legacy-ref }}
       STANDARDS_PIN: ${{ inputs.legacy-pin }}
       ARCH: ${{ matrix.arch }}
@@ -87,12 +92,13 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ && "$STANDARDS_PIN" =~ ^[a-f0-9]{40}$ ]]
       - id: reader
+        if: matrix.shape == 'legacy'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
           private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
           owner: Rubio-Enterprises
-          repositories: ${{ matrix.shape == 'v2' && 'org-ops' || 'standards' }}
+          repositories: standards
           permission-contents: read
           skip-token-revoke: true
       - name: Check out the representative
@@ -101,7 +107,7 @@ jobs:
           repository: Rubio-Enterprises/${{ env.SOURCE_REPO }}
           ref: ${{ env.SOURCE_SHA }}
           path: source/${{ env.SOURCE_REPO }}
-          token: ${{ matrix.shape == 'v2' && steps.reader.outputs.token || github.token }}
+          token: ${{ github.token }}
           persist-credentials: false
           fetch-depth: 0
       - name: Provision only the legacy checkout
@@ -221,8 +227,9 @@ jobs:
           const {configFilePath, ...config} = raw;
           config.image = process.env.LOCAL_IMAGE;
           config.remoteEnv = {...config.remoteEnv, NODE_AUTH_TOKEN: '${localEnv:NODE_AUTH_TOKEN}'};
-          config.workspaceMount = `source=${process.env.SOURCE},target=/workspaces/org-ops,type=bind`;
-          config.workspaceFolder = '/workspaces/org-ops';
+          const folder = '/workspaces/' + process.env.SOURCE_REPO;
+          config.workspaceMount = `source=${process.env.SOURCE},target=${folder},type=bind`;
+          config.workspaceFolder = folder;
           const volumes = [];
           config.mounts = (config.mounts || []).map((mount, index) => {
             if (typeof mount !== 'string' || !mount.includes('type=volume')) throw new Error('Unexpected representative mount');
@@ -243,7 +250,7 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const config = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/runtime.json'));
-          config.workspaceMount = `source=${process.env.RUNNER_TEMP}/cold-source,target=/workspaces/org-ops,type=bind`;
+          config.workspaceMount = `source=${process.env.RUNNER_TEMP}/cold-source,target=/workspaces/${process.env.SOURCE_REPO},type=bind`;
           config.runArgs = [...(config.runArgs || []), '--network=none'];
           fs.writeFileSync(process.env.RUNNER_TEMP + '/offline.json', JSON.stringify(config));
           NODE
