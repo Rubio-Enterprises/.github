@@ -1,6 +1,6 @@
 name: standards-bootstrap
 description: >-
-  Resolve standards main once and provision its full-history Shared Config
+  Resolve the standards legacy/copier branch once and provision its full-history Shared Config
   Directory before loading consumer mise config. Export STANDARDS_PIN, verify
   readiness without a standards credential, then bootstrap the requested tools.
   Usage: docs/standards-bootstrap.md.
@@ -108,17 +108,19 @@ runs:
         owner: Rubio-Enterprises
         repositories: standards
         permission-contents: read
-    - name: Resolve standards main once
+    - name: Resolve the standards legacy ref once
       id: pin
       shell: bash
       working-directory: ${{ runner.temp }}
       env:
         GH_TOKEN: ${{ steps.token.outputs.token }}
+        # standards main is the v2 package; the Copier-era Shared Config stays on this branch
+        STANDARDS_LEGACY_REF: legacy/copier
       run: |
         set -euo pipefail
-        sha="$(gh api repos/Rubio-Enterprises/standards/commits/main --jq .sha)"
+        sha="$(gh api "repos/Rubio-Enterprises/standards/commits/$STANDARDS_LEGACY_REF" --jq .sha)"
         if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-          echo "::error::standards main must resolve to a lowercase 40-hex commit" >&2
+          echo "::error::standards $STANDARDS_LEGACY_REF must resolve to a lowercase 40-hex commit" >&2
           exit 1
         fi
         printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"

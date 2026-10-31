@@ -8,7 +8,8 @@ The action:
 
 1. Checks for the reader credentials and mise 2026.10.19 or later.
 2. Mints a read-only App token scoped to `Rubio-Enterprises/standards`, resolves
-   `main` once to a validated lowercase 40-hex SHA, and uses `actions/checkout`
+   the `legacy/copier` branch (the Copier-era tree; standards `main` is the v2
+   package) once to a validated lowercase 40-hex SHA, and uses `actions/checkout`
    to provision that exact commit with full history and no persisted credentials.
 3. Removes legacy standards token routes, including on failure. It installs no
    route; unrelated Git routes are untouched.

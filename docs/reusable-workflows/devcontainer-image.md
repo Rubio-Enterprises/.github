@@ -84,7 +84,7 @@ Native callers add only these named secrets to the image job (never
         ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
 ```
 
-After checkout, `standards-bootstrap@main` resolves standards `main` once,
+After checkout, `standards-bootstrap@main` resolves standards `legacy/copier` once,
 provisions a clean full-history checkout at that SHA in `.standards-config/`,
 and exports the validated lowercase 40-hex `STANDARDS_PIN` for later steps.
 `bootstrap-parts: repos` skips the caller's toolchain installation and caching;
