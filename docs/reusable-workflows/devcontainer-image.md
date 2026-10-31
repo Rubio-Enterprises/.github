@@ -280,15 +280,15 @@ package-cache layouts (Trivy paths have no leading slash):
 - Default pnpm store: `home/*/.local/share/pnpm/store/` and
   `root/.local/share/pnpm/store/`.
 - Builder uv cache: `{var/cache/devcontainer,mnt/devcontainer-cache}/uv/`.
-- RubyGems package/cache subtrees (`gems/` and `cache/`) under
-  `usr/local/bundle/`, `{home/*,root}/.gem/` (flat or engine/API-version scoped),
-  and `{home/*,root}/.local/share/gem/<engine>/<api>/`. Bundler's engine/API
-  subdirectories under `usr/local/bundle/` are covered too.
-- App-scoped Bundler installs: only `gems/` and `cache/` beneath
+- RubyGems package subtrees (`gems/`) and downloaded archives (`cache/*.gem`)
+  under `usr/local/bundle/`, `{home/*,root}/.gem/` (flat or engine/API-version
+  scoped), and `{home/*,root}/.local/share/gem/<engine>/<api>/`. Bundler's
+  engine/API subdirectories under `usr/local/bundle/` are covered too.
+- App-scoped Bundler installs: only `gems/` and `cache/*.gem` beneath
   `{home/*,root}/.cache/*/bundle/<engine>/<api>/`. This covers relocated public
   gems without excluding the app's entire cache.
-- Bundler's user cache: `{home/*,root}/.bundle/cache/`; project installs: only
-  `gems/` and `cache/` beneath `workspaces/*/.bundle/<engine>/<api>/`.
+- Project Bundler installs: only `gems/` and `cache/*.gem` beneath
+  `workspaces/*/.bundle/<engine>/<api>/`.
 
 Braces abbreviate separate patterns, not a glob syntax dependency.
 There are no version, package, finding-ID or fixture-filename exceptions. The
@@ -302,6 +302,13 @@ RubyGems' [user-directory implementation](https://github.com/rubygems/rubygems/b
 and [Bundler's configuration reference](https://bundler.io/man/bundle-config.1.html)
 describe these layouts. The preserved upstream `vendor` allow rule already covers
 `vendor/bundle` and `vendor/cache`; no new vendor exclusion is added.
+
+Whole Ruby/Bundler cache directories are deliberately **not** excluded.
+[Bundler](https://github.com/rubygems/rubygems/blob/v3.6.2/bundler/lib/bundler/source/git.rb)
+can put bare Git repositories in `cache/bundler/git/` or its user cache; their
+`config` files can retain authenticated remote URLs. Only downloaded `.gem`
+archives are excluded there. Git-cache configs remain scanned in filesystem
+and saved-image regressions.
 
 Only these named subtrees are added, not the whole mise data directory,
 `/var/cache/devcontainer`, home configuration or logs. `.npmrc`, `.ssh`, mise and

@@ -72,29 +72,27 @@ ROOTED_PUBLIC_CACHE_SKIP_PATTERNS = (
 
 RUBY_PUBLIC_CACHE_SKIP_PATTERNS = (
     "usr/local/bundle/gems/**",
-    "usr/local/bundle/cache/**",
+    "usr/local/bundle/cache/*.gem",
     "usr/local/bundle/*/*/gems/**",
-    "usr/local/bundle/*/*/cache/**",
+    "usr/local/bundle/*/*/cache/*.gem",
     "home/*/.gem/gems/**",
-    "home/*/.gem/cache/**",
+    "home/*/.gem/cache/*.gem",
     "root/.gem/gems/**",
-    "root/.gem/cache/**",
+    "root/.gem/cache/*.gem",
     "home/*/.gem/*/*/gems/**",
-    "home/*/.gem/*/*/cache/**",
+    "home/*/.gem/*/*/cache/*.gem",
     "root/.gem/*/*/gems/**",
-    "root/.gem/*/*/cache/**",
+    "root/.gem/*/*/cache/*.gem",
     "home/*/.local/share/gem/*/*/gems/**",
-    "home/*/.local/share/gem/*/*/cache/**",
+    "home/*/.local/share/gem/*/*/cache/*.gem",
     "root/.local/share/gem/*/*/gems/**",
-    "root/.local/share/gem/*/*/cache/**",
+    "root/.local/share/gem/*/*/cache/*.gem",
     "home/*/.cache/*/bundle/*/*/gems/**",
-    "home/*/.cache/*/bundle/*/*/cache/**",
+    "home/*/.cache/*/bundle/*/*/cache/*.gem",
     "root/.cache/*/bundle/*/*/gems/**",
-    "root/.cache/*/bundle/*/*/cache/**",
-    "home/*/.bundle/cache/**",
-    "root/.bundle/cache/**",
+    "root/.cache/*/bundle/*/*/cache/*.gem",
     "workspaces/*/.bundle/*/*/gems/**",
-    "workspaces/*/.bundle/*/*/cache/**",
+    "workspaces/*/.bundle/*/*/cache/*.gem",
 )
 
 
@@ -613,10 +611,10 @@ class RealTrivyTests(unittest.TestCase):
             "home/vscode/.cache/app/bundle/ruby/3.4.0/cache/",
             "root/.cache/app/bundle/ruby/3.4.0/gems/",
             "root/.cache/app/bundle/ruby/3.4.0/cache/",
-            "home/vscode/.bundle/cache/git/", "root/.bundle/cache/git/",
             "workspaces/project/.bundle/ruby/3.4.0/gems/", "workspaces/project/.bundle/ruby/3.4.0/cache/",
         )
-        fixtures = {prefix + "public-package/lib/credential.rb": "TOKEN=" + self.token for prefix in prefixes}
+        fixtures = {(prefix + "public-package.gem" if prefix.endswith("/cache/") else
+                     prefix + "public-package/lib/credential.rb"): "TOKEN=" + self.token for prefix in prefixes}
         self.assertEqual(len(fixtures), len(RUBY_PUBLIC_CACHE_SKIP_PATTERNS))
         return fixtures
 
@@ -709,10 +707,29 @@ class RealTrivyTests(unittest.TestCase):
             self.assertNotIn(name, result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
-    def scan_image(self, environment: list[str], history: list[dict]) -> subprocess.CompletedProcess[str]:
+    def test_bundler_bare_git_cache_configs_still_detect_credentials(self) -> None:
+        paths = (
+            "usr/local/bundle/cache/bundler/git/private-repository/config",
+            "home/vscode/.gem/ruby/3.4.0/cache/bundler/git/private-repository/config",
+            "home/vscode/.cache/app/bundle/ruby/3.4.0/cache/bundler/git/private-repository/config",
+            "home/vscode/.bundle/cache/git/private-repository/config",
+            "root/.bundle/cache/git/private-repository/config",
+            "workspaces/project/.bundle/ruby/3.4.0/cache/bundler/git/private-repository/config",
+        )
+        protected = {name: '[remote "origin"]\nurl = https://' + self.token + '@github.com/org/repository.git\n' for name in paths}
+        for name, content in protected.items():
+            self.put(name, content)
+        for result in (self.scan(), self.scan_image([], [], protected)):
+            self.assertEqual(result.returncode, 1, result.stderr)
+            for name in protected:
+                self.assertIn(name, result.stdout)
+            self.assertIn("github-pat (CRITICAL)", result.stdout)
+            self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    def scan_image(self, environment: list[str], history: list[dict], files: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         layer = io.BytesIO()
         with tarfile.open(fileobj=layer, mode="w") as contents:
-            for name, content in self.public_cache_fixtures().items():
+            for name, content in {**self.public_cache_fixtures(), **(files or {})}.items():
                 data = content.encode()
                 member = tarfile.TarInfo(name)
                 member.size = len(data)
