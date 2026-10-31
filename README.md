@@ -7,6 +7,12 @@ workflows (`standards-gates.yml`, `typecheck-ts.yml`, `lint-hooks.yml`,
 `build.yml`) injected by organization rulesets, plus the smaller set of
 reusables that consumers thin-call directly. The Build gate's repository
 interface is in [`docs/build-gate.md`](./docs/build-gate.md).
+
+Standards v2 replaces those Gate Family workflows with one injected workflow,
+[`standards.yml`](./.github/workflows/standards.yml) (the Standards Check; see
+[`docs/standards-check.md`](./docs/standards-check.md)). It runs on repositories
+with the `standards-v2` custom property; the old gates stay until every
+repository has migrated.
 In this workspace, the repository is checked out as `Governance/dot-github`;
 its GitHub repository name remains `.github`.
 
@@ -100,6 +106,8 @@ particularly in private repositories or for API/CLI-created issues.
 | [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness; runs an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `has_swift` suites run on `RUNNERS.macos` |
 | [`devcontainer-image.yml`](./.github/workflows/devcontainer-image.yml) | Builds native amd64/arm64 Dev Container images, publishes a private GHCR multi-arch image, and prunes untagged versions; see [its contract](./docs/reusable-workflows/devcontainer-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-time gitleaks scan runs in `standards-gates.yml`) |
+| [`standards.yml`](./.github/workflows/standards.yml) | Injected, not called: the Standards Check. Installs the repository's Standards Release and runs `mise run check` and `mise run check:pr`; routed by the `ci-platform`/`ci-size` properties; see [its contract](./docs/standards-check.md) |
+| [`release-please.yml`](./.github/workflows/release-please.yml) | release-please with the `rubio-release-please` App token, a root `uv.lock` refresh and auto-merge on the release PR; called by the starter `standards.yml` when `release-please-config.json` exists; see [its contract](./docs/reusable-workflows/release-please.md) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages for repos declaring `has_codewiki`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
 A repository workflow that runs mise in a full standards consumer
