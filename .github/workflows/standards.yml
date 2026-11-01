@@ -61,21 +61,31 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.12.17"
-      # The cache key hashes the repository's mise files only: the conf.d link into .standards/ is
-      # dangling until `setup`, so the package's tool pins cannot enter the key. The weekly prefix
-      # bounds how long a cache misses tools a newer Standards Release added.
+      # No mise cache: mise-action saves one only after its own `mise install`, which `setup` does
+      # instead, so it never had an entry to restore.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         if: needs.route.outputs.ci-image != 'true'
         with:
           version: ${{ env.MISE_VERSION }}
           install: false
-          cache: true
-          cache_key_prefix: mise-standards-${{ steps.week.outputs.week }}
-      - name: Restore the trivy vulnerability database
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+          cache: false
+      # Restore only. A pull request's own save is scoped to its merge ref, so no other pull request
+      # could restore it, and compressing the 1.6 GB database took up to 190 s per run. The caller
+      # standards-cache.yml writes these keys on the default branch, where every pull request
+      # reads them; last week's entries serve until this week's exist.
+      - id: trivy-db
+        name: Restore the trivy vulnerability database
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/trivy/db
-          key: trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+          key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+          restore-keys: standards-trivy-db-${{ runner.os }}-
+      - name: Restore the PR conventions' npm cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/standards-npm
+          key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
+          restore-keys: standards-npm-${{ runner.os }}-
       - name: Trust the checked-out repository in the CI Image
         if: needs.route.outputs.ci-image == 'true'
         run: mise trust "$GITHUB_WORKSPACE"
@@ -97,6 +107,15 @@ jobs:
             [ "$(git hash-object "$src")" = "$want" ] ||
               { echo "::error::$task comes from $src, not the Standards Package; delete the repository's $task task"; exit 1; }
           done
+      # trivy replaces a database older than a day (metadata.json NextUpdate), which would make the
+      # weekly cache useless. A restored one under 8 days old is used as it is.
+      - name: Use the restored trivy database without updating it
+        if: steps.trivy-db.outputs.cache-matched-key != ''
+        run: |
+          days=$(jq -r '(now - (.UpdatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) / 86400 | floor' \
+            ~/.cache/trivy/db/metadata.json) || days=99
+          echo "trivy vulnerability database: restored, $days day(s) old"
+          if [ "$days" -lt 8 ]; then echo "TRIVY_SKIP_DB_UPDATE=true" >>"$GITHUB_ENV"; fi
       - id: check
         name: Every Check on every file
         run: mise run check
@@ -104,7 +123,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # zizmor's online audits
       - name: Pull-request Checks
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: mise run check:pr
+        # Danger's `npm ci` reads the restored npm cache (releases from 2.1.0 pass it themselves).
+        run: npm_config_cache="$HOME/.cache/standards-npm" mise run check:pr
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
