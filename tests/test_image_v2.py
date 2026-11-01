@@ -194,6 +194,45 @@ class ImageV2(unittest.TestCase):
         with tarfile.open(context / "build/source.tar") as archive:
             self.assertFalse(any(m.name.startswith((".standards/", ".git/")) for m in archive.getmembers()))
 
+    @unittest.skipUnless(os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("RUNNER_OS") == "Linux",
+                         "native named-user source permissions run only in Linux CI")
+    def test_native_source_directories_are_writable_for_vscode(self):
+        self.assertIsNotNone(shutil.which("docker"), "Docker is required for the native permission diagnostic")
+        frontend = self.repo / "internal/frontend"
+        frontend.mkdir(parents=True)
+        (frontend / "package.json").write_text('{"name":"permission-fixture","private":true}')
+        context = self.prepare_source()
+        instruction = next(line for line in (ASSETS / "Dockerfile.v2").read_text().splitlines()
+                           if line.startswith("ADD ") and "/workspaces/${REPO}/" in line)
+        instruction = instruction.replace("${REPO}", "repo")
+        base = "ghcr.io/rubio-enterprises/devcontainers/base@sha256:efdf27a01f9b3c0c55303dc20c9e48cfa95585cd978d5eed691a94dfe3b1bdc2"
+
+        def probe(source_instruction, name):
+            dockerfile = self.root / f"Dockerfile.permissions-{name}"
+            dockerfile.write_text(
+                "# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e\n"
+                f"FROM {base} AS probe\nUSER root\n{source_instruction}\nWORKDIR /workspaces/repo\n"
+                "RUN runuser -u vscode -- sh -euc 'id; "
+                "stat -c \"owner=%u:%g mode=%a path=%n\" . internal internal/frontend; "
+                "mkdir internal/frontend/node_modules; "
+                "printf writable > internal/frontend/node_modules/proof'\n"
+                "FROM scratch\nCOPY --from=probe /workspaces/repo/internal/frontend/node_modules/proof /proof\n"
+            )
+            exported = self.root / f"permissions-{name}"
+            result = subprocess.run(["docker", "buildx", "build", "--no-cache", "--progress=plain",
+                                     "--file", str(dockerfile), "--output", f"type=local,dest={exported}",
+                                     str(context / "build")], capture_output=True, text=True, timeout=300)
+            return result, exported
+
+        negative, _ = probe(instruction.replace("--chown=vscode:vscode ", ""), "unowned")
+        self.assertNotEqual(negative.returncode, 0, "Unowned nested source must not be writable by vscode")
+        self.assertIn("Permission denied", negative.stderr)
+        positive, exported = probe(instruction, "production")
+        self.assertEqual(positive.returncode, 0, positive.stderr)
+        self.assertEqual((exported / "proof").read_text(), "writable")
+        self.assertIn("uid=1000(vscode)", positive.stderr)
+        print("\n".join(line for line in positive.stderr.splitlines() if "owner=" in line or "uid=" in line))
+
     def test_tracked_package_payload_and_changed_shape_are_rejected(self):
         (self.repo / ".standards").mkdir()
         (self.repo / ".standards/payload").write_text("private")
