@@ -291,6 +291,13 @@ package-cache layouts (Trivy paths have no leading slash):
 - Default pnpm store: `home/*/.local/share/pnpm/store/` and
   `root/.local/share/pnpm/store/`.
 - Builder uv cache: `{var/cache/devcontainer,mnt/devcontainer-cache}/uv/`.
+- Cargo packages: `home/*/.cache/cargo/registry/`; the Cargo home itself is not
+  excluded. Both generic builders declare `CARGO_HOME` there.
+- Rustup SDKs: only `home/*/.local/share/rustup/toolchains/`, beneath the builders'
+  declared `RUSTUP_HOME`.
+- uv-managed Python SDK directories: `home/*/.local/share/uv/python/*-*-*/`,
+  matching native implementation-version-platform directory names. Both builders
+  declare `UV_PYTHON_INSTALL_DIR` at that home-writable data location.
 - RubyGems package subtrees (`gems/`) and downloaded archives (`cache/*.gem`)
   under `usr/local/bundle/`, `{home/*,root}/.gem/` (flat or engine/API-version
   scoped), and `{home/*,root}/.local/share/gem/<engine>/<api>/`. Bundler's
@@ -324,7 +331,9 @@ and saved-image regressions.
 Only these named subtrees are added, not the whole mise data directory,
 `/var/cache/devcontainer`, home configuration or logs. `.npmrc`, `.ssh`, mise and
 Bun configuration, npm logs, first-party build caches and repository source stay
-in scope outside preserved dependency exclusions. Ruby credentials/configuration
+in scope outside preserved dependency exclusions. Cargo `config.toml`,
+`credentials` and `credentials.toml`, Rustup `settings.toml`, and configuration
+outside uv's managed SDK directories remain scanned. Ruby credentials/configuration
 such as `.gem/credentials`, `.gemrc`, `.config/gem/credentials`, `.bundle/config`
 and `usr/local/bundle/config` remain scanned. So do Bundler install logs outside
 the named package/cache subtrees. A repository path merely containing one of the
