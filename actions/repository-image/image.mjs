@@ -201,7 +201,7 @@ export function validateDefinition(config) {
   }
 }
 
-function walk(root, visit, relative = '') {
+function walk(root, visit, relative = '', omitted = []) {
   for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
     const name = path.join(relative, entry.name);
     if (['.standards-config', '.standards', '.git'].includes(entry.name)) throw new Error('Tracked Git or standards checkout rejected');
@@ -214,15 +214,17 @@ function walk(root, visit, relative = '') {
       }
       if (sharedConfigStubLinks.get(name) === destination) {
         fs.unlinkSync(link);
+        omitted.push(name);
         continue;
       }
       const target = path.resolve(root, relative, destination);
       if (!target.startsWith(`${root}${path.sep}`) || target.split(path.sep).includes('.standards-config')) {
         throw new Error('Source symlink escapes the clean context');
       }
-    } else if (entry.isDirectory()) walk(root, visit, name);
+    } else if (entry.isDirectory()) walk(root, visit, name, omitted);
     else if (entry.isFile()) visit(name);
   }
+  return omitted;
 }
 
 export function qualifySubmodules(workspace, src) {
@@ -290,7 +292,7 @@ function prepare() {
   if (shape !== 'v2' && !/^[a-f0-9]{40}$/.test(process.env.STANDARDS_PIN || '')) throw new Error('Invalid STANDARDS_PIN');
   const pins = path.join(context, 'pins');
   fs.mkdirSync(pins);
-  walk(src, (name, symlink) => {
+  const omitted = walk(src, (name, symlink) => {
     if (/^(?:\.mise(?:\..+)?\.toml|mise(?:\..+)?\.toml|mise\.lock|package\.json)$/.test(name) || name.startsWith(`.config${path.sep}`)) {
       fs.mkdirSync(path.dirname(path.join(pins, name)), { recursive: true });
       if (symlink) fs.symlinkSync(fs.readlinkSync(path.join(src, name)), path.join(pins, name));
@@ -321,6 +323,11 @@ function prepare() {
   fs.writeFileSync(path.join(context, 'expected/shape'), shape);
   output('shape', shape);
   fs.mkdirSync(path.join(context, 'empty'));
+  if (shape === 'v2') {
+    fs.mkdirSync(path.join(context, 'build'));
+    execFileSync('git', ['-C', workspace, 'archive', '--format=tar', '-o', path.join(context, 'build/source.tar'),
+      process.env.GITHUB_SHA, '--', '.', ...omitted.map(name => `:(top,literal,exclude)${name}`)]);
+  }
   output('assets', assets);
   output('context', context);
   pendingContext = undefined;

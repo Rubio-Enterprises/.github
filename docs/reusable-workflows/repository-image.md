@@ -109,6 +109,13 @@ validated runtime pin must be provisioned again before runtime setup.
 
 ### Standards Package provisioning (v2)
 
+V2 delivers the validated source through a deterministic Git tar archive and
+Docker's native `ADD` extraction. An application's `.dockerignore` remains unchanged
+inside that archive/image, but cannot filter setup files from this different build.
+Only the exact stub paths already omitted during preparation are excluded by literal
+Git pathspecs; source, package-absence and all-layer scan guards remain unchanged.
+The generic legacy path retains its existing local named source context.
+
 Detection happens before loading consumer mise configuration. V2 requires the exact
 package symlink and root `setup`/`standards:install` tasks, without answers or the
 legacy bootstrap file. Mixed or incomplete wiring fails closed. Copier consumers
