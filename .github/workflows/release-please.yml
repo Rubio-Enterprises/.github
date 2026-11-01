@@ -22,7 +22,7 @@ jobs:
       prs_created: ${{ steps.release.outputs.prs_created }}
     steps:
       - id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
@@ -48,10 +48,10 @@ jobs:
           token: ${{ steps.app-token.outputs.token }} # pushes the uv.lock refresh below
       # The version bump leaves a root uv.lock stale, which the standards check rejects.
       - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          version: "0.13.5"
       - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
