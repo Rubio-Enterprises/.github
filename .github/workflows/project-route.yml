@@ -1,0 +1,89 @@
+name: project route (reusable)
+
+"on":
+  workflow_call:
+    inputs:
+      route:
+        description: "auto uses ci-platform/ci-size; capability jobs may select an explicit RUNNERS key"
+        type: string
+        default: auto
+    outputs:
+      runner:
+        description: "JSON runs-on labels"
+        value: ${{ jobs.route.outputs.runner }}
+      ci-image:
+        description: "true only when project commands will run in the repository's CI Image"
+        value: ${{ jobs.route.outputs.ci-image }}
+
+permissions:
+  contents: read
+
+jobs:
+  route:
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.route.outputs.runner }}
+      ci-image: ${{ steps.route.outputs.ci-image }}
+    steps:
+      - id: route
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ROUTE: ${{ inputs.route }}
+          RUNNERS: ${{ vars.RUNNERS || '{}' }}
+          CI_IMAGE_REPOS: ${{ vars.CI_IMAGE_REPOS || '[]' }}
+        with:
+          script: |
+            const fallbacks = {
+              small: ['ubuntu-slim'], medium: ['ubuntu-latest'],
+              docker: ['ubuntu-latest'], kvm: ['ubuntu-latest'],
+              arm: ['ubuntu-24.04-arm'], macos: ['macos-26'],
+              vrt: ['linux-x64-medium'],
+            };
+            const runners = JSON.parse(process.env.RUNNERS);
+            const admitted = JSON.parse(process.env.CI_IMAGE_REPOS);
+            if (!runners || Array.isArray(runners) || typeof runners !== 'object') {
+              throw new Error('RUNNERS must be a JSON object');
+            }
+            if (!Array.isArray(admitted) || admitted.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+              throw new Error('CI_IMAGE_REPOS must be an array of positive integer repository IDs');
+            }
+            let route = process.env.ROUTE;
+            if (route === 'auto') {
+              let properties = context.payload.repository?.custom_properties;
+              if (!properties || !Object.hasOwn(properties, 'ci-platform') || !Object.hasOwn(properties, 'ci-size')) {
+                const { data } = await github.request('GET /repos/{owner}/{repo}/properties/values', context.repo);
+                properties = Object.fromEntries(data.map(({ property_name, value }) => [property_name, value]));
+              }
+              const platform = properties['ci-platform'] ?? 'linux';
+              const size = properties['ci-size'] ?? 'small';
+              if (!['linux', 'macos'].includes(platform) || !['small', 'medium'].includes(size)) {
+                throw new Error('Expected ci-platform=linux|macos and ci-size=small|medium');
+              }
+              route = platform === 'macos' ? 'macos' : size;
+            }
+            if (!Object.hasOwn(fallbacks, route)) {
+              throw new Error('route must be auto, small, medium, docker, kvm, arm, macos or vrt');
+            }
+            let runner = runners[route] || fallbacks[route];
+            if (!Array.isArray(runner) || runner.length === 0 || runner.some(label => typeof label !== 'string' || !label.trim())) {
+              throw new Error('The selected RUNNERS route must be a nonempty array of labels');
+            }
+            const repository = context.payload.repository;
+            if (!Number.isSafeInteger(repository?.id) || repository.id <= 0) {
+              throw new Error('The event must identify the base repository with a positive integer ID');
+            }
+            const image = ['small', 'medium'].includes(route)
+              && runner.length === 1 && runner[0] === `linux-x64-${route}`
+              && repository.private === true
+              && context.repo.owner.toLowerCase() === 'rubio-enterprises'
+              && admitted.includes(repository.id);
+            if (image) {
+              // Match org-ops image_inventory.py, including truncation after stripping edge hyphens
+              const slug = context.repo.repo.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+              if (!slug) throw new Error('Repository basename produces an empty CI Image label');
+              runner = [`ci-${repository.id}-${slug}-${route}`];
+            }
+            core.setOutput('runner', JSON.stringify(runner));
+            core.setOutput('ci-image', String(image));
+            core.info(`Project route: ${route}; CI Image: ${image}; runs-on: ${JSON.stringify(runner)}`);
