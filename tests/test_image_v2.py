@@ -121,6 +121,79 @@ class ImageV2(unittest.TestCase):
         self.assertIn('STANDARDS_VERSION = "file:/run/standards.tgz"', (context / "expected/profile.toml").read_text())
         self.assertEqual((context / "pins/mise.repository-image.toml").read_bytes(), (context / "expected/profile.toml").read_bytes())
 
+    def prepare_source(self, sha=None):
+        sha = sha or self.commit()
+        cli = self.stub("devcontainer", 'print(\'{"configuration":{"features":{}}}\')\n')
+        result = self.invoke("prepare", GITHUB_SHA=sha, CONFIG=".github/.devcontainer/devcontainer.json",
+                             DEVCONTAINER=cli, BASE="base", STANDARDS_SHAPE="v2",
+                             STANDARDS_VERSION="2.0.0", STANDARDS_INTEGRITY=self.integrity)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return Path(self.outputs()["context"])
+
+    def test_source_archive_preserves_setup_and_application_ignore_bytes(self):
+        policy = "*\n!app.txt\n"
+        (self.repo / ".dockerignore").write_text(policy)
+        (self.repo / "app.txt").write_text("committed source\n")
+        (self.repo / "tombi.toml").symlink_to(".standards-config/config/tombi.toml")
+        sha = self.commit()
+        (self.repo / "untracked-credential").write_text("not image source")
+        context = self.prepare_source(sha)
+        with tarfile.open(context / "build/source.tar") as archive:
+            names = {m.name for m in archive.getmembers() if not m.isdir()}
+            prepared = {str(p.relative_to(context / "src")) for p in (context / "src").rglob("*")
+                        if p.is_file() or p.is_symlink()}
+            self.assertEqual(names, prepared)
+            self.assertEqual(archive.extractfile(".dockerignore").read().decode(), policy)
+            self.assertEqual(archive.extractfile("mise.toml").read(), (self.repo / "mise.toml").read_bytes())
+            self.assertEqual(archive.getmember(LINK).linkname, TARGET)
+            self.assertNotIn("tombi.toml", names)
+            self.assertNotIn("untracked-credential", names)
+            self.assertFalse(any(n.startswith((".standards/", ".standards-config/", ".git/")) for n in names))
+        self.assertTrue((self.repo / "tombi.toml").is_symlink())
+
+    def test_source_archive_is_deterministic_at_the_committed_sha(self):
+        (self.repo / "tombi.toml").symlink_to(".standards-config/config/tombi.toml")
+        sha = self.commit()
+        first = (self.prepare_source(sha) / "build/source.tar").read_bytes()
+        (self.repo / "mise.toml").write_text("uncommitted rewrite")
+        second = (self.prepare_source(sha) / "build/source.tar").read_bytes()
+        self.assertEqual(hashlib.sha256(first).digest(), hashlib.sha256(second).digest())
+
+    @unittest.skipUnless(os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("RUNNER_OS") == "Linux",
+                         "native Docker source export runs only in Linux CI")
+    def test_native_source_copy_ignores_application_dockerignore_policy(self):
+        self.assertIsNotNone(shutil.which("docker"), "Docker is required for this CI source-delivery proof")
+        policy = "*\n!app.txt\n"
+        (self.repo / ".dockerignore").write_text(policy)
+        (self.repo / "app.txt").write_text("application source")
+        context = self.prepare_source()
+        instruction = next(line for line in (ASSETS / "Dockerfile.v2").read_text().splitlines()
+                           if line.startswith(("ADD ", "COPY ")) and "/workspaces/${REPO}/" in line)
+        def export_source(source_instruction, build_context, name):
+            source_instruction = source_instruction.replace("--chown=vscode:vscode", f"--chown={os.getuid()}:{os.getgid()}")
+            source_instruction = source_instruction.replace("${REPO}", "repo")
+            dockerfile = self.root / f"Dockerfile.{name}"
+            dockerfile.write_text("FROM scratch\n" + source_instruction + "\n")
+            exported = self.root / name
+            result = subprocess.run(["docker", "buildx", "build", "--progress=plain", "--file", str(dockerfile),
+                                     "--build-context", f"src={context / 'src'}", "--output", f"type=local,dest={exported}",
+                                     str(build_context)], capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return exported
+
+        legacy_instruction = next(line for line in (ASSETS / "Dockerfile").read_text().splitlines()
+                                  if line.startswith("COPY ") and "--from=src" in line)
+        filtered = export_source(legacy_instruction, context / "empty", "filtered")
+        self.assertTrue((filtered / "workspaces/repo/app.txt").is_file())
+        self.assertFalse((filtered / "workspaces/repo/mise.toml").exists())
+        build_context = context / ("build" if instruction.startswith("ADD ") else "empty")
+        exported = export_source(instruction, build_context, "exported")
+        self.assertEqual((exported / "workspaces/repo/mise.toml").read_bytes(), (self.repo / "mise.toml").read_bytes())
+        self.assertEqual((exported / "workspaces/repo/.dockerignore").read_text(), policy)
+        self.assertTrue((exported / "workspaces/repo" / LINK).is_symlink())
+        with tarfile.open(context / "build/source.tar") as archive:
+            self.assertFalse(any(m.name.startswith((".standards/", ".git/")) for m in archive.getmembers()))
+
     def test_tracked_package_payload_and_changed_shape_are_rejected(self):
         (self.repo / ".standards").mkdir()
         (self.repo / ".standards/payload").write_text("private")

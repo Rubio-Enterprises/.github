@@ -44,21 +44,23 @@ case "$shape" in
   legacy|none) ;;
   *) echo '::error::invalid prepared standards shape'; exit 1 ;;
 esac
+build_context="$CONTEXT/empty"
 args=(--platform "linux/$ARCH" --file "$dockerfile"
-  --build-context "pins=$CONTEXT/pins" --build-context "src=$CONTEXT/src"
+  --build-context "pins=$CONTEXT/pins"
   --build-context "expected=$CONTEXT/expected"
   --build-arg "BASE=$local_ref/features@$features_digest"
   --build-arg "REPO=${GITHUB_REPOSITORY#*/}"
   --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY")
 if [[ "$shape" = v2 ]]; then
+  build_context="$CONTEXT/build"
   args+=(--secret "id=standards_package,src=$standards")
 else
-  args+=(--build-context "standards=$standards")
+  args+=(--build-context "standards=$standards" --build-context "src=$CONTEXT/src")
 fi
-docker build --check "${args[@]}" "$CONTEXT/empty"
+docker build --check "${args[@]}" "$build_context"
 docker build --provenance=false --sbom=false "${args[@]}" \
   --cache-from "$IMAGE:main-$ARCH" --build-arg BUILDKIT_INLINE_CACHE=1 \
-  -t "$local_ref/dev:build" "$CONTEXT/empty"
+  -t "$local_ref/dev:build" "$build_context"
 docker push "$local_ref/dev:build"
 crane rebase --insecure --platform "linux/$ARCH" "$local_ref/dev:build" \
   --old_base "$BASE" --new_base "$BASE_CI" -t "$local_ref/ci:build"

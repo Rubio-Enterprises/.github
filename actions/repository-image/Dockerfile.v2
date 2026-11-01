@@ -30,7 +30,8 @@ RUN --mount=type=bind,from=pins,target=/workspaces/.mise-pins \
       bash -euc 'mise install --system node; mise run standards:install; mise install --system' \
  && rm -rf /home/vscode/.cache/mise /home/vscode/.local/state
 ENV PATH=/usr/local/share/mise/shims:${PATH}
-COPY --chown=vscode:vscode --from=src / /workspaces/${REPO}/
+# A source tar preserves application .dockerignore bytes without applying its policy.
+ADD --chown=vscode:vscode source.tar /workspaces/${REPO}/
 WORKDIR /workspaces/${REPO}
 RUN --mount=type=bind,from=expected,target=/run/expected \
     --mount=type=bind,from=expected,source=profile.toml,target=/workspaces/${REPO}/mise.repository-image.toml \
