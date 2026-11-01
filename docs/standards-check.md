@@ -24,6 +24,11 @@ defined in this repository.
 | `ci-platform` | `linux` (default), `macos` | `macos` runs on `RUNNERS.macos` (hosted fallback `macos-26`), for Swift and Homebrew repositories |
 | `ci-size` | `small` (default), `medium` | `medium` runs on `RUNNERS.medium` (hosted fallback `ubuntu-latest`); otherwise `RUNNERS.small` (`ubuntu-slim`) |
 
+The [project router](reusable-workflows/project-route.md) preserves these routes and their hosted
+fallbacks. For an admitted private/internal repository on a self-hosted small/medium route, it
+selects that repository's CI Image label instead. Admission remains the central Terraform-owned
+`CI_IMAGE_REPOS` ID array; this workflow does not change it.
+
 The repository itself must be onboarded: `npm init @rubio-enterprises/standards` writes
 `lefthook.yml`, the starter `mise.toml` with its `setup` task, and the
 `.config/mise/conf.d/standards.toml` link the package's tasks load through.
@@ -32,8 +37,9 @@ The repository itself must be onboarded: `npm init @rubio-enterprises/standards`
 
 1. Checks out the pull request with full history and no persisted credentials.
 2. Fails with `repository not onboarded` when `lefthook.yml` is missing.
-3. Installs uv, then mise (`jdx/mise-action`, pinned `MISE_VERSION`, no tool install yet).
-4. Restores two caches: mise's data directory and the trivy vulnerability database.
+3. On plain runners, installs uv, then mise (`jdx/mise-action`, pinned `MISE_VERSION`, no tool
+   install yet). CI Image runners use the image's tools and explicitly trust the checkout instead.
+4. Restores mise's data cache only on plain runners, and the trivy vulnerability database on both.
 5. Runs `mise run setup` with `NODE_AUTH_TOKEN` set to the job token. The repository's `setup`
    installs the package into `.standards/`, the missing tools, the git hooks and every
    `setup:*` task (the repository's own dependencies).
@@ -61,10 +67,11 @@ the pull request). The job token cannot comment, so the PR-conventions step repo
 - **Triggers.** Ruleset workflows ignore `types` and other event filters and run only on
   `opened`, `synchronize` and `reopened` (plus `merge_group`). Editing a title or description
   does not re-run the check; push a commit or re-run the job.
-- **Runner routing reads `github.event.repository.custom_properties`.** Whether the
-  `pull_request` payload carries it is unverified (flag-day DV-1). If the route always falls back
-  to `small`, replace the expression with a `route` job, as the comment in the workflow
-  describes.
+- **Routing is a separate repository-agnostic job.** It consumes declared `ci-platform`/`ci-size`,
+  reading the base repository properties API if either is absent from the event. The required
+  `standards` job also runs after router failure and fails before checkout, rather than allowing
+  a skipped dependency to make the required context green. The failure-only job uses the ordinary
+  small route and executes no project commands.
 - **Caches are scoped to the pull request.** The workflow never runs on the default branch, and a
   cache saved by a `pull_request` run is visible only to later runs of the same pull request, so
   the first run of every pull request is cold (about 16 s of tool installs plus a 6.6 s trivy
