@@ -42,6 +42,7 @@ preset are retired (standards v2 flag day, 2026-10-31).
 | Workflow | What it does |
 | --- | --- |
 | `project-route.yml` | Selects native runs-on JSON for project jobs from declared platform/size, RUNNERS and central CI Image admission. Read [`docs/reusable-workflows/project-route.md`](docs/reusable-workflows/project-route.md) before changing routing, adding a caller or skipping image-job bootstrap |
+| `standards-cache.yml` | Writes, on the default branch, the weekly trivy-database and npm caches the injected `standards` job restores (its pull-request runs cannot share caches); the starter caller runs it on push to `main` and dispatch with `packages: read`. Keys must match `standards.yml`'s (`tests/test_standards_cache.py`) |
 | `release-please.yml` | release-please with the `rubio-release-please` App token; the starter caller runs it when `release-please-config.json` exists. See [`docs/reusable-workflows/release-please.md`](docs/reusable-workflows/release-please.md) |
 | `repository-image.yml` | Per-repository Dev Container and CI images; the starter caller runs it when `.github/.devcontainer/devcontainer.json` exists. See [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) |
 | `devcontainer-image.yml` | Native amd64/arm64 Dev Container prebuilds, GHCR multi-arch publication and untagged pruning; read [`docs/reusable-workflows/devcontainer-image.md`](docs/reusable-workflows/devcontainer-image.md) before editing its publication or retention contract |
