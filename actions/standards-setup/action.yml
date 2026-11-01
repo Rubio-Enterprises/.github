@@ -1,0 +1,116 @@
+name: standards-setup
+description: >-
+  Run the repository's `mise run setup` with the Standards Setup Caches: mise's tool installs and
+  npm's package cache, saved only from the default branch and restored everywhere else
+  (docs/standards-setup.md).
+
+inputs:
+  token:
+    description: >-
+      The job's GITHUB_TOKEN. It needs `packages: read` for the internal Standards Package, and
+      raises mise's GitHub API rate limit.
+    required: true
+  restore:
+    description: >-
+      "false" on a CI Image runner, which already carries the tools and dependencies.
+    default: "true"
+  save:
+    description: >-
+      "true" only in the default-branch seed (standards-seed.yml). A pull request's cache serves
+      only that pull request, so pull-request runs restore and never save (standards#821).
+    default: "false"
+
+outputs:
+  mise-cache-hit:
+    description: '"true" when the exact mise key was restored'
+    value: ${{ steps.mise.outputs.cache-hit }}
+  npm-cache-hit:
+    description: '"true" when the exact npm key was restored'
+    value: ${{ steps.npm.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    # Keys are fixed before setup: setup creates node_modules (nested lockfiles) and the conf.d link
+    # into .standards/, so hashing afterwards would give the save a different key than the restore.
+    - name: Name the Standards Setup Cache keys
+      id: keys
+      if: inputs.restore == 'true'
+      shell: bash
+      env:
+        MISE_FILES: ${{ hashFiles('mise.toml', '.mise.toml', 'mise.*.toml', '.mise.*.toml', 'mise.lock', '.mise.lock', '.config/mise/config.toml', '.config/mise/config.*.toml', '.tool-versions') }}
+        NPM_LOCKS: ${{ hashFiles('**/package-lock.json', '!**/node_modules/**') }}
+      run: |
+        set -euo pipefail
+        mise_dir="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
+        npm_dir="${npm_config_cache:-$HOME/.npm}"
+        case "$RUNNER_OS" in
+          Linux) os="$(. /etc/os-release && echo "${ID}${VERSION_ID}")" ;;
+          macOS) os="macos$(sw_vers -productVersion | cut -d. -f1)" ;;
+          *) os="$RUNNER_OS" ;;
+        esac
+        mise_version="$(mise --version 2>/dev/null | cut -d' ' -f1)"
+        # pipx tools are uv venvs bound to the interpreter uv resolves, so a cache never crosses one.
+        py="$(uv python find 2>/dev/null || true)"
+        pyver="$([ -n "$py" ] && "$py" -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || true)"
+        interpreter="$(printf '%s %s' "$py" "$pyver" | git hash-object --stdin | cut -c1-8)"
+        week="$(date -u +%G-W%V)"
+        platform="${RUNNER_OS}-${RUNNER_ARCH}-${os}"
+        mise_base="standards-mise-v1-${platform}-${mise_version:-none}-${interpreter}"
+        npm_base="standards-npm-v1-${platform}"
+        {
+          echo "mise-paths<<EOF"
+          echo "${mise_dir}/installs"
+          echo "${mise_dir}/shims"
+          echo "EOF"
+          echo "npm-path=${npm_dir}"
+          echo "mise-key=${mise_base}-${week}-${MISE_FILES}"
+          echo "mise-restore-keys<<EOF"
+          echo "${mise_base}-${week}-"
+          echo "${mise_base}-"
+          echo "EOF"
+          echo "npm-key=${npm_base}-${week}-${NPM_LOCKS}"
+          echo "npm-restore-keys<<EOF"
+          echo "${npm_base}-${week}-"
+          echo "${npm_base}-"
+          echo "EOF"
+        } >>"$GITHUB_OUTPUT"
+
+    # The seed restores only its exact key: a cache it saves is built fresh, so it holds what this
+    # week's tool set and lockfile need, not every version a fallback ever restored.
+    - name: Restore mise's tool installs
+      id: mise
+      if: inputs.restore == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.keys.outputs.mise-paths }}
+        key: ${{ steps.keys.outputs.mise-key }}
+        restore-keys: ${{ inputs.save != 'true' && steps.keys.outputs.mise-restore-keys || '' }}
+    - name: Restore npm's package cache
+      id: npm
+      if: inputs.restore == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.keys.outputs.npm-path }}
+        key: ${{ steps.keys.outputs.npm-key }}
+        restore-keys: ${{ inputs.save != 'true' && steps.keys.outputs.npm-restore-keys || '' }}
+
+    - name: Install the Standards Release, its tools and the repository's dependencies
+      shell: bash
+      env:
+        NODE_AUTH_TOKEN: ${{ inputs.token }}
+        MISE_GITHUB_TOKEN: ${{ inputs.token }}
+      run: mise run setup
+
+    - name: Save mise's tool installs
+      if: inputs.restore == 'true' && inputs.save == 'true' && steps.mise.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.keys.outputs.mise-paths }}
+        key: ${{ steps.keys.outputs.mise-key }}
+    - name: Save npm's package cache
+      if: inputs.restore == 'true' && inputs.save == 'true' && steps.npm.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.keys.outputs.npm-path }}
+        key: ${{ steps.keys.outputs.npm-key }}

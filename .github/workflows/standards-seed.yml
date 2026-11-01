@@ -1,0 +1,69 @@
+# Seeds the Standards Setup Caches from the default branch (docs/standards-setup.md). The injected
+# Standards Check and the starter Test Gate run only on pull requests, and a cache saved there
+# serves only that pull request, so their first run was always cold. A repository's push,
+# schedule and manual `standards.yml` calls this; every pull request then restores what it saved.
+name: standards seed (reusable)
+"on":
+  workflow_call:
+permissions:
+  contents: read
+  packages: read # the internal @rubio-enterprises/standards package
+jobs:
+  route:
+    permissions:
+      contents: read
+    uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
+  seed:
+    needs: route
+    # Only the default branch's caches are visible to every pull request. A CI Image already
+    # carries the tools and dependencies, so its repository has nothing to seed.
+    if: >-
+      needs.route.outputs.ci-image != 'true' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 30
+    env:
+      # renovate: datasource=github-releases depName=jdx/mise
+      MISE_VERSION: "2026.10.19"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Require lefthook.yml
+        run: |
+          test -f lefthook.yml ||
+            { echo "::error::repository not onboarded: run npm init @rubio-enterprises/standards"; exit 1; }
+      - id: week
+        name: Name this week's trivy key
+        run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
+      # The same runner setup as the Standards Check, so the keys and cache versions match.
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.17"
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: ${{ env.MISE_VERSION }}
+          install: false
+          cache: false
+      - uses: Rubio-Enterprises/.github/actions/standards-setup@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          save: "true"
+      # The check's trivy step restores this key and never saves it.
+      - name: Look up this week's trivy vulnerability database
+        id: trivy
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/trivy/db
+          key: trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+          lookup-only: true
+      - name: Download this week's trivy vulnerability database
+        if: steps.trivy.outputs.cache-hit != 'true'
+        run: mise exec -- trivy image --download-db-only --cache-dir ~/.cache/trivy
+      - name: Save this week's trivy vulnerability database
+        if: steps.trivy.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/trivy/db
+          key: trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}

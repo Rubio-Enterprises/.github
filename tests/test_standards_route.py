@@ -27,14 +27,16 @@ class StandardsRouteTests(unittest.TestCase):
             step = WORKFLOW.split('- uses: ' + action, 1)[1].split('\n      - ', 1)[0]
             self.assertIn("if: needs.route.outputs.ci-image != 'true'", step)
         self.assertIn('run: mise trust "$GITHUB_WORKSPACE"', WORKFLOW)
-        self.assertLess(WORKFLOW.index('mise trust'), WORKFLOW.index('run: mise run setup'))
         setup = WORKFLOW.split('      - id: setup\n', 1)[1].split('\n      - ', 1)[0]
-        self.assertIn('run: mise run setup', setup)
-        self.assertIn('NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}', setup)
-        self.assertIn('MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}', setup)
+        self.assertLess(WORKFLOW.index('mise trust'), WORKFLOW.index('      - id: setup\n'))
+        self.assertIn('uses: Rubio-Enterprises/.github/actions/standards-setup@main', setup)
+        self.assertIn('token: ${{ secrets.GITHUB_TOKEN }}', setup)
+        self.assertIn("restore: ${{ needs.route.outputs.ci-image != 'true' }}", setup)
+        self.assertNotIn('save:', setup)
 
     def test_all_project_checks_and_the_package_task_origin_guard_remain(self):
-        for command in ('run: mise run setup', 'run: mise run check\n', 'run: mise run check:pr'):
+        self.assertIn('uses: Rubio-Enterprises/.github/actions/standards-setup@main', WORKFLOW)
+        for command in ('run: mise run check\n', 'run: mise run check:pr'):
             self.assertIn(command, WORKFLOW)
         self.assertIn('for task in check check:pr; do', WORKFLOW)
         self.assertIn('fetch-depth: 0', WORKFLOW)

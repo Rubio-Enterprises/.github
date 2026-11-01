@@ -61,30 +61,31 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.12.17"
-      # The cache key hashes the repository's mise files only: the conf.d link into .standards/ is
-      # dangling until `setup`, so the package's tool pins cannot enter the key. The weekly prefix
-      # bounds how long a cache misses tools a newer Standards Release added.
+      # mise-action's own cache saves only after its own install, which this job leaves to `setup`;
+      # the standards-setup action owns the Standards Setup Caches instead.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         if: needs.route.outputs.ci-image != 'true'
         with:
           version: ${{ env.MISE_VERSION }}
           install: false
-          cache: true
-          cache_key_prefix: mise-standards-${{ steps.week.outputs.week }}
+          cache: false
+      # Restore only: the default-branch seed (standards-seed.yml) saves this key. A save here
+      # would serve only this pull request.
       - name: Restore the trivy vulnerability database
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/trivy/db
           key: trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
       - name: Trust the checked-out repository in the CI Image
         if: needs.route.outputs.ci-image == 'true'
         run: mise trust "$GITHUB_WORKSPACE"
+      # Restores the default branch's Standards Setup Caches on plain runners, then `mise run setup`.
       - id: setup
         name: Install the Standards Release, its tools and the repository's dependencies
-        run: mise run setup
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: Rubio-Enterprises/.github/actions/standards-setup@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          restore: ${{ needs.route.outputs.ci-image != 'true' }}
       # A repository task of the same name silently replaces a package task (mise precedence), so
       # `check`/`check:pr` must be the package's: same file content as the installed release's
       # mise/standards.toml (by content, not path: the standards repository links its own tree).

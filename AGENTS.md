@@ -57,6 +57,12 @@ ops, not reusables: `test-gate` runs `tests/` and reports the `test-gate` contex
 
 `bump-brew.yml` is invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
 
+**`actions/standards-setup` and `standards-seed.yml`.** Every `mise run setup` in a required check
+goes through the action, which restores the Standards Setup Caches; only the default-branch seed
+saves them, because a pull request's cache serves only that pull request
+([`docs/standards-setup.md`](docs/standards-setup.md)). Keep the seed's runner setup (uv, mise,
+`MISE_VERSION`) identical to `standards.yml`'s, or the keys and cache versions stop matching.
+
 **`actions/standards-bootstrap` (legacy).** The image builders (`repository-image.yml`,
 `devcontainer-image.yml`) still provision the Copier-era Shared Config Directory
 (`.standards-config/`, standards `legacy/copier`, read through the `rubio-standards-reader`

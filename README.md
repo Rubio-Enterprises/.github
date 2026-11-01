@@ -105,11 +105,14 @@ particularly in private repositories or for API/CLI-created issues.
 | [`devcontainer-image.yml`](./.github/workflows/devcontainer-image.yml) | Builds native amd64/arm64 Dev Container images, publishes a private GHCR multi-arch image, and prunes untagged versions; see [its contract](./docs/reusable-workflows/devcontainer-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-range gitleaks scan runs in the package's `check:pr`) |
 | [`standards.yml`](./.github/workflows/standards.yml) | Injected, not called: the Standards Check. Installs the repository's Standards Release and runs `mise run check` and `mise run check:pr`; routed by the `ci-platform`/`ci-size` properties; see [its contract](./docs/standards-check.md) |
+| [`standards-seed.yml`](./.github/workflows/standards-seed.yml) | Seeds the Standards Setup Caches (mise tool installs, npm package cache, trivy database) from the default branch, for the Standards Check and the Test Gate to restore; called by the starter `standards.yml` on push, schedule and dispatch; see [its contract](./docs/standards-setup.md) |
 | [`release-please.yml`](./.github/workflows/release-please.yml) | release-please with the `rubio-release-please` App token, a root `uv.lock` refresh and auto-merge on the release PR; called by the starter `standards.yml` when `release-please-config.json` exists; see [its contract](./docs/reusable-workflows/release-please.md) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages when the starter caller finds `docs/codewiki/metadata.json`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
-A repository workflow that needs the package's tools runs `jdx/mise-action` and
-`mise run setup` with `NODE_AUTH_TOKEN` and `packages: read`. The
+A repository workflow that needs the package's tools runs `jdx/mise-action` and the
+[`standards-setup`](./actions/standards-setup/action.yml) action (`mise run setup` with
+`NODE_AUTH_TOKEN`, restoring the default branch's Standards Setup Caches) with
+`packages: read`. The
 [`standards-bootstrap`](./actions/standards-bootstrap/action.yml) composite
 action is legacy: only the image builders still use it, for a repository that
 has not migrated off the Copier-era Shared Config Directory (see

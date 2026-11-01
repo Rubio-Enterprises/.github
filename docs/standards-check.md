@@ -39,10 +39,13 @@ The repository itself must be onboarded: `npm init @rubio-enterprises/standards`
 2. Fails with `repository not onboarded` when `lefthook.yml` is missing.
 3. On plain runners, installs uv, then mise (`jdx/mise-action`, pinned `MISE_VERSION`, no tool
    install yet). CI Image runners use the image's tools and explicitly trust the checkout instead.
-4. Restores mise's data cache only on plain runners, and the trivy vulnerability database on both.
-5. Runs `mise run setup` with `NODE_AUTH_TOKEN` set to the job token. The repository's `setup`
-   installs the package into `.standards/`, the missing tools, the git hooks and every
-   `setup:*` task (the repository's own dependencies).
+4. Restores the trivy vulnerability database the default branch seeded, if any.
+5. Runs the [`standards-setup`](../actions/standards-setup/action.yml) action: on plain runners it
+   restores the [Standards Setup Caches](standards-setup.md) (mise's tool installs and npm's
+   package cache) that the default branch seeded, then runs `mise run setup` with
+   `NODE_AUTH_TOKEN` set to the job token. The repository's `setup` installs the package into
+   `.standards/`, the missing tools, the git hooks and every `setup:*` task (the repository's own
+   dependencies). The check never saves a cache.
 6. Fails unless `check` and `check:pr` resolve to the package's `mise/standards.toml`. A task of
    the same name in `mise.toml` or `.mise.local.toml` wins over the package's in mise, so a
    repository could otherwise replace the Checks silently.
@@ -72,11 +75,11 @@ the pull request). The job token cannot comment, so the PR-conventions step repo
   `standards` job also runs after router failure and fails before checkout, rather than allowing
   a skipped dependency to make the required context green. The failure-only job uses the ordinary
   small route and executes no project commands.
-- **Caches are scoped to the pull request.** The workflow never runs on the default branch, and a
-  cache saved by a `pull_request` run is visible only to later runs of the same pull request, so
-  the first run of every pull request is cold (about 16 s of tool installs plus a 6.6 s trivy
-  download, measured locally). Both keys rotate weekly. The mise key hashes only the repository's
-  own mise files, because the conf.d link into `.standards/` dangles until `setup`.
+- **Caches come from the default branch.** The workflow never runs there, and a cache saved by
+  a `pull_request` run serves only later runs of the same pull request. So the check only
+  restores, and the repository's `standards.yml` seeds the caches on push to the default branch
+  and weekly through `standards-seed.yml` ([Standards Setup Caches](standards-setup.md)). Until a
+  repository's caches are seeded, its first run is cold.
 - **This repository is skipped.** `.github` is not onboarded; the job's `if` excludes it so its
   own pull requests are not failed by the missing `lefthook.yml`.
 - **Full history** costs little: cloning karakeep (94 MB, 3,322 commits) took 4.7 s against
