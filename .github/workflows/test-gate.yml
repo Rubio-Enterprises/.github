@@ -54,10 +54,37 @@ jobs:
           test "$(cat "$RUBIO_TEST_GATE_COUNT_OUTPUT")" -gt 0
           echo "tests_ran=true" >> "$GITHUB_OUTPUT"
 
+  source-permissions-arm:
+    name: native ARM source permissions
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
+    timeout-minutes: 15
+    outputs:
+      tests_ran: ${{ steps.test.outputs.tests_ran }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24.21.0"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - id: test
+        name: Exercise named-user nested source writes
+        working-directory: tests
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_OS" = Linux
+          test "$(uname -m)" = aarch64
+          python3 -m unittest -v test_image_v2.ImageV2.test_native_source_directories_are_writable_for_vscode
+          echo "tests_ran=true" >> "$GITHUB_OUTPUT"
+
   aggregate:
     name: test-gate
     if: ${{ always() }}
-    needs: [canonical-tests]
+    needs: [canonical-tests, source-permissions-arm]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:

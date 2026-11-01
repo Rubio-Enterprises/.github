@@ -34,8 +34,11 @@ RUN --mount=type=bind,from=pins,target=/workspaces/.mise-pins \
       bash -euc 'mise install --system node; mise run standards:install; mise install --system' \
  && rm -rf /home/vscode/.cache/mise /home/vscode/.local/state
 ENV PATH=/usr/local/share/mise/shims:${PATH}
-# A source tar preserves application .dockerignore bytes without applying its policy.
-ADD --chown=vscode:vscode source.tar /workspaces/${REPO}/
+# Older BuildKit can leave nested ADD --chown archive directories root-owned
+RUN --mount=type=bind,source=source.tar,target=/run/source.tar \
+    install -d -o vscode -g vscode "/workspaces/${REPO}" \
+ && runuser -u vscode -- tar --extract --file=/run/source.tar \
+      --directory="/workspaces/${REPO}" --no-same-owner
 WORKDIR /workspaces/${REPO}
 RUN --mount=type=bind,from=expected,target=/run/expected \
     --mount=type=bind,from=expected,source=profile.toml,target=/workspaces/${REPO}/mise.repository-image.toml \
