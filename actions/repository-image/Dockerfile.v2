@@ -8,13 +8,17 @@ ENV MISE_PYTHON_COMPILE=0 \
     MISE_CACHE_DIR=/home/vscode/.cache/mise \
     UV_CACHE_DIR=/home/vscode/.cache/uv \
     UV_LINK_MODE=copy \
-    UV_PYTHON_INSTALL_DIR=/usr/local/share/mise/python \
+    UV_PYTHON_INSTALL_DIR=/home/vscode/.local/share/uv/python \
+    CARGO_HOME=/home/vscode/.cache/cargo \
+    RUSTUP_HOME=/home/vscode/.local/share/rustup \
     pnpm_config_store_dir=/home/vscode/.cache/pnpm-store \
     npm_config_cache=/home/vscode/.cache/npm \
     GOMODCACHE=/home/vscode/.cache/gomod \
     GOFLAGS=-modcacherw
-RUN install -d -o vscode -g vscode /usr/local/share/mise /home/vscode/.cache \
-    "$MISE_CACHE_DIR" "$UV_CACHE_DIR" "$pnpm_config_store_dir" "$npm_config_cache" "$GOMODCACHE"
+RUN install -d -o vscode -g vscode /usr/local/share/mise \
+ && runuser -u vscode -- mkdir -p \
+    "$MISE_CACHE_DIR" "$UV_CACHE_DIR" "$pnpm_config_store_dir" "$npm_config_cache" "$GOMODCACHE" \
+    "$CARGO_HOME" "$RUSTUP_HOME" "$UV_PYTHON_INSTALL_DIR"
 # Secret contents do not invalidate BuildKit cache, so identity is a separate input
 RUN --mount=type=bind,from=pins,target=/workspaces/.mise-pins \
     --mount=type=bind,from=expected,target=/run/expected \

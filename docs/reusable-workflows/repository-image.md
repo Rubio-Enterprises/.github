@@ -100,11 +100,13 @@ as a named BuildKit context for the tool and setup steps. A separate read-only
 context supplies the expected pin, avoiding pin build arguments in image history.
 Neither context is copied. No standards credential reaches Docker. Builds install
 tools with `mise install --system`, never fetch standards in-container, and set
-`UV_LINK_MODE=copy`. Mutable uv/npm/pnpm/Go/mise caches live under
-`/home/vscode/.cache/`, owned by vscode during the build. The Dev Container CLI
-re-owns that home when it remaps the remote user's UID/GID on Linux; fixed
-paths outside the home would retain the build UID. Do not mount over the home
-or cache tree if baked caches must remain available. Current standards and a
+`UV_LINK_MODE=copy`. Both generic builders keep mutable uv/npm/pnpm/Go/mise/Cargo
+caches under `/home/vscode/.cache/`. Rustup and uv-managed Python SDK homes are
+`/home/vscode/.local/share/rustup` and `/home/vscode/.local/share/uv/python`.
+Directories are created as vscode, including intermediate data directories.
+The Dev Container CLI re-owns that home when it remaps the remote user's UID/GID
+on Linux; fixed paths outside the home would retain the build UID. Do not mount
+over the home or cache tree if baked caches must remain available. Current standards and a
 validated runtime pin must be provisioned again before runtime setup.
 
 ### Standards Package provisioning (v2)
@@ -193,8 +195,8 @@ policy by trusted project setup; source/mount discipline is still necessary.
 Reports never render matching contents. The CI smoke runs as
 UID 1000 under no-new-privileges and checks the runner, mise/gh/jq, writable
 cache/tool/runner paths and uv copy mode. Both dev and CI artifacts also seed
-nested cache metadata as UID 1000 and verify append/create/rename/delete as
-UID 1000 and, in a separate disposable container, UID/GID 1001 after the CLI's
+nested cache and SDK-home metadata as UID 1000 and verify append/create/rename/delete
+as UID 1000 and, in a separate disposable container, UID/GID 1001 after the CLI's
 home-only ownership migration. Only that test's identity migration runs as root;
 cache writes and project setup run as vscode. This is not a test of arbitrary Feature
 lifecycle commands: plain Container Pool runners do not interpret Dev Container
@@ -203,10 +205,10 @@ Docker/KVM/ARM project jobs stay on Machine Pools; macOS native jobs stay native
 
 The checksum-pinned Trivy 0.76.1 policy is identical in both reusables, scanning
 both local artifacts' filesystem and image config/history with no caller ignore
-policy and no matched secret text. Public mise install trees and Go/Bun/package
-caches, including RubyGems/Bundler packages and cached gem archives, use
-scan-root-anchored exclusions. Home credentials/configuration, first-party
-source outside preserved dependency exclusions, and environment/history retain
+policy and no matched secret text. Public mise install trees, Rustup/uv-managed
+SDK directories and Go/Bun/Cargo/package caches, including RubyGems/Bundler
+packages and cached gem archives, use scan-root-anchored exclusions. Home
+credentials/configuration, first-party source outside preserved dependency exclusions, and environment/history retain
 the same severities. The exact scopes, preserved defaults and blind spots are
 documented in [the legacy reusable](devcontainer-image.md#secret-checks). No
 scan failure/scanner error can proceed to external push. A failed native job

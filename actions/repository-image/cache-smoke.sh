@@ -6,7 +6,7 @@ uid="${1:?expected runtime UID}"
 probe=".rubio-cache-smoke-$$"
 runuser -u vscode -- bash -seu -- "$probe" <<'WARM'
   umask 022
-  for cache in "$UV_CACHE_DIR" "$npm_config_cache" "$pnpm_config_store_dir" "$GOMODCACHE" "$MISE_CACHE_DIR"; do
+  for cache in "$UV_CACHE_DIR" "$npm_config_cache" "$pnpm_config_store_dir" "$GOMODCACHE" "$MISE_CACHE_DIR" "$CARGO_HOME" "$RUSTUP_HOME" "$UV_PYTHON_INSTALL_DIR"; do
     mkdir -p "$cache/$1/nested"
     printf warm > "$cache/$1/nested/metadata"
   done
@@ -20,7 +20,7 @@ fi
 runuser -u vscode -- bash -seu -- "$probe" "$uid" <<'VERIFY'
   test "$(id -u)" = "$2"
   test "$(id -g)" = "$2"
-  for cache in "$UV_CACHE_DIR" "$npm_config_cache" "$pnpm_config_store_dir" "$GOMODCACHE" "$MISE_CACHE_DIR"; do
+  for cache in "$UV_CACHE_DIR" "$npm_config_cache" "$pnpm_config_store_dir" "$GOMODCACHE" "$MISE_CACHE_DIR" "$CARGO_HOME" "$RUSTUP_HOME" "$UV_PYTHON_INSTALL_DIR"; do
     printf updated >> "$cache/$1/nested/metadata"
     test "$(cat "$cache/$1/nested/metadata")" = warmupdated
     mkdir "$cache/$1/created"

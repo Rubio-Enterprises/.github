@@ -68,6 +68,9 @@ ROOTED_PUBLIC_CACHE_SKIP_PATTERNS = (
     "root/.local/share/pnpm/store/**",
     "var/cache/devcontainer/uv/**",
     "mnt/devcontainer-cache/uv/**",
+    "home/*/.cache/cargo/registry/**",
+    "home/*/.local/share/rustup/toolchains/**",
+    "home/*/.local/share/uv/python/*-*-*/**",
 )
 
 
@@ -601,24 +604,39 @@ class RealTrivyTests(unittest.TestCase):
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
     def test_repository_image_home_caches_exclude_packages_not_nearby_config(self) -> None:
-        from test_repository_image_cache import cache_environment
-        environment = cache_environment()
-        suffixes = {
-            "UV_CACHE_DIR": "/archive-v0/pkg/credentials.env",
-            "npm_config_cache": "/_cacache/content-v2/sha512/fixture",
-            "pnpm_config_store_dir": "/v11/files/ff/fixture",
-            "GOMODCACHE": "/example.com/pkg@v1.0.0/credentials.env",
-            "MISE_CACHE_DIR": "/downloads-cas/blobs/fixture",
-        }
-        for name, suffix in suffixes.items():
+        from test_repository_image_cache import CONFIG_SAMPLES, PACKAGE_SUFFIXES, cache_environment
+        environment = cache_environment("Dockerfile.v2")
+        for name, suffix in PACKAGE_SUFFIXES.items():
             self.put((environment[name] + suffix).lstrip("/"), "TOKEN=" + self.token)
+        self.put((environment["UV_PYTHON_INSTALL_DIR"] + "/pypy-3.11.13-linux-x86_64-gnu/lib/fixture.py").lstrip("/"), self.token)
         result = self.scan()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.put("home/vscode/.cache/npm/.npmrc", "TOKEN=" + self.token)
+        for path in CONFIG_SAMPLES:
+            self.put(path, "TOKEN=" + self.token)
         result = self.scan()
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("home/vscode/.cache/npm/.npmrc", result.stdout)
+        for path in CONFIG_SAMPLES:
+            self.assertIn(path, result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
+
+    @unittest.skipUnless(os.environ.get("PUBLIC_OPENSSL_SOURCE"), "PUBLIC_OPENSSL_SOURCE must name the verified public crate source")
+    def test_public_cargo_fixture_is_skipped_without_hiding_first_party_keys(self) -> None:
+        from test_repository_image_cache import cache_environment
+        data = Path(os.environ["PUBLIC_OPENSSL_SOURCE"]).read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), "f5a2f708afdd360135caa7c7984d639003dec6b012534b5c538fc9ca452aaaaa")
+        home = cache_environment("Dockerfile.v2").get("CARGO_HOME", "/home/vscode/.cargo")
+        public = (home + "/registry/src/index.crates.io-1949cf8c6b5b557f/openssl-0.10.81/src/pkey_ctx.rs").lstrip("/")
+        self.put(public, data.decode())
+        result = self.scan()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        source = "workspaces/project/src/pkey_ctx.rs"
+        self.put(source, data.decode())
+        result = self.scan()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(source, result.stdout)
+        self.assertNotIn(public, result.stdout)
+        self.assertIn("private-key (HIGH)", result.stdout)
+        self.assertNotIn("-----BEGIN ", result.stdout + result.stderr)
 
     def public_ruby_gem_fixtures(self) -> dict[str, str]:
         prefixes = (
@@ -670,6 +688,9 @@ class RealTrivyTests(unittest.TestCase):
             "mnt/devcontainer-cache/mise/installs/" + go: private_key,
             "var/cache/devcontainer/gomod/" + module: private_key,
             "home/vscode/.cache/gomod/" + module: private_key,
+            "home/vscode/.cache/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pkg/src/fixture.rs": private_key,
+            "home/vscode/.local/share/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/fixture.pem": private_key,
+            "home/vscode/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/fixture.py": private_key,
             "mnt/devcontainer-cache/gomod/" + module: private_key,
             "home/vscode/go/pkg/mod/" + module: private_key,
             "root/go/pkg/mod/" + module: private_key,
@@ -696,7 +717,8 @@ class RealTrivyTests(unittest.TestCase):
     def test_rooted_cache_exclusions_keep_home_config_source_and_nonpackage_caches(self) -> None:
         for name, content in self.public_cache_fixtures().items():
             self.put(name, content)
-        protected = (
+        from test_repository_image_cache import CONFIG_SAMPLES
+        protected = CONFIG_SAMPLES + (
             "home/vscode/.npmrc", "home/vscode/.config/mise/config.toml",
             "home/vscode/.cache/npm/.npmrc", "home/vscode/.cache/mise/config.toml",
             "home/vscode/.cache/credentials.env",
@@ -734,8 +756,9 @@ class RealTrivyTests(unittest.TestCase):
             self.assertNotIn(name, result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
-    def test_bundler_bare_git_cache_configs_still_detect_credentials(self) -> None:
+    def test_package_git_cache_configs_still_detect_credentials(self) -> None:
         paths = (
+            "home/vscode/.cache/cargo/git/db/private-repository/config",
             "usr/local/bundle/cache/bundler/git/private-repository/config",
             "home/vscode/.gem/ruby/3.4.0/cache/bundler/git/private-repository/config",
             "home/vscode/.cache/app/bundle/ruby/3.4.0/cache/bundler/git/private-repository/config",
