@@ -17,20 +17,18 @@ concurrency:
   group: standards-check-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  route:
+    if: github.repository != 'Rubio-Enterprises/.github'
+    permissions:
+      contents: read
+    uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
   standards:
     name: standards
     # This repository is not onboarded; its own pull requests would fail `test -f lefthook.yml`.
-    if: github.repository != 'Rubio-Enterprises/.github'
-    # Route from the custom properties: ci-platform=macos → RUNNERS.macos; ci-size=medium →
-    # RUNNERS.medium; otherwise RUNNERS.small. Each key has a hosted fallback for public repositories,
-    # which cannot read RUNNERS. If the event payload carries no custom_properties (unverified, DV-1),
-    # add a `route` job that reads `gh api repos/$GITHUB_REPOSITORY/properties/values`, outputs the
-    # runner JSON, and make this `runs-on: ${{ fromJSON(needs.route.outputs.runner) }}`.
+    needs: route
+    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
     runs-on: >-
-      ${{ github.event.repository.custom_properties['ci-platform'] == 'macos'
-      && (fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]'))
-      || github.event.repository.custom_properties['ci-size'] == 'medium'
-      && (fromJSON(vars.RUNNERS || '{}').medium || fromJSON('["ubuntu-latest"]'))
+      ${{ needs.route.result == 'success' && fromJSON(needs.route.outputs.runner)
       || (fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]')) }}
     timeout-minutes: 30
     env:
@@ -39,6 +37,11 @@ jobs:
       # renovate: datasource=github-releases depName=jdx/mise
       MISE_VERSION: "2026.10.19"
     steps:
+      - name: Require successful project routing
+        if: needs.route.result != 'success'
+        run: |
+          echo '::error::project runner routing did not succeed'
+          exit 1
       # Full history: check:pr scans BASE_SHA..HEAD_SHA, and on a fork `check` needs
       # origin/upstream and its merge-base. Measured on karakeep (94 MB): 4.7 s vs 2.2 s shallow.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -54,6 +57,7 @@ jobs:
         run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
       # mise's pipx backend needs uv on PATH on a cold runner (AGENTS.md).
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        if: needs.route.outputs.ci-image != 'true'
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.12.17"
@@ -61,6 +65,7 @@ jobs:
       # dangling until `setup`, so the package's tool pins cannot enter the key. The weekly prefix
       # bounds how long a cache misses tools a newer Standards Release added.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        if: needs.route.outputs.ci-image != 'true'
         with:
           version: ${{ env.MISE_VERSION }}
           install: false
@@ -71,6 +76,9 @@ jobs:
         with:
           path: ~/.cache/trivy/db
           key: trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+      - name: Trust the checked-out repository in the CI Image
+        if: needs.route.outputs.ci-image == 'true'
+        run: mise trust "$GITHUB_WORKSPACE"
       - id: setup
         name: Install the Standards Release, its tools and the repository's dependencies
         run: mise run setup

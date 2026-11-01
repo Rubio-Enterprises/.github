@@ -26,8 +26,9 @@ workflow YAML + JSON config directly; `actionlint`, `zizmor` and the `tests/` su
 
 **`standards.yml` — the injected Required Workflow** ([`docs/standards-check.md`](docs/standards-check.md)).
 The `standards` org ruleset injects it into every repository with `standards-onboarded = true`.
-One job installs the repository's Standards Release (`mise run setup`) and runs the package's
-Conformance Tasks `check` and `check:pr`; no standards logic lives in the workflow. Terraform
+A plain route job selects the project runner; the `standards` job installs the repository's
+Standards Release (`mise run setup`) and runs the package's Conformance Tasks `check` and
+`check:pr`. The checks themselves live in the package. Terraform
 owns the injected ref at `refs/heads/main`. The second required context, `test-gate`, is the
 repository's own starter workflow (the Test Gate), not a file here.
 
@@ -40,6 +41,7 @@ preset are retired (standards v2 flag day, 2026-10-31).
 
 | Workflow | What it does |
 | --- | --- |
+| `project-route.yml` | Selects native runs-on JSON for project jobs from declared platform/size, RUNNERS and central CI Image admission. Read [`docs/reusable-workflows/project-route.md`](docs/reusable-workflows/project-route.md) before changing routing, adding a caller or skipping image-job bootstrap |
 | `release-please.yml` | release-please with the `rubio-release-please` App token; the starter caller runs it when `release-please-config.json` exists. See [`docs/reusable-workflows/release-please.md`](docs/reusable-workflows/release-please.md) |
 | `repository-image.yml` | Per-repository Dev Container and CI images; the starter caller runs it when `.github/.devcontainer/devcontainer.json` exists. See [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) |
 | `devcontainer-image.yml` | Native amd64/arm64 Dev Container prebuilds, GHCR multi-arch publication and untagged pruning; read [`docs/reusable-workflows/devcontainer-image.md`](docs/reusable-workflows/devcontainer-image.md) before editing its publication or retention contract |
@@ -133,8 +135,9 @@ release for this repository. Recover regressions through reviewed reverts.
   through passwordless sudo on Tart Ubuntu. Long Xcode builds such as `testflight` use `macos`.
 - **Size and platform are DECLARED as custom properties, never derived from files.**
   `standards.yml` routes from the repository's `ci-platform` (`linux`/`macos`) and `ci-size`
-  (`small`/`medium`) custom properties (hand-authored in `.github-private` Terraform), read from
-  `github.event.repository.custom_properties` because `runs-on:` is evaluated before checkout.
+  (`small`/`medium`) custom properties (hand-authored in `.github-private` Terraform). The route
+  reusable uses event properties or the base repository properties API before checkout. Admitted
+  small/medium self-hosted jobs select their CI Image labels; other routes stay unchanged.
   The medium route falls back to hosted `ubuntu-latest` (8 GB), never the small fallback.
 
 ## Renovate config — two files, two roles
