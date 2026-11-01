@@ -189,7 +189,10 @@ base-ci ENV/USER/labels are not assumed to become the CI environment.
 Before external push, both saved artifacts are inspected across **all layers**,
 including files hidden/deleted by later layers, for persisted standards paths,
 links, exact bundle-only file hashes (files at least 128 bytes) and the build pin.
-The content comparison excludes fingerprints already present in regular files
+The package-root `package/LICENSE` is public legal metadata and does not supply a
+file-content fingerprint. The complete package tarball and every other package
+file remain fingerprinted; an image filename such as `LICENSE` grants no exemption.
+The content comparison also excludes fingerprints already present in regular files
 from the prepared `git archive` source snapshot. The builder passes that snapshot,
 not the working checkout; untracked files, symlink targets and Git/standards
 checkout metadata cannot supply exemptions. Standards paths/links and pin checks
