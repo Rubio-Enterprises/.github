@@ -10,7 +10,7 @@ def bundle_hashes(standards):
         fingerprints = {hashlib.sha256(standards.read_bytes()).digest()}
         with tarfile.open(standards) as package:
             for member in package:
-                if member.isfile() and member.size >= 128:
+                if member.isfile() and member.size >= 128 and member.name != "package/LICENSE":
                     fingerprints.add(hashlib.sha256(package.extractfile(member).read()).digest())
         return fingerprints
     return {

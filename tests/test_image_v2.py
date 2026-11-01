@@ -44,9 +44,13 @@ class ImageV2(unittest.TestCase):
         (self.repo / ".github/.devcontainer").mkdir(parents=True)
         (self.repo / ".github/.devcontainer/devcontainer.json").write_text('{"features":{}}')
         self.private = b"internal package-only content\n" * 20
+        self.license = (legacy.ROOT / "LICENSE").read_bytes()
+        self.nested_license = b"internal component notice\n" * 20
         self.package = self.root / "package.tgz"
         with tarfile.open(self.package, "w:gz") as package:
             for name, data in {"package/config/private.toml": self.private,
+                               "package/LICENSE": self.license,
+                               "package/config/LICENSE": self.nested_license,
                                "package/package.json": b'{"name":"@rubio-enterprises/standards","version":"2.0.0"}'}.items():
                 member = tarfile.TarInfo(name)
                 member.size = len(data)
@@ -307,6 +311,23 @@ else:
         for name in ["NODE_AUTH_TOKEN", "STANDARDS_VERSION", "STANDARDS_PIN"]:
             with self.subTest(env=name), self.assertRaises(ValueError):
                 legacy.audit_module.audit(self.archive({}, {"config": {"Env": [name + "=fixture"]}}), self.package, "")
+
+    def test_audit_allows_public_package_root_license_in_dependency_and_cache(self):
+        for name in ["workspaces/repo/node_modules/dependency/LICENSE",
+                     "home/vscode/.cache/bun/dependency/LICENSE"]:
+            with self.subTest(path=name):
+                legacy.audit_module.audit(self.archive({name: self.license}), self.package, "")
+
+    def test_audit_retains_payload_fingerprints_regardless_of_image_filename(self):
+        for name, data in {"node_modules/dependency/LICENSE": self.private,
+                           "cache/notice": self.nested_license,
+                           "cache/LICENSE": self.package.read_bytes()}.items():
+            with self.subTest(path=name), self.assertRaisesRegex(ValueError, "Bundle content persisted"):
+                legacy.audit_module.audit(self.archive({name: data}), self.package, "")
+
+    def test_audit_root_license_does_not_exempt_forbidden_package_paths(self):
+        with self.assertRaisesRegex(ValueError, "Package or temporary Git state"):
+            legacy.audit_module.audit(self.archive({"workspaces/repo/.standards/LICENSE": self.license}), self.package, "")
 
     def test_audit_allows_only_the_exact_runtime_wiring_symlink(self):
         name = "workspaces/repo/" + LINK
