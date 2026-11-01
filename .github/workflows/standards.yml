@@ -56,11 +56,11 @@ jobs:
         name: Name this week's cache keys
         run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
       # mise's pipx backend needs uv on PATH on a cold runner (AGENTS.md).
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         if: needs.route.outputs.ci-image != 'true'
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          version: "0.13.5"
       # The cache key hashes the repository's mise files only: the conf.d link into .standards/ is
       # dangling until `setup`, so the package's tool pins cannot enter the key. The weekly prefix
       # bounds how long a cache misses tools a newer Standards Release added.
