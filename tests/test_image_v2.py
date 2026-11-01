@@ -17,6 +17,8 @@ import test_repository_image_workflow as legacy
 ASSETS = legacy.ASSETS
 LINK = ".config/mise/conf.d/standards.toml"
 TARGET = "../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml"
+PUBLIC_BASE = "ghcr.io/rubio-enterprises/devcontainers/base@sha256:efdf27a01f9b3c0c55303dc20c9e48cfa95585cd978d5eed691a94dfe3b1bdc2"
+DOCKER_FRONTEND = "docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e"
 
 
 class ImageV2(unittest.TestCase):
@@ -130,6 +132,19 @@ class ImageV2(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(self.outputs()["context"])
 
+    def native_source_instruction(self):
+        dockerfile = (ASSETS / "Dockerfile.v2").read_text()
+        start = dockerfile.index("RUN --mount=type=bind,source=source.tar,")
+        return dockerfile[start:dockerfile.index("\nWORKDIR ", start)].replace("${REPO}", "repo")
+
+    def test_native_source_archive_is_extracted_as_vscode_without_a_tar_layer(self):
+        instruction = self.native_source_instruction()
+        self.assertIn("runuser -u vscode -- tar --extract", instruction)
+        self.assertIn("--no-same-owner", instruction)
+        self.assertIn("install -d -o vscode -g vscode", instruction)
+        self.assertNotIn("chown -R", instruction)
+        self.assertNotIn("chmod", instruction)
+
     def test_source_archive_preserves_setup_and_application_ignore_bytes(self):
         policy = "*\n!app.txt\n"
         (self.repo / ".dockerignore").write_text(policy)
@@ -167,17 +182,19 @@ class ImageV2(unittest.TestCase):
         (self.repo / ".dockerignore").write_text(policy)
         (self.repo / "app.txt").write_text("application source")
         context = self.prepare_source()
-        instruction = next(line for line in (ASSETS / "Dockerfile.v2").read_text().splitlines()
-                           if line.startswith(("ADD ", "COPY ")) and "/workspaces/${REPO}/" in line)
+        instruction = self.native_source_instruction()
         def export_source(source_instruction, build_context, name):
             source_instruction = source_instruction.replace("--chown=vscode:vscode", f"--chown={os.getuid()}:{os.getgid()}")
             source_instruction = source_instruction.replace("${REPO}", "repo")
             dockerfile = self.root / f"Dockerfile.{name}"
-            dockerfile.write_text("FROM scratch\n" + source_instruction + "\n")
+            base = PUBLIC_BASE if source_instruction.startswith("RUN ") else "scratch"
+            dockerfile.write_text(f"# syntax={DOCKER_FRONTEND}\nFROM {base} AS source\nUSER root\n"
+                                  + source_instruction + "\nFROM scratch\n"
+                                  "COPY --from=source /workspaces/repo/ /workspaces/repo/\n")
             exported = self.root / name
             result = subprocess.run(["docker", "buildx", "build", "--progress=plain", "--file", str(dockerfile),
                                      "--build-context", f"src={context / 'src'}", "--output", f"type=local,dest={exported}",
-                                     str(build_context)], capture_output=True, text=True, timeout=120)
+                                     str(build_context)], capture_output=True, text=True, timeout=300)
             self.assertEqual(result.returncode, 0, result.stderr)
             return exported
 
@@ -186,8 +203,7 @@ class ImageV2(unittest.TestCase):
         filtered = export_source(legacy_instruction, context / "empty", "filtered")
         self.assertTrue((filtered / "workspaces/repo/app.txt").is_file())
         self.assertFalse((filtered / "workspaces/repo/mise.toml").exists())
-        build_context = context / ("build" if instruction.startswith("ADD ") else "empty")
-        exported = export_source(instruction, build_context, "exported")
+        exported = export_source(instruction, context / "build", "exported")
         self.assertEqual((exported / "workspaces/repo/mise.toml").read_bytes(), (self.repo / "mise.toml").read_bytes())
         self.assertEqual((exported / "workspaces/repo/.dockerignore").read_text(), policy)
         self.assertTrue((exported / "workspaces/repo" / LINK).is_symlink())
@@ -202,17 +218,14 @@ class ImageV2(unittest.TestCase):
         frontend.mkdir(parents=True)
         (frontend / "package.json").write_text('{"name":"permission-fixture","private":true}')
         context = self.prepare_source()
-        instruction = next(line for line in (ASSETS / "Dockerfile.v2").read_text().splitlines()
-                           if line.startswith("ADD ") and "/workspaces/${REPO}/" in line)
-        instruction = instruction.replace("${REPO}", "repo")
-        base = "ghcr.io/rubio-enterprises/devcontainers/base@sha256:efdf27a01f9b3c0c55303dc20c9e48cfa95585cd978d5eed691a94dfe3b1bdc2"
+        instruction = self.native_source_instruction()
 
         def probe(source_instruction, name):
             dockerfile = self.root / f"Dockerfile.permissions-{name}"
             dockerfile.write_text(
-                "# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e\n"
-                f"FROM {base} AS probe\nUSER root\n{source_instruction}\nWORKDIR /workspaces/repo\n"
-                "RUN runuser -u vscode -- sh -euc 'id; "
+                f"# syntax={DOCKER_FRONTEND}\n"
+                f"FROM {PUBLIC_BASE} AS probe\nUSER root\n{source_instruction}\nWORKDIR /workspaces/repo\n"
+                "RUN runuser -u vscode -- sh -euc 'test ! -e /run/source.tar; id; "
                 "stat -c \"owner=%u:%g mode=%a path=%n\" . internal internal/frontend; "
                 "mkdir internal/frontend/node_modules; "
                 "printf writable > internal/frontend/node_modules/proof'\n"
@@ -224,13 +237,15 @@ class ImageV2(unittest.TestCase):
                                      str(context / "build")], capture_output=True, text=True, timeout=300)
             return result, exported
 
-        negative, _ = probe(instruction.replace("--chown=vscode:vscode ", ""), "unowned")
+        negative, _ = probe(instruction.replace("runuser -u vscode -- ", ""), "unowned")
         self.assertNotEqual(negative.returncode, 0, "Unowned nested source must not be writable by vscode")
         self.assertIn("Permission denied", negative.stderr)
         positive, exported = probe(instruction, "production")
         self.assertEqual(positive.returncode, 0, positive.stderr)
         self.assertEqual((exported / "proof").read_text(), "writable")
         self.assertIn("uid=1000(vscode)", positive.stderr)
+        for path in [r"\.", "internal", "internal/frontend"]:
+            self.assertRegex(positive.stderr, "owner=1000:1000 mode=[0-7]+ path=" + path)
         print("\n".join(line for line in positive.stderr.splitlines() if "owner=" in line or "uid=" in line))
 
     def test_tracked_package_payload_and_changed_shape_are_rejected(self):

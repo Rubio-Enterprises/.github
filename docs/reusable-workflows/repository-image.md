@@ -111,9 +111,13 @@ validated runtime pin must be provisioned again before runtime setup.
 
 ### Standards Package provisioning (v2)
 
-V2 delivers the validated source through a deterministic Git tar archive and
-Docker's native `ADD` extraction. An application's `.dockerignore` remains unchanged
-inside that archive/image, but cannot filter setup files from this different build.
+V2 delivers the validated source through a deterministic Git tar archive,
+bind-mounted read-only and extracted as vscode with `tar --no-same-owner` into a
+vscode-owned workspace. Older bundled BuildKit versions can leave nested archive
+directories root-owned with `ADD --chown`; extracting as the setup user avoids that
+backend-dependent behavior without recursive ownership or permission changes.
+The archive mount does not persist in an image layer. An application's `.dockerignore`
+remains unchanged inside that archive/image, but cannot filter setup files from this different build.
 Only the exact stub paths already omitted during preparation are excluded by literal
 Git pathspecs; source, package-absence and all-layer scan guards remain unchanged.
 The generic legacy path retains its existing local named source context.
