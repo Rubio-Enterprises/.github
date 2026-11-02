@@ -202,8 +202,8 @@ The local registry remains alive through scanning and publication. Audits pull
 its digest-addressed artifacts with crane; Trivy scans those same immutable
 registry references. After both scans pass, crane copies those exact manifests
 to GHCR and verifies destination digest equality. Docker-loaded copies are only
-for runtime smoke tests: classic Docker image storage can drop manifest
-annotations and reserialize compressed layers when pushing. The workflow's
+for runtime smoke tests: classic Docker image storage can drop annotations
+and reserialize the manifest when pushing. The workflow's
 always-cleanup step removes the registry on success, failure or cancellation.
 
 Before external push, both registry artifacts are inspected across **all layers**,
