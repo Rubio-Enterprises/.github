@@ -1,0 +1,395 @@
+# Temporary arm64 emulation probe (chore/arm64-emulation-probe). Never merge; delete the branch
+# after measurement. Builds without publishing: native amd64 and QEMU arm64 on the docker route.
+name: repository image emulation probe (reusable)
+"on":
+  workflow_call:
+    inputs:
+      config:
+        description: Repository-relative extra-Features definition
+        type: string
+        default: .github/.devcontainer/devcontainer.json
+      image-name:
+        description: GHCR image without a tag; defaults to ghcr.io/<owner>/<repo>/devcontainer
+        type: string
+        default: ""
+      base:
+        description: Public base tag or resolved multiarch index reference
+        type: string
+        default: ghcr.io/rubio-enterprises/devcontainers/base:latest
+      base-ci:
+        description: Matching runner base tag or resolved multiarch index reference
+        type: string
+        default: ghcr.io/rubio-enterprises/devcontainers/base-ci:latest
+    secrets:
+      STANDARDS_READER_APP_ID:
+        description: Standards-reader App ID; required for shared config bootstrap
+        required: false
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        description: Standards-reader App key; required for shared config bootstrap
+        required: false
+permissions: {}
+concurrency:
+  group: repository-image-probe-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: Resolve publication and base pair
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      shape: ${{ steps.standards.outputs.shape }}
+      version: ${{ steps.release.outputs.version }}
+      integrity: ${{ steps.release.outputs.integrity }}
+      image: ${{ steps.image.outputs.image }}
+      package: ${{ steps.image.outputs.package }}
+      publish: ${{ steps.image.outputs.publish }}
+      ci-image: ${{ steps.image.outputs.image }}-ci
+      ci-package: ${{ steps.image.outputs.package }}-ci
+      base: ${{ steps.bases.outputs.base }}
+      base-ci: ${{ steps.bases.outputs.base-ci }}
+    steps:
+      - name: Resolve image and publication policy
+        id: image
+        shell: bash
+        env:
+          IMAGE_INPUT: ${{ inputs.image-name }}
+          CONFIG: ${{ inputs.config }}
+          PUBLISH: "false"
+        run: |
+          set -euo pipefail
+          case "$CONFIG" in
+            ""|/*|..|../*|*/../*|*/..) echo "::error::config must be repository-relative without parent traversal"; exit 1 ;;
+          esac
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="${IMAGE_INPUT:-ghcr.io/${GITHUB_REPOSITORY,,}/devcontainer}"
+          image="${image,,}"
+          prefix="ghcr.io/$owner/"
+          package="${image#"$prefix"}"
+          if [[ "$image" != "$prefix"* || ! "$package" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]]; then
+            echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
+            exit 1
+          fi
+          printf 'image=%s\npackage=%s\npublish=%s\n' "$image" "$package" "$PUBLISH" >> "$GITHUB_OUTPUT"
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Check out standards wiring
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Detect standards shape
+        id: standards
+        uses: Rubio-Enterprises/.github/actions/repository-image@chore/arm64-emulation-probe
+        with:
+          operation: inspect
+      - name: Resolve the Standards Release
+        id: release
+        if: steps.standards.outputs.shape == 'v2'
+        uses: Rubio-Enterprises/.github/actions/repository-image@chore/arm64-emulation-probe
+        env:
+          STANDARDS_RELEASE: ${{ steps.standards.outputs.release }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        with:
+          operation: release
+      - name: Remove registry cache and logs
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/standards-registry-cache"
+      - name: Resolve and validate the public base pair
+        id: bases
+        uses: Rubio-Enterprises/.github/actions/repository-image@chore/arm64-emulation-probe
+        with:
+          operation: resolve
+          base: ${{ inputs.base }}
+          base-ci: ${{ inputs.base-ci }}
+
+  warm:
+    name: Probe warm (${{ matrix.arch }}, ${{ matrix.mode }})
+    needs: prepare
+    permissions: &probe-permissions
+      contents: read
+      packages: read
+    strategy: &probe-matrix
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            mode: native
+          - arch: arm64
+            mode: emulated
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 240
+    env:
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+      PROBE_CACHE: warm
+    steps: &build-steps
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Provision native shared config
+        if: needs.prepare.outputs.shape != 'v2'
+        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          bootstrap-parts: repos
+      - name: Require the image build pin
+        if: needs.prepare.outputs.shape != 'v2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "${STANDARDS_PIN:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::standards-bootstrap must export a full lowercase STANDARDS_PIN before building" >&2
+            exit 1
+          fi
+      - name: Describe the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'PROBE_RUNNER name=%s host_arch=%s docker_arch=%s nproc=%s cpu_max=%s memory_max=%s\n' \
+            "$RUNNER_NAME" "$(uname -m)" "$(docker info --format '{{.Architecture}}')" "$(nproc)" \
+            "$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unknown)" \
+            "$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)" | tee -a "$RUNNER_TEMP/probe-metrics.txt"
+      - name: Register arm64 emulation
+        if: matrix.mode == 'emulated'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+          cache-image: false
+      - name: Verify emulated execution
+        if: matrix.mode == 'emulated'
+        shell: bash
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+        run: |
+          set -euo pipefail
+          SECONDS=0
+          docker pull --quiet --platform linux/arm64 "$BASE" >/dev/null
+          machine="$(docker run --rm --platform linux/arm64 --entrypoint uname "$BASE" -m)"
+          echo "PROBE_EMULATION machine=$machine pull_and_run_s=$SECONDS" | tee -a "$RUNNER_TEMP/probe-metrics.txt"
+          test "$machine" = aarch64
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install the Dev Container CLI
+        shell: bash
+        run: npm install --prefix "$RUNNER_TEMP/devcontainer-cli" --ignore-scripts --no-audit --no-fund @devcontainers/cli@0.89.0
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Prepare central generic build inputs
+        id: inputs
+        uses: Rubio-Enterprises/.github/actions/repository-image@chore/arm64-emulation-probe
+        env:
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          STANDARDS_SHAPE: ${{ needs.prepare.outputs.shape }}
+          STANDARDS_VERSION: ${{ needs.prepare.outputs.version }}
+          STANDARDS_INTEGRITY: ${{ needs.prepare.outputs.integrity }}
+        with:
+          operation: prepare
+          config: ${{ inputs.config }}
+          base: ${{ needs.prepare.outputs.base }}
+      - name: Fetch the verified Standards Package
+        if: needs.prepare.outputs.shape == 'v2'
+        uses: Rubio-Enterprises/.github/actions/repository-image@chore/arm64-emulation-probe
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        with:
+          operation: pack
+      - name: Install checksum-pinned Trivy
+        shell: bash
+        env:
+          ARCH: ${{ runner.arch == 'X64' && 'amd64' || 'arm64' }}
+        run: |
+          set -euo pipefail
+          version=0.76.1
+          case "$ARCH" in
+            amd64) platform=64bit; checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0 ;;
+            arm64) platform=ARM64; checksum=e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f ;;
+            *) echo "::error::Unsupported Trivy architecture"; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-${platform}.tar.gz"
+          printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/trivy" trivy
+      - name: Build, rebase and audit both architecture artifacts
+        shell: bash
+        env:
+          ASSETS: ${{ steps.inputs.outputs.assets }}
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          BASE: ${{ needs.prepare.outputs.base }}
+          BASE_CI: ${{ needs.prepare.outputs.base-ci }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+          ARCH: ${{ matrix.arch }}
+          ALLOW_EMULATION: ${{ matrix.mode == 'emulated' }}
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+        run: bash "$ASSETS/build.sh"
+      - name: Scan both local artifacts for secrets
+        shell: bash
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf "$RUNNER_TEMP/trivy-cache"' EXIT
+          # skip-patterns replaces Trivy's defaults. Keep them plus package caches:
+          # installs hardlink into caches whose hashes defeat path-based allow rules.
+          # Third-party package contents stay out of scope, matching Trivy's defaults.
+          cat > "$RUNNER_TEMP/trivy-secret.yaml" <<'TRIVY'
+          skip-patterns:
+            - "**/.git/**"
+            - "**/node_modules/**"
+            - "**/go.mod"
+            - "**/go.sum"
+            - "**/package-lock.json"
+            - "**/yarn.lock"
+            - "**/pnpm-lock.yaml"
+            - "**/Pipfile.lock"
+            - "**/Gemfile.lock"
+            - "**/*.jpg"
+            - "**/*.png"
+            - "**/*.gif"
+            - "**/*.doc"
+            - "**/*.pdf"
+            - "**/*.bin"
+            - "**/*.svg"
+            - "**/*.socket"
+            - "**/*.deb"
+            - "**/*.rpm"
+            - "**/*.zip"
+            - "**/*.gz"
+            - "**/*.gzip"
+            - "**/*.tar"
+            - "**/pnpm-store/**"
+            - "**/_cacache/**"
+            - "**/.cache/uv/**"
+            - "**/.cache/pip/**"
+            - "**/.cache/mise/npm/aube/store/**"
+            - "**/.cache/mise/downloads-cas/**"
+            - "usr/local/share/mise/installs/**"
+            - "home/*/.local/share/mise/installs/**"
+            - "root/.local/share/mise/installs/**"
+            - "mnt/devcontainer-cache/mise/installs/**"
+            - "var/cache/devcontainer/gomod/**"
+            - "home/*/.cache/gomod/**"
+            - "mnt/devcontainer-cache/gomod/**"
+            - "home/*/go/pkg/mod/**"
+            - "root/go/pkg/mod/**"
+            - "home/*/.bun/install/cache/**"
+            - "root/.bun/install/cache/**"
+            - "var/cache/devcontainer/bun/**"
+            - "mnt/devcontainer-cache/bun/**"
+            - "home/*/.local/share/pnpm/store/**"
+            - "root/.local/share/pnpm/store/**"
+            - "var/cache/devcontainer/uv/**"
+            - "mnt/devcontainer-cache/uv/**"
+            - "home/*/.cache/cargo/registry/**"
+            - "home/*/.local/share/rustup/toolchains/**"
+            - "home/*/.local/share/uv/python/*-*-*/**"
+            - "usr/local/bundle/gems/**"
+            - "usr/local/bundle/cache/*.gem"
+            - "usr/local/bundle/*/*/gems/**"
+            - "usr/local/bundle/*/*/cache/*.gem"
+            - "home/*/.gem/gems/**"
+            - "home/*/.gem/cache/*.gem"
+            - "root/.gem/gems/**"
+            - "root/.gem/cache/*.gem"
+            - "home/*/.gem/*/*/gems/**"
+            - "home/*/.gem/*/*/cache/*.gem"
+            - "root/.gem/*/*/gems/**"
+            - "root/.gem/*/*/cache/*.gem"
+            - "home/*/.local/share/gem/*/*/gems/**"
+            - "home/*/.local/share/gem/*/*/cache/*.gem"
+            - "root/.local/share/gem/*/*/gems/**"
+            - "root/.local/share/gem/*/*/cache/*.gem"
+            - "home/*/.cache/*/bundle/*/*/gems/**"
+            - "home/*/.cache/*/bundle/*/*/cache/*.gem"
+            - "root/.cache/*/bundle/*/*/gems/**"
+            - "root/.cache/*/bundle/*/*/cache/*.gem"
+            - "workspaces/*/.bundle/*/*/gems/**"
+            - "workspaces/*/.bundle/*/*/cache/*.gem"
+          # Keep the SDK prose guard for regular files in uncached install layouts.
+          exclude-block:
+            description: Anthropic SDK execution-identity documentation, not GCP credentials
+            regexes:
+              - 'sending `\{"type": "service_account"\}` stores the'
+              - 'send null or `\{"type": "service_account"\}`'
+              - 'Always present; `\{"type": "service_account"\}` when runs carry no customer-named'
+          TRIVY
+          # shellcheck disable=SC2016
+          template='{{ range . }}{{ $target := .Target }}{{ range .Secrets }}{{ printf "%s:%d-%d: %s (%s)\n" $target .StartLine .EndLine .RuleID .Severity }}{{ end }}{{ end }}'
+          for artifact in "$IMAGE" "$CI_IMAGE"; do
+            SECONDS=0
+            status=0
+            "$RUNNER_TEMP/trivy/trivy" image \
+              --image-src docker --scanners secret --image-config-scanners secret \
+              --exit-code 1 --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
+              --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
+              --timeout 15m --format template --template "$template" \
+              "$artifact:sha-$GITHUB_SHA-$ARCH" || status=$?
+            printf 'Secret scan (%s, %s): %s seconds (exit %s)\n' "$artifact" "$ARCH" "$SECONDS" "$status"
+            printf 'PROBE_SCAN arch=%s artifact=%s seconds=%s status=%s\n' "$ARCH" "${artifact##*/}" "$SECONDS" "$status" >> "$RUNNER_TEMP/probe-metrics.txt"
+            if [[ "$status" != 0 ]]; then exit "$status"; fi
+          done
+      - name: Clean job-local artifacts
+        if: always()
+        shell: bash
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          rm -rf "$RUNNER_TEMP/standards-registry-cache"
+          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
+          docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
+          if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
+
+      - name: Report probe metrics
+        if: always()
+        shell: bash
+        run: |
+          memory_peak="$(cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo unknown)"
+          echo "PROBE_MEMORY peak_bytes=$memory_peak" >> "$RUNNER_TEMP/probe-metrics.txt"
+          {
+            echo '```'
+            cat "$RUNNER_TEMP/probe-metrics.txt" 2>/dev/null || echo 'no probe metrics'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  cold:
+    name: Probe cold (${{ matrix.arch }}, ${{ matrix.mode }})
+    needs: [prepare, warm]
+    if: always() && needs.prepare.result == 'success'
+    permissions: *probe-permissions
+    strategy: *probe-matrix
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 240
+    env:
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+      PROBE_CACHE: cold
+    steps: *build-steps
