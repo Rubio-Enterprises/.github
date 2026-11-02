@@ -27,8 +27,8 @@ audit_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit_module)
 
 
-def script(name):
-    lines = TEXT.splitlines()
+def script(name, text=TEXT):
+    lines = text.splitlines()
     start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
     run = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |")
     indent = len(lines[run]) - len(lines[run].lstrip())
@@ -105,7 +105,7 @@ class Contracts(unittest.TestCase):
         self.assertIn('if [[ "$status" != 0 ]]; then exit "$status"; fi', scan)
         self.assertNotIn(".Match", scan)
         self.assertNotIn(".Content", scan)
-        self.assertEqual(TEXT.count('needs: [prepare, build]'), 1)
+        self.assertEqual(TEXT.count('needs: [prepare, build, build-service]'), 1)
         self.assertNotIn('merge]', TEXT)
         self.assertIn('delete-only-untagged-versions: "true"', TEXT)
         self.assertIn('min-versions-to-keep: 5', TEXT)
@@ -138,7 +138,7 @@ class Contracts(unittest.TestCase):
         self.assertLess(steps.index("- name: Push the verified image pair"), publish)
         self.assertLess(publish, steps.index("- name: Clean job-local artifacts"))
         self.assertIn("if: needs.prepare.outputs.publish == 'true'", steps[publish:publish + 200])
-        self.assertIn("needs: [prepare, build]", TEXT.split("\n  prune:\n", 1)[1])
+        self.assertIn("needs: [prepare, build, build-service]", TEXT.split("\n  prune:\n", 1)[1])
 
     def test_legacy_reusable_is_retired(self):
         self.assertFalse((ROOT / ".github/workflows/devcontainer-image.yml").exists())
@@ -438,7 +438,7 @@ class Fixtures(unittest.TestCase):
         binary.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/calls"\ncase "${*: -1}" in */ci@*) exit "${CI_STATUS:-0}";; *) exit "${DEV_STATUS:-0}";; esac\n')
         binary.chmod(0o755)
         self.env.update(IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer", CI_IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer-ci",
-                        CONTEXT=str(self.root), ARCH="amd64", GITHUB_SHA="a" * 40,
+                        ASSETS=str(ASSETS), CONTEXT=str(self.root), ARCH="amd64", GITHUB_SHA="a" * 40,
                         PATH=str(self.root) + os.pathsep + os.environ["PATH"])
         digest = "sha256:" + "b" * 64
         for name in ["dev", "ci"]:
