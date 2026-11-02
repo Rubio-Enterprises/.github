@@ -52,7 +52,8 @@ class ImageV2(unittest.TestCase):
             for name, data in {"package/config/private.toml": self.private,
                                "package/LICENSE": self.license,
                                "package/config/LICENSE": self.nested_license,
-                               "package/package.json": b'{"name":"@rubio-enterprises/standards","version":"2.0.0"}'}.items():
+                               "package/package.json": b'{"name":"@rubio-enterprises/standards","version":"2.0.0"}',
+                               "package/image/Dockerfile": legacy.FROZEN_RECIPE.read_bytes()}.items():
                 member = tarfile.TarInfo(name)
                 member.size = len(data)
                 package.addfile(member, io.BytesIO(data))
@@ -120,7 +121,7 @@ class ImageV2(unittest.TestCase):
             self.stub(installer, 'import os,sys\nfrom pathlib import Path\n'
                       'Path(os.environ["EARLY_INSTALL"]).write_text("consumer tool installed before package")\n'
                       'sys.exit(1)\n')
-        instruction = next(line for line in (ASSETS / "Dockerfile.v2").read_text().splitlines()
+        instruction = next(line for line in legacy.FROZEN_RECIPE.read_text().splitlines()
                            if "bash -euc 'mise install" in line)
         commands = instruction.split("'")[1].split("; ")
         result = subprocess.run(
@@ -221,7 +222,7 @@ class ImageV2(unittest.TestCase):
         return Path(self.outputs()["context"])
 
     def native_source_instruction(self):
-        dockerfile = (ASSETS / "Dockerfile.v2").read_text()
+        dockerfile = legacy.FROZEN_RECIPE.read_text()
         start = dockerfile.index("RUN --mount=type=bind,source=source.tar,")
         return dockerfile[start:dockerfile.index("\nWORKDIR ", start)].replace("${REPO}", "repo")
 
@@ -374,9 +375,12 @@ else:
             self.assertNotIn(env["NODE_AUTH_TOKEN"], calls + result.stdout + result.stderr)
             self.assertIn("${NODE_AUTH_TOKEN}", calls)
         self.assertEqual((context / "package/standards.tgz").read_bytes(), self.package.read_bytes())
+        self.assertEqual((context / "package/Dockerfile").read_bytes(), legacy.FROZEN_RECIPE.read_bytes())
         (context / "package/standards.tgz").unlink()
+        (context / "package/Dockerfile").unlink()
         (context / "package").rmdir()
         self.assertIn("integrity mismatch", self.invoke("pack", **env, TAMPER="1").stderr)
+        self.assertFalse((context / "package/Dockerfile").exists())
         result = self.invoke("release", **env, FAIL_NPM="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn(env["NODE_AUTH_TOKEN"], result.stdout + result.stderr)
@@ -433,7 +437,7 @@ else:
         self.assertEqual(result.stdout.strip(), "file:/run/standards.tgz")
 
     def test_native_build_mounts_private_state_without_baking_or_build_auth(self):
-        dockerfile = (ASSETS / "Dockerfile.v2").read_text()
+        dockerfile = legacy.FROZEN_RECIPE.read_text()
         self.assertEqual(dockerfile.count("type=secret,id=standards_package"), 2)
         self.assertEqual(dockerfile.count("type=tmpfs,target=/run/npm-cache"), 2)
         self.assertIn("type=tmpfs,target=/workspaces/${REPO}/.git", dockerfile)

@@ -87,6 +87,7 @@ function pack() {
   const bytes = fs.readFileSync(archive);
   if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== expected.integrity) throw new Error('Packed package integrity mismatch');
   if (process.env.NODE_AUTH_TOKEN && bytes.includes(Buffer.from(process.env.NODE_AUTH_TOKEN))) throw new Error('Credential in package archive');
+  run('python3', [path.join(assets, 'recipe.py'), archive, path.join(directory, 'Dockerfile'), expected.version]);
   fs.renameSync(archive, path.join(directory, 'standards.tgz'));
 }
 

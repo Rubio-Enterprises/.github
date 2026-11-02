@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "actions/repository-image"
+FROZEN_RECIPE = "frozen-repository-image-v2.Dockerfile"
 CACHE_NAMES = ("UV_CACHE_DIR", "npm_config_cache", "pnpm_config_store_dir", "GOMODCACHE", "MISE_CACHE_DIR", "CARGO_HOME")
 SDK_HOME_NAMES = ("RUSTUP_HOME", "UV_PYTHON_INSTALL_DIR")
 PACKAGE_SUFFIXES = {
@@ -31,7 +32,8 @@ CONFIG_SAMPLES = (
 
 
 def cache_environment(filename="Dockerfile"):
-    dockerfile = (ASSETS / filename).read_text().replace("\\\n", " ")
+    recipe = ROOT / "tests/fixtures" / filename if filename == FROZEN_RECIPE else ASSETS / filename
+    dockerfile = recipe.read_text().replace("\\\n", " ")
     environment = {}
     for line in dockerfile.splitlines():
         if line.startswith("ENV "):
@@ -41,7 +43,7 @@ def cache_environment(filename="Dockerfile"):
 
 class RepositoryImageCaches(unittest.TestCase):
     def test_mutable_cache_trees_follow_native_home_uid_remapping(self):
-        for filename in ("Dockerfile", "Dockerfile.v2"):
+        for filename in ("Dockerfile", FROZEN_RECIPE):
             environment = cache_environment(filename)
             for name in CACHE_NAMES:
                 with self.subTest(dockerfile=filename, cache=name):
@@ -51,13 +53,14 @@ class RepositoryImageCaches(unittest.TestCase):
                 with self.subTest(dockerfile=filename, sdk=name):
                     self.assertTrue(environment[name].startswith("/home/vscode/.local/share/"), environment[name])
             self.assertEqual(environment["UV_LINK_MODE"], "copy")
-            dockerfile = (ASSETS / filename).read_text()
+            recipe = ROOT / "tests/fixtures" / filename if filename == FROZEN_RECIPE else ASSETS / filename
+            dockerfile = recipe.read_text()
             self.assertIn("runuser -u vscode -- mkdir -p", dockerfile)
             self.assertNotIn("chmod 777", dockerfile)
         self.assertIn("USER vscode\nRUN", (ASSETS / "Dockerfile").read_text())
 
     def test_new_cache_paths_retain_package_only_secret_scan_exclusions(self):
-        for filename in ("Dockerfile", "Dockerfile.v2"):
+        for filename in ("Dockerfile", FROZEN_RECIPE):
             environment = cache_environment(filename)
             for workflow in ("repository-image.yml",):
                 source = (ROOT / ".github/workflows" / workflow).read_text()
@@ -75,7 +78,7 @@ class RepositoryImageCaches(unittest.TestCase):
         self.assertIn('uids=(1000)', build)
         self.assertIn('if [[ "$artifact" == "$IMAGE" ]]; then uids+=(1001); fi', build)
         self.assertIn('for uid in "${uids[@]}"; do', build)
-        self.assertIn('-s -- "$uid" < "$ASSETS/cache-smoke.sh"', build)
+        self.assertRegex(build, r'-s -- "\$uid" <\s*"\$ASSETS/cache-smoke.sh"')
         smoke = (ASSETS / "cache-smoke.sh").read_text()
         self.assertIn('chown -R "$uid:$uid" /home/vscode', smoke)
         self.assertEqual(smoke.count("runuser -u vscode"), 2)

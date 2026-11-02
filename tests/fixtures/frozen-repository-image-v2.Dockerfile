@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 # check=skip=InvalidDefaultArgInFrom
+# Frozen compatibility fixture from .github 2df77da; never a production build input
 ARG BASE
 FROM ${BASE}
 ARG REPO

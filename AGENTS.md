@@ -56,6 +56,9 @@ ops, not reusables: `test-gate` runs `tests/` and reports the `test-gate` contex
 
 `bump-brew.yml` is invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
 
+V2 image builds use the `ci` target of `image/Dockerfile` from the repository's
+verified Standards Release (2.1.0+). This repository owns orchestration, not the v2 recipe.
+
 **`actions/standards-bootstrap` (legacy).** The image builder (`repository-image.yml`)
 still provisions the Copier-era Shared Config Directory
 (`.standards-config/`, standards `legacy/copier`, read through the `rubio-standards-reader`

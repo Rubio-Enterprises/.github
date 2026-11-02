@@ -45,7 +45,7 @@ standards="$GITHUB_WORKSPACE/.standards-config"
 pin="${STANDARDS_PIN:-}"
 case "$shape" in
 v2)
-  dockerfile="$ASSETS/Dockerfile.v2"
+  dockerfile="$CONTEXT/package/Dockerfile"
   standards="$CONTEXT/package/standards.tgz"
   pin=
   ;;
@@ -64,7 +64,7 @@ args=(--platform "linux/$ARCH" --file "$dockerfile"
   --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY")
 if [[ "$shape" = v2 ]]; then
   build_context="$CONTEXT/build"
-  args+=(--secret "id=standards_package,src=$standards")
+  args+=(--target ci --secret "id=standards_package,src=$standards")
 else
   args+=(--build-context "standards=$standards" --build-context "src=$CONTEXT/src")
 fi
