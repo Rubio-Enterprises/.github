@@ -56,12 +56,22 @@ legacy | none) ;;
   ;;
 esac
 build_context="$CONTEXT/empty"
+labels=()
+if [[ -n "${INPUT_KEY:-}" ]]; then
+  if ! [[ "$INPUT_KEY" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    echo '::error::invalid image input key'
+    exit 1
+  fi
+  labels=(--label "org.rubio-enterprises.image.input-key=$INPUT_KEY"
+    --label "org.rubio-enterprises.image.built-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+fi
 args=(--platform "linux/$ARCH" --file "$dockerfile"
   --build-context "pins=$CONTEXT/pins"
   --build-context "expected=$CONTEXT/expected"
   --build-arg "BASE=$local_ref/features@$features_digest"
   --build-arg "REPO=${GITHUB_REPOSITORY#*/}"
-  --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY")
+  --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+  "${labels[@]}")
 if [[ "$shape" = v2 ]]; then
   build_context="$CONTEXT/build"
   args+=(--target ci --secret "id=standards_package,src=$standards")

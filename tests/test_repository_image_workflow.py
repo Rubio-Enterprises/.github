@@ -525,7 +525,15 @@ done
         for shape, native in [("legacy", "x86_64"), ("legacy", "amd64"), ("v2", "x86_64"), ("v2", "amd64")]:
             arch = "amd64"
             (context / "expected/shape").write_text(shape)
-            for item in args[4:6]: item["architecture"] = arch
+            key = "sha256:" + "e" * 64 if shape == "v2" else ""
+            for item in args[4:6]:
+                item["architecture"] = arch
+                labels = item["config"]["Labels"]
+                labels.pop("org.rubio-enterprises.image.input-key", None)
+                labels.pop("org.rubio-enterprises.image.built-at", None)
+                if key:
+                    labels.update({"org.rubio-enterprises.image.input-key": key,
+                                   "org.rubio-enterprises.image.built-at": "2026-11-02T00:00:00Z"})
             for name, data in zip(["base", "base-ci", "dev", "ci", "dev-config", "ci-config"], args[:6]):
                 (fixtures / f"{name}.json").write_text(json.dumps(data))
             for name in ["base-config", "base-ci-config"]:
@@ -537,7 +545,7 @@ done
                    "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "c" * 40,
                    "GITHUB_REPOSITORY": "Rubio-Enterprises/repo", "GITHUB_SERVER_URL": "https://github.com",
                    "GITHUB_WORKSPACE": str(self.root / "workspace"), "STANDARDS_PIN": "d" * 40,
-                   "DEVCONTAINER": str(cli), "DOCKER_ARCH": native,
+                   "DEVCONTAINER": str(cli), "DOCKER_ARCH": native, "INPUT_KEY": key,
                    "PATH": str(docker.parent) + os.pathsep + os.environ["PATH"]}
             result = subprocess.run(["bash", str(ASSETS / "build.sh")], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -552,6 +560,11 @@ done
                 self.assertIn("--file " + str(recipe), call)
                 self.assertIn("--build-context pins=" + str(context / "pins"), call)
                 self.assertIn("--build-context expected=" + str(context / "expected"), call)
+                if key:
+                    self.assertIn("--label org.rubio-enterprises.image.input-key=" + key, call)
+                    self.assertRegex(call, r"--label org\.rubio-enterprises\.image\.built-at=\d{4}-\d\d-\d\dT")
+                else:
+                    self.assertNotIn("org.rubio-enterprises.image", call)
                 if shape == "v2":
                     self.assertIn("--target ci", call)
                     self.assertIn("--secret id=standards_package,src=" + str(context / "package/standards.tgz"), call)
@@ -583,6 +596,11 @@ done
                 self.assertNotEqual(rejected.returncode, 0, (arch, name))
                 self.assertIn("base digest annotation", rejected.stderr)
                 (fixtures / f"{name}.json").write_text(good)
+            if key:
+                for bad_key in ["sha256:" + "f" * 64, "not-a-key"]:
+                    rejected = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "INPUT_KEY": bad_key},
+                                              capture_output=True, text=True)
+                    self.assertNotEqual(rejected.returncode, 0, bad_key)
             (self.root / "docker-calls").unlink()
             result = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "DOCKER_ARCH": "aarch64"}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)

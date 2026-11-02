@@ -52,6 +52,12 @@ jobs:
       ci-package: ${{ steps.image.outputs.package }}-ci
       base: ${{ steps.bases.outputs.base }}
       base-ci: ${{ steps.bases.outputs.base-ci }}
+      input-key: ${{ steps.key.outputs.input-key }}
+      skip: ${{ steps.key.outputs.skip }}
+      dev-index: ${{ steps.key.outputs.dev-index }}
+      dev-child: ${{ steps.key.outputs.dev-child }}
+      ci-index: ${{ steps.key.outputs.ci-index }}
+      ci-child: ${{ steps.key.outputs.ci-child }}
     steps:
       - name: Resolve image and publication policy
         id: image
@@ -101,9 +107,6 @@ jobs:
           npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
         with:
           operation: release
-      - name: Remove registry cache and logs
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/standards-registry-cache"
       - name: Resolve and validate the public base pair
         id: bases
         uses: Rubio-Enterprises/.github/actions/repository-image@main
@@ -111,6 +114,30 @@ jobs:
           operation: resolve
           base: ${{ inputs.base }}
           base-ci: ${{ inputs.base-ci }}
+      # A manual run always rebuilds; pushes alias the published pair when its inputs match
+      - name: Compare image inputs with the published pair
+        id: key
+        if: steps.image.outputs.publish == 'true' && steps.standards.outputs.shape == 'v2'
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          STANDARDS_VERSION: ${{ steps.release.outputs.version }}
+          STANDARDS_INTEGRITY: ${{ steps.release.outputs.integrity }}
+          DEVCONTAINER_CLI_VERSION: 0.89.0
+          FORCE: ${{ github.event_name != 'push' }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        with:
+          operation: key
+          config: ${{ inputs.config }}
+          base: ${{ steps.bases.outputs.base }}
+          base-ci: ${{ steps.bases.outputs.base-ci }}
+      - name: Remove registry cache and logs
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/standards-registry-cache"
 
   validate:
     name: Validate (amd64)
@@ -220,6 +247,7 @@ jobs:
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
           DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          INPUT_KEY: ${{ needs.prepare.outputs.input-key }}
         run: bash "$ASSETS/build.sh"
       - name: Scan the dev artifact for secrets
         shell: bash
@@ -394,7 +422,7 @@ jobs:
   build:
     name: Build and publish (amd64)
     needs: prepare
-    if: needs.prepare.outputs.publish == 'true'
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.skip != 'true'
     permissions:
       contents: read
       packages: write
@@ -402,6 +430,32 @@ jobs:
     timeout-minutes: 120
     env: *build-env
     steps: *build-steps
+
+  alias:
+    name: Alias the unchanged image pair
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'true'
+    permissions:
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Point the commit tags at the published pair
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          DEV_INDEX: ${{ needs.prepare.outputs.dev-index }}
+          DEV_CHILD: ${{ needs.prepare.outputs.dev-child }}
+          CI_INDEX: ${{ needs.prepare.outputs.ci-index }}
+          CI_CHILD: ${{ needs.prepare.outputs.ci-child }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: alias
 
   prune:
     name: Prune untagged versions
