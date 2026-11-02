@@ -173,6 +173,17 @@ jobs:
             "$RUNNER_NAME" "$(uname -m)" "$(docker info --format '{{.Architecture}}')" "$(nproc)" \
             "$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unknown)" \
             "$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)" | tee -a "$RUNNER_TEMP/probe-metrics.txt"
+      - name: Hold a binfmt_misc mount in the runner container
+        if: matrix.mode == 'emulated' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          # binfmt_misc is per user namespace and lives only while mounted; without a
+          # mount held here, the registration vanishes when the binfmt container exits.
+          set -euo pipefail
+          if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
+            sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+          fi
+          echo "PROBE_BINFMT mounted=$(mountpoint -q /proc/sys/fs/binfmt_misc && echo yes || echo no)" | tee -a "$RUNNER_TEMP/probe-metrics.txt"
       - name: Register arm64 emulation
         if: matrix.mode == 'emulated'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
