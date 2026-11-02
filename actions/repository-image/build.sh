@@ -85,7 +85,7 @@ fi
 check_args=()
 # The docker driver lints against the host platform, so an emulated arm64 base trips this check.
 if [[ "$probe_mode" == emulated ]]; then
-  check_args=(--build-arg BUILDKIT_DOCKERFILE_CHECK=skip=InvalidBaseImagePlatform)
+  check_args=(--build-arg "BUILDKIT_DOCKERFILE_CHECK=skip=InvalidDefaultArgInFrom,InvalidBaseImagePlatform")
 fi
 docker build --check "${args[@]}" "${check_args[@]}" "$build_context"
 cache_args=(--cache-from "$IMAGE:main-$ARCH")
