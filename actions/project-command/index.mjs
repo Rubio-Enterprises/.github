@@ -159,7 +159,7 @@ function prepare() {
   write(path.join(root, 'devcontainer.json'), config);
   write(path.join(root, 'state.json'), state);
   qualifyMetadata(JSON.parse(cli(state, root, ['read-configuration', '--include-merged-configuration'], { capture: true }).stdout), config);
-  const upResult = cli(state, root, ['up', '--skip-post-create', '--default-user-env-probe', 'none', '--log-level', 'debug'], {
+  const upResult = cli(state, root, ['up', '--skip-post-create', '--default-user-env-probe', 'none', '--log-format', 'json'], {
     capture: true, allowFailure: true,
   });
   const up = JSON.parse(upResult.stdout || '{}');

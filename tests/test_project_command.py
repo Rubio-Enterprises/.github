@@ -60,6 +60,7 @@ if name == 'devcontainer':
         if fail == 'metadata': merged['privileged'] = True
         print(json.dumps({'configuration': config, 'mergedConfiguration': merged}))
     elif args[0] == 'up':
+        assert args[args.index('--log-format') + 1] == 'json'
         (fixture / 'state-path').write_text(str(root / 'state.json'))
         (fixture / 'started').touch()
         if fail == 'up':
