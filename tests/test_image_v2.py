@@ -84,7 +84,7 @@ class ImageV2(unittest.TestCase):
     def test_cold_shape_and_release_pin_without_loading_mise(self):
         result = self.invoke("inspect")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.outputs(), {"shape": "v2", "release": "latest"})
+        self.assertEqual(self.outputs(), {"release": "latest"})
         self.assertFalse((self.repo / ".standards").exists())
         with (self.repo / "mise.toml").open("a") as config:
             config.write('[env]\nSTANDARDS_VERSION = "2.0.0"\n')
@@ -141,7 +141,7 @@ class ImageV2(unittest.TestCase):
     def test_self_hosted_shape_requires_the_standards_repository_and_own_source(self):
         self.self_hosted()
         self.assertEqual(self.invoke("inspect").returncode, 0)
-        self.assertEqual(self.outputs(), {"shape": "v2", "release": "latest"})
+        self.assertEqual(self.outputs(), {"release": "latest"})
         for repo in ["Rubio-Enterprises/consumer", "", "other/standards"]:
             with self.subTest(repository=repo):
                 self.assertNotEqual(self.invoke("inspect", GITHUB_REPOSITORY=repo).returncode, 0)
@@ -192,13 +192,18 @@ class ImageV2(unittest.TestCase):
         link.write_text("[tools]\n")
         self.assertNotEqual(self.invoke("inspect").returncode, 0)
         link.unlink()
-        self.assertNotEqual(self.invoke("inspect").returncode, 0)
+        result = self.invoke("inspect")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("adopt @rubio-enterprises/standards", result.stderr)
+        for name in [".copier-answers.yml", ".config/mise-bootstrap.toml"]:
+            (self.repo / name).write_text("")
+        self.assertIn("adopt @rubio-enterprises/standards", self.invoke("inspect").stderr, "Copier-era wiring")
 
     def test_prepare_preserves_wiring_and_uses_release_identity_not_git_pin(self):
         sha = self.commit()
         cli = self.stub("devcontainer", 'print(\'{"configuration":{"features":{}}}\')\n')
         result = self.invoke("prepare", GITHUB_SHA=sha, CONFIG=".github/.devcontainer/devcontainer.json",
-                             DEVCONTAINER=cli, BASE="base", STANDARDS_SHAPE="v2", STANDARDS_PIN="bad",
+                             DEVCONTAINER=cli, BASE="base", STANDARDS_PIN="bad",
                              STANDARDS_VERSION="2.0.0", STANDARDS_INTEGRITY=self.integrity)
         self.assertEqual(result.returncode, 0, result.stderr)
         context = Path(self.outputs()["context"])
@@ -208,7 +213,7 @@ class ImageV2(unittest.TestCase):
         self.assertFalse((context / "expected/pin").exists())
         self.assertEqual(json.loads((context / "expected/package.json").read_text()),
                          {"version": "2.0.0", "integrity": self.integrity})
-        self.assertEqual(self.outputs()["shape"], "v2")
+        self.assertNotIn("shape", self.outputs())
         self.assertIn('STANDARDS_VERSION = "file:/run/standards.tgz"', (context / "expected/profile.toml").read_text())
         self.assertEqual((context / "pins/mise.repository-image.toml").read_bytes(), (context / "expected/profile.toml").read_bytes())
 
@@ -216,7 +221,7 @@ class ImageV2(unittest.TestCase):
         sha = sha or self.commit()
         cli = self.stub("devcontainer", 'print(\'{"configuration":{"features":{}}}\')\n')
         result = self.invoke("prepare", GITHUB_SHA=sha, CONFIG=".github/.devcontainer/devcontainer.json",
-                             DEVCONTAINER=cli, BASE="base", STANDARDS_SHAPE="v2",
+                             DEVCONTAINER=cli, BASE="base",
                              STANDARDS_VERSION="2.0.0", STANDARDS_INTEGRITY=self.integrity)
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(self.outputs()["context"])
@@ -238,7 +243,6 @@ class ImageV2(unittest.TestCase):
         policy = "*\n!app.txt\n"
         (self.repo / ".dockerignore").write_text(policy)
         (self.repo / "app.txt").write_text("committed source\n")
-        (self.repo / "tombi.toml").symlink_to(".standards-config/config/tombi.toml")
         sha = self.commit()
         (self.repo / "untracked-credential").write_text("not image source")
         context = self.prepare_source(sha)
@@ -250,13 +254,10 @@ class ImageV2(unittest.TestCase):
             self.assertEqual(archive.extractfile(".dockerignore").read().decode(), policy)
             self.assertEqual(archive.extractfile("mise.toml").read(), (self.repo / "mise.toml").read_bytes())
             self.assertEqual(archive.getmember(LINK).linkname, TARGET)
-            self.assertNotIn("tombi.toml", names)
             self.assertNotIn("untracked-credential", names)
             self.assertFalse(any(n.startswith((".standards/", ".standards-config/", ".git/")) for n in names))
-        self.assertTrue((self.repo / "tombi.toml").is_symlink())
 
     def test_source_archive_is_deterministic_at_the_committed_sha(self):
-        (self.repo / "tombi.toml").symlink_to(".standards-config/config/tombi.toml")
         sha = self.commit()
         first = (self.prepare_source(sha) / "build/source.tar").read_bytes()
         (self.repo / "mise.toml").write_text("uncommitted rewrite")
@@ -287,11 +288,6 @@ class ImageV2(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return exported
 
-        legacy_instruction = next(line for line in (ASSETS / "Dockerfile").read_text().splitlines()
-                                  if line.startswith("COPY ") and "--from=src" in line)
-        filtered = export_source(legacy_instruction, context / "empty", "filtered")
-        self.assertTrue((filtered / "workspaces/repo/app.txt").is_file())
-        self.assertFalse((filtered / "workspaces/repo/mise.toml").exists())
         exported = export_source(instruction, context / "build", "exported")
         self.assertEqual((exported / "workspaces/repo/mise.toml").read_bytes(), (self.repo / "mise.toml").read_bytes())
         self.assertEqual((exported / "workspaces/repo/.dockerignore").read_text(), policy)
@@ -337,15 +333,13 @@ class ImageV2(unittest.TestCase):
             self.assertRegex(positive.stderr, "owner=1000:1000 mode=[0-7]+ path=" + path)
         print("\n".join(line for line in positive.stderr.splitlines() if "owner=" in line or "uid=" in line))
 
-    def test_tracked_package_payload_and_changed_shape_are_rejected(self):
+    def test_tracked_package_payload_is_rejected(self):
         (self.repo / ".standards").mkdir()
         (self.repo / ".standards/payload").write_text("private")
         sha = self.commit()
         result = self.invoke("prepare", GITHUB_SHA=sha, CONFIG=".github/.devcontainer/devcontainer.json")
         self.assertIn("Tracked Git or standards", result.stderr)
         self.assertFalse(list(self.root.glob("repository-image-*")))
-        result = self.invoke("prepare", GITHUB_SHA=sha, CONFIG=".github/.devcontainer/devcontainer.json", STANDARDS_SHAPE="legacy")
-        self.assertIn("shape changed", result.stderr)
 
     def test_registry_operations_verify_identity_and_never_expand_auth_in_argv(self):
         context = self.root / "context"
@@ -395,35 +389,35 @@ else:
                            "workspaces/repo/.git/config": b"temporary",
                            "workspaces/repo/mise.repository-image.toml": b""}.items():
             with self.subTest(path=name), self.assertRaises(ValueError):
-                legacy.audit_module.audit(self.archive({name: data}), self.package, "")
+                legacy.audit_module.audit(self.archive({name: data}), self.package)
         for name in ["NODE_AUTH_TOKEN", "STANDARDS_VERSION", "STANDARDS_PIN"]:
             with self.subTest(env=name), self.assertRaises(ValueError):
-                legacy.audit_module.audit(self.archive({}, {"config": {"Env": [name + "=fixture"]}}), self.package, "")
+                legacy.audit_module.audit(self.archive({}, {"config": {"Env": [name + "=fixture"]}}), self.package)
 
     def test_audit_allows_public_package_root_license_in_dependency_and_cache(self):
         for name in ["workspaces/repo/node_modules/dependency/LICENSE",
                      "home/vscode/.cache/bun/dependency/LICENSE"]:
             with self.subTest(path=name):
-                legacy.audit_module.audit(self.archive({name: self.license}), self.package, "")
+                legacy.audit_module.audit(self.archive({name: self.license}), self.package)
 
     def test_audit_retains_payload_fingerprints_regardless_of_image_filename(self):
         for name, data in {"node_modules/dependency/LICENSE": self.private,
                            "cache/notice": self.nested_license,
                            "cache/LICENSE": self.package.read_bytes()}.items():
             with self.subTest(path=name), self.assertRaisesRegex(ValueError, "Bundle content persisted"):
-                legacy.audit_module.audit(self.archive({name: data}), self.package, "")
+                legacy.audit_module.audit(self.archive({name: data}), self.package)
 
     def test_audit_root_license_does_not_exempt_forbidden_package_paths(self):
         with self.assertRaisesRegex(ValueError, "Package or temporary Git state"):
-            legacy.audit_module.audit(self.archive({"workspaces/repo/.standards/LICENSE": self.license}), self.package, "")
+            legacy.audit_module.audit(self.archive({"workspaces/repo/.standards/LICENSE": self.license}), self.package)
 
     def test_audit_allows_only_the_exact_runtime_wiring_symlink(self):
         name = "workspaces/repo/" + LINK
-        legacy.audit_module.audit(self.archive({}, links={name: (TARGET, tarfile.SYMTYPE)}), self.package, "")
+        legacy.audit_module.audit(self.archive({}, links={name: (TARGET, tarfile.SYMTYPE)}), self.package)
         for location, target, kind in [("other/" + LINK, TARGET, tarfile.SYMTYPE),
                                        (name, TARGET, tarfile.LNKTYPE), (name, TARGET + ".other", tarfile.SYMTYPE)]:
             with self.assertRaises(ValueError):
-                legacy.audit_module.audit(self.archive({}, links={location: (target, kind)}), self.package, "")
+                legacy.audit_module.audit(self.archive({}, links={location: (target, kind)}), self.package)
 
     @unittest.skipUnless(shutil.which("mise"), "native mise unavailable")
     def test_transient_native_profile_overrides_the_repository_release_pin(self):
@@ -450,7 +444,7 @@ else:
         self.assertEqual(dockerfile.count("source=profile.toml"), 1)
         self.assertEqual(dockerfile.count("MISE_ENV=repository-image"), 2)
         workflow = legacy.TEXT
-        self.assertIn("if: needs.prepare.outputs.shape != 'v2'", workflow)
+        self.assertNotIn("outputs.shape", workflow)
         self.assertIn("STANDARDS_INTEGRITY: ${{ needs.prepare.outputs.integrity }}", workflow)
         build_step = workflow.split("- name: Build, audit and verify the image pair", 1)[1].split("- name: Scan the dev", 1)[0]
         self.assertNotIn("NODE_AUTH_TOKEN", build_step)

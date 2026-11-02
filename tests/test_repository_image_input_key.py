@@ -478,7 +478,7 @@ class WorkflowContracts(unittest.TestCase):
         self.assertIn("contents: read\n      packages: read", prepare)
         self.assertNotIn("packages: write", prepare)
         step = prepare.split("- name: Compare image inputs with the published pair", 1)[1].split("- name:", 1)[0]
-        self.assertIn("if: steps.image.outputs.publish == 'true' && steps.standards.outputs.shape == 'v2'", step)
+        self.assertIn("if: steps.image.outputs.publish == 'true'\n", step)
         self.assertIn("FORCE: ${{ github.event_name != 'push' }}", step)
         self.assertIn("operation: key", step)
         self.assertIn("base: ${{ steps.bases.outputs.base }}", step)

@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "actions/repository-image"
 TEXT = (ROOT / ".github/workflows/repository-image.yml").read_text()
 MODULE = (ASSETS / "image.mjs").as_uri()
+PACKAGE_LINK = "../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml"
+V2_MISE = '[tasks.setup]\nrun = "true"\n[tasks."standards:install"]\nrun = "true"\n'
+RELEASE = {"STANDARDS_VERSION": "2.1.0", "STANDARDS_INTEGRITY": "sha512-" + "A" * 86 + "=="}
 FROZEN_RECIPE = ROOT / "tests/fixtures/frozen-repository-image-v2.Dockerfile"
 spec = importlib.util.spec_from_file_location("image_audit", ASSETS / "audit.py")
 audit_module = importlib.util.module_from_spec(spec)
@@ -78,15 +81,13 @@ class Contracts(unittest.TestCase):
         self.assertNotIn("./actions/repository-image", TEXT)
         for ref in re.findall(r"uses: (\S+)", TEXT):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
-                self.assertIn(ref, ["Rubio-Enterprises/.github/actions/repository-image@main",
-                                    "Rubio-Enterprises/.github/actions/standards-bootstrap@main"])
+                self.assertEqual(ref, "Rubio-Enterprises/.github/actions/repository-image@main")
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
         self.assertIn("persist-credentials: false", TEXT)
 
     def test_build_scan_publish_and_retention(self):
-        names = ["Provision native shared config", "Require the image build pin",
-                 "Prepare central generic build inputs", "Build, audit and verify the image pair",
+        names = ["Prepare central generic build inputs", "Fetch the verified Standards Package", "Build, audit and verify the image pair",
                  "Scan the dev artifact for secrets", "Push the verified image pair",
                  "Publish single-platform indices and cache aliases", "Clean job-local artifacts"]
         positions = [TEXT.index(f"- name: {name}") for name in names]
@@ -113,16 +114,14 @@ class Contracts(unittest.TestCase):
                      "Publish single-platform indices and cache aliases"):
             self.assertNotIn("${{", script(name))
 
-    def test_generic_dockerfile_never_copies_standards_or_declares_pin(self):
-        dockerfile = (ASSETS / "Dockerfile").read_text()
-        self.assertNotIn("ARG STANDARDS_PIN", dockerfile)
-        self.assertNotIn("ENV STANDARDS_PIN", dockerfile)
-        self.assertEqual(dockerfile.count("from=standards"), 2)
-        self.assertIn('from=pins', dockerfile)
-        self.assertIn('COPY --chown=vscode:vscode --from=src', dockerfile)
-        self.assertIn("UV_LINK_MODE=copy", dockerfile)
-        self.assertNotIn("COPY --from=standards", dockerfile)
-        self.assertNotIn("mise bootstrap --only", dockerfile)
+    def test_legacy_copier_path_is_removed(self):
+        self.assertFalse((ASSETS / "Dockerfile").exists())
+        self.assertFalse((ROOT / "actions/standards-bootstrap").exists())
+        for text in (TEXT, (ASSETS / "build.sh").read_text(), (ASSETS / "image.mjs").read_text()):
+            self.assertNotIn("standards-bootstrap", text)
+            self.assertNotIn("STANDARDS_READER", text)
+            self.assertNotIn("outputs.shape", text)
+        self.assertNotIn("secrets:", TEXT)
 
     def test_runner_payload_smoke_does_not_load_a_cold_consumer_config(self):
         build = (ASSETS / "build.sh").read_text()
@@ -348,12 +347,20 @@ class Fixtures(unittest.TestCase):
                 saved.addfile(member, io.BytesIO(body))
         return archive
 
+    def package(self, files):
+        archive = self.root / "standards.tgz"
+        with tarfile.open(archive, "w:gz") as package:
+            for name, body in files.items():
+                member = tarfile.TarInfo("package/" + name)
+                member.size = len(body)
+                package.addfile(member, io.BytesIO(body))
+        return archive
+
     def test_source_provenance_uses_clean_tracked_snapshot_not_untracked_workspace(self):
         owned = "Repository-owned bridge fixture\n" * 20
         private = "Bundle-only fixture\n" * 20
         src, result = self.prepare_consumer("source-provenance", {}, {"treefmt.toml": owned}, {
-            ".standards-config/config/treefmt.toml": owned,
-            ".standards-config/config/private.yml": private,
+            ".standards/node_modules/private.yml": private,
             "untracked-policy.yml": private,
         })
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -362,73 +369,62 @@ class Fixtures(unittest.TestCase):
         self.assertEqual((source / "treefmt.toml").read_text(), owned)
         self.assertTrue((src / "untracked-policy.yml").is_file())
         self.assertFalse((source / "untracked-policy.yml").exists())
-        self.assertFalse((source / ".standards-config").exists())
-        standards = src / ".standards-config"
+        self.assertFalse((source / ".standards").exists())
+        package = self.package({"config/treefmt.toml": owned.encode(), "config/private.yml": private.encode()})
         archive = self.make_archive({"repo/treefmt.toml": owned.encode()})
         with self.assertRaisesRegex(ValueError, "Shared Config Bundle content persisted"):
-            audit_module.audit(archive, standards, "b" * 40)
-        audit_module.audit(archive, standards, "b" * 40, source)
+            audit_module.audit(archive, package)
+        audit_module.audit(archive, package, source)
         with self.assertRaisesRegex(ValueError, "Shared Config Bundle content persisted"):
-            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private.encode()}), standards, "b" * 40, source)
+            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private.encode()}), package, source)
 
     def test_source_provenance_never_waives_checkout_paths_links_or_pin_guards(self):
-        standards = self.root / "standards"
-        (standards / "config").mkdir(parents=True)
         source = self.root / "source"
         source.mkdir()
         owned = b"Repository-owned bridge fixture\n" * 20
-        (standards / "config/treefmt.toml").write_bytes(owned)
+        package = self.package({"config/treefmt.toml": owned})
         (source / "treefmt.toml").write_bytes(owned)
-        pin = "a" * 40
         with self.assertRaisesRegex(ValueError, "Shared Config Directory persisted"):
-            audit_module.audit(self.make_archive({"repo/.standards-config/config/treefmt.toml": owned}), standards, pin, source)
+            audit_module.audit(self.make_archive({"repo/.standards-config/config/treefmt.toml": owned}), package, source)
         for kind in [tarfile.SYMTYPE, tarfile.LNKTYPE]:
             with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "Persistent link"):
-                audit_module.audit(self.make_archive({}, links={"repo/bridge": (".standards-config/config/treefmt.toml", kind)}), standards, pin, source)
-        pinned = (pin + "\n").encode() * 5
-        (source / "pin.txt").write_bytes(pinned)
-        (standards / "config/pin.txt").write_bytes(pinned)
-        with self.assertRaisesRegex(ValueError, "Build pin persisted in a layer"):
-            audit_module.audit(self.make_archive({"repo/pin.txt": pinned}), standards, pin, source)
-        for image_config in [{"config": {"Env": ["STANDARDS_PIN=other"]}}, {"history": [{"created_by": pin}]}]:
-            with self.assertRaisesRegex(ValueError, "Build pin persisted in image configuration/history"):
-                audit_module.audit(self.make_archive({}, image_config), standards, pin, source)
+                audit_module.audit(self.make_archive({}, links={"repo/bridge": (".standards-config/config/treefmt.toml", kind)}), package, source)
+        with self.assertRaisesRegex(ValueError, "Build pin persisted in image configuration/history"):
+            audit_module.audit(self.make_archive({}, {"config": {"Env": ["STANDARDS_PIN=other"]}}), package, source)
 
     def test_source_provenance_never_follows_symlinks_or_includes_checkout_metadata(self):
-        standards = self.root / "standards"
-        (standards / "config").mkdir(parents=True)
         private = b"Bundle-only fixture\n" * 20
-        (standards / "config/private.yml").write_bytes(private)
+        package = self.package({"config/private.yml": private})
         source = self.root / "source"
-        (source / ".standards-config/config").mkdir(parents=True)
-        (source / ".standards-config/config/private.yml").write_bytes(private)
+        (source / ".standards/node_modules").mkdir(parents=True)
+        (source / ".standards/node_modules/private.yml").write_bytes(private)
         (source / ".git").mkdir()
         (source / ".git/copied-policy").write_bytes(private)
-        (source / "linked-policy").symlink_to(standards / "config/private.yml")
+        outside = self.root / "outside-policy"
+        outside.write_bytes(private)
+        (source / "linked-policy").symlink_to(outside)
         linked_source = self.root / "linked-source"
         linked_source.symlink_to(source, target_is_directory=True)
         with self.assertRaisesRegex(ValueError, "Expected prepared source directory"):
-            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private}), standards, "a" * 40, linked_source)
+            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private}), package, linked_source)
         with self.assertRaisesRegex(ValueError, "Shared Config Bundle content persisted"):
-            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private}), standards, "a" * 40, source)
+            audit_module.audit(self.make_archive({"elsewhere/copied-policy": private}), package, source)
 
     def test_build_audit_receives_prepared_source_not_the_working_checkout(self):
         build = (ASSETS / "build.sh").read_text()
-        self.assertIn('python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$standards" "$pin" "$CONTEXT/src"', build)
-        self.assertIn('standards="$GITHUB_WORKSPACE/.standards-config"', build)
+        self.assertIn('python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$package" "$CONTEXT/src"', build)
+        self.assertIn('package="$CONTEXT/package/standards.tgz"', build)
 
     def test_layer_audit_catches_deleted_bundle_paths_content_and_pin_in_config_history(self):
-        standards = self.root / "standards"
-        (standards / "config").mkdir(parents=True)
         private = b"private bundle fixture\n" * 20
-        (standards / "config/private.yml").write_bytes(private)
-        pin = "a" * 40
-        audit_module.audit(self.make_archive({"repo/source": b"safe"}), standards, pin)
-        for files in [{"repo/.standards-config/config/private": b"short"},
-                      {"elsewhere/copied-policy": private}, {"state/pin": pin.encode()}]:
-            with self.assertRaises(ValueError): audit_module.audit(self.make_archive(files), standards, pin)
-        for image_config in [{"config": {"Env": ["STANDARDS_PIN=other"]}}, {"history": [{"created_by": pin}]}]:
-            with self.assertRaises(ValueError): audit_module.audit(self.make_archive({}, image_config), standards, pin)
+        package = self.package({"config/private.yml": private})
+        audit_module.audit(self.make_archive({"repo/source": b"safe"}), package)
+        for files in [{"repo/.standards-config/config/private": b"short"}, {"elsewhere/copied-policy": private}]:
+            with self.assertRaises(ValueError): audit_module.audit(self.make_archive(files), package)
+        with self.assertRaises(ValueError):
+            audit_module.audit(self.make_archive({}, {"config": {"Env": ["STANDARDS_PIN=other"]}}), package)
+        with self.assertRaisesRegex(ValueError, "Standards Package archive"):
+            audit_module.audit(self.make_archive({}), self.root)
 
     def stub(self, name, body):
         target = self.root / name
@@ -478,7 +474,7 @@ exit 2
 
     def test_build_orchestration_with_native_architecture_and_rebase_fixtures(self):
         context = self.root / "context"
-        for directory in ["features", "pins", "src", "empty", "expected", "verify"]:
+        for directory in ["features", "pins", "src", "expected", "verify"]:
             (context / directory).mkdir(parents=True, exist_ok=True)
         (context / "package").mkdir()
         (context / "package/Dockerfile").write_text("FROM scratch AS ci\n")
@@ -486,9 +482,6 @@ exit 2
             member = tarfile.TarInfo("package/config/fixture")
             member.size = 7
             package.addfile(member, io.BytesIO(b"fixture"))
-        standards = self.root / "workspace/.standards-config/config"
-        standards.mkdir(parents=True)
-        (standards / "private.yml").write_text("private fixture\n" * 20)
         safe_archive = self.make_archive({"workspace/source": b"safe"})
         docker = self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
 if [[ "$1" = info ]]; then echo "$DOCKER_ARCH"; exit; fi
@@ -522,10 +515,8 @@ done
         args = self.rebased()
         for item, char in [(args[2], "a"), (args[3], "b")]:
             item["annotations"] = {"org.opencontainers.image.base.digest": "sha256:" + char * 64}
-        for shape, native in [("legacy", "x86_64"), ("legacy", "amd64"), ("v2", "x86_64"), ("v2", "amd64")]:
+        for native, key in [("x86_64", "sha256:" + "e" * 64), ("amd64", "")]:
             arch = "amd64"
-            (context / "expected/shape").write_text(shape)
-            key = "sha256:" + "e" * 64 if shape == "v2" else ""
             for item in args[4:6]:
                 item["architecture"] = arch
                 labels = item["config"]["Labels"]
@@ -544,7 +535,7 @@ done
                    "IMAGE": "ghcr.io/rubio-enterprises/repo/devcontainer", "CI_IMAGE": "ghcr.io/rubio-enterprises/repo/devcontainer-ci",
                    "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "c" * 40,
                    "GITHUB_REPOSITORY": "Rubio-Enterprises/repo", "GITHUB_SERVER_URL": "https://github.com",
-                   "GITHUB_WORKSPACE": str(self.root / "workspace"), "STANDARDS_PIN": "d" * 40,
+                   "GITHUB_WORKSPACE": str(self.root / "workspace"),
                    "DEVCONTAINER": str(cli), "DOCKER_ARCH": native, "INPUT_KEY": key,
                    "PATH": str(docker.parent) + os.pathsep + os.environ["PATH"]}
             result = subprocess.run(["bash", str(ASSETS / "build.sh")], env=env, capture_output=True, text=True)
@@ -556,8 +547,7 @@ done
             build_calls = [call for call in calls.splitlines() if call.startswith("build ")]
             self.assertEqual(len(build_calls), 2)
             for call in build_calls:
-                recipe = context / "package/Dockerfile" if shape == "v2" else ASSETS / "Dockerfile"
-                self.assertIn("--file " + str(recipe), call)
+                self.assertIn("--file " + str(context / "package/Dockerfile"), call)
                 self.assertIn("--build-context pins=" + str(context / "pins"), call)
                 self.assertIn("--build-context expected=" + str(context / "expected"), call)
                 if key:
@@ -565,15 +555,11 @@ done
                     self.assertRegex(call, r"--label org\.rubio-enterprises\.image\.built-at=\d{4}-\d\d-\d\dT")
                 else:
                     self.assertNotIn("org.rubio-enterprises.image", call)
-                if shape == "v2":
-                    self.assertIn("--target ci", call)
-                    self.assertIn("--secret id=standards_package,src=" + str(context / "package/standards.tgz"), call)
-                    self.assertTrue(call.endswith(str(context / "build")))
-                    self.assertNotIn("--build-context standards=", call)
-                    self.assertNotIn("--build-context src=", call)
-                else:
-                    self.assertNotIn("--target", call)
-                    self.assertIn("--build-context standards=", call)
+                self.assertIn("--target ci", call)
+                self.assertIn("--secret id=standards_package,src=" + str(context / "package/standards.tgz"), call)
+                self.assertTrue(call.endswith(str(context / "build")))
+                self.assertNotIn("--build-context standards=", call)
+                self.assertNotIn("--build-context src=", call)
             self.assertIn("--security-opt no-new-privileges --user 1000", calls)
             self.assertNotIn("push ghcr.io", calls)
             self.assertNotIn("--build-arg STANDARDS_PIN", calls)
@@ -653,12 +639,6 @@ fi
             result = subprocess.run(["bash", "-e", "-c", source], env={**env, **overrides}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, overrides)
 
-    def test_legacy_image_build_pin_remains_strict(self):
-        for pin in ("", "a" * 39, "A" * 40, "a" * 40 + "\\nother=value", "a" * 40):
-            result = subprocess.run(["bash", "-e", "-c", script("Require the image build pin")],
-                                    env={**self.env, "STANDARDS_PIN": pin}, capture_output=True, text=True)
-            self.assertEqual(result.returncode == 0, pin == "a" * 40)
-
     def test_trivy_failed_checksum_prevents_extraction(self):
         self.stub("curl", 'touch "$RUNNER_TEMP/trivy.tar.gz"\n')
         self.stub("sha256sum", 'cat > "$RUNNER_TEMP/checksum-input"; exit 1\n')
@@ -681,10 +661,8 @@ fi
     def prepare_consumer(self, name, links, extra_files=None, untracked_files=None, gitlinks=None):
         src = self.root / name
         files = {
-            ".gitignore": "/.standards-config/\n",
-            ".copier-answers.yml": "repo_type: native\nhas_python: true\n",
-            ".mise.toml": "[tools]\n",
-            ".config/mise-bootstrap.toml": "# Host bootstrap placeholder\n",
+            ".gitignore": "/.standards/\n",
+            "mise.toml": V2_MISE,
             ".github/.devcontainer/devcontainer.json": '{"name":"Repository image build","features":{}}',
             ".devcontainer/devcontainer.json": '{"image":"ghcr.io/rubio-enterprises/example/devcontainer:main"}',
             "AGENTS.md": "Consumer fixture\n",
@@ -695,7 +673,7 @@ fi
             target = src / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(body)
-        for name, target in links.items():
+        for name, target in {".config/mise/conf.d/standards.toml": PACKAGE_LINK, **links}.items():
             link = src / name
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(target)
@@ -704,15 +682,14 @@ fi
         git("init", "-q")
         git("add", ".")
         for name in extra_files or {}:
-            if name.startswith(".standards-config/"):
+            if name.startswith((".standards-config/", ".standards/")):
                 git("add", "--force", "--", name)
         for name, sha in (gitlinks or {}).items():
             git("update-index", "--add", "--cacheinfo", f"160000,{sha},{name}")
         git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: consumer fixture")
-        policy = src / ".standards-config/config/tombi.toml"
-        policy.parent.mkdir(parents=True, exist_ok=True)
-        if not policy.exists():
-            policy.write_text("Untracked policy fixture\n" * 20)
+        package = src / ".standards/node_modules/@rubio-enterprises/standards/mise/standards.toml"
+        package.parent.mkdir(parents=True, exist_ok=True)
+        package.write_text("# untracked installed package\n")
         for name, body in (untracked_files or {}).items():
             target = src / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -721,7 +698,7 @@ fi
         output = Path(self.env["GITHUB_OUTPUT"])
         output.unlink(missing_ok=True)
         result = subprocess.run(["node", str(ASSETS / "image.mjs"), "prepare"], env={**self.env,
-            "GITHUB_WORKSPACE": str(src), "GITHUB_SHA": git("rev-parse", "HEAD"), "STANDARDS_PIN": "b" * 40,
+            "GITHUB_WORKSPACE": str(src), "GITHUB_SHA": git("rev-parse", "HEAD"), **RELEASE,
             "BASE": "ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "a" * 64,
             "CONFIG": ".github/.devcontainer/devcontainer.json", "DEVCONTAINER": str(cli)}, capture_output=True, text=True)
         return src, result
@@ -796,6 +773,7 @@ fi
         for index, (links, files) in enumerate([
             ({"escape": "../outside"}, {".gitmodules": good}),
             ({}, {".gitmodules": good, ".standards-config/private": "tracked policy"}),
+            ({}, {".gitmodules": good, ".standards/private": "tracked package"}),
         ]):
             with self.subTest(index=index):
                 _, result = self.prepare_consumer(f"gitlink-guard-{index}", links, files, gitlinks={"ui": "c" * 40})
@@ -808,20 +786,19 @@ fi
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("organization HTTPS URL", result.stderr)
 
-    def test_prepare_omits_exact_shared_config_stub_without_changing_runtime_checkout(self):
-        src, result = self.prepare_consumer("consumer", {
-            "tombi.toml": ".standards-config/config/tombi.toml", "CLAUDE.md": "AGENTS.md"})
+    def test_prepare_keeps_ordinary_links_and_never_copies_the_installed_package(self):
+        src, result = self.prepare_consumer("consumer", {"CLAUDE.md": "AGENTS.md"})
         self.assertEqual(result.returncode, 0, result.stderr)
         outputs = dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
         context = Path(outputs["context"])
-        self.assertFalse(os.path.lexists(context / "src/tombi.toml"))
-        self.assertFalse((context / "src/.standards-config").exists())
         self.assertEqual((context / "src/CLAUDE.md").readlink(), Path("AGENTS.md"))
         self.assertEqual((context / "src/main.py").read_text(), (src / "main.py").read_text())
-        self.assertEqual((src / "tombi.toml").readlink(), Path(".standards-config/config/tombi.toml"))
-        self.assertTrue((src / ".standards-config/config/tombi.toml").is_file())
-        self.assertTrue((context / "pins/.config/mise-bootstrap.toml").is_file())
-        self.assertFalse(os.path.lexists(context / "pins/tombi.toml"))
+        self.assertFalse((context / "src/.standards").exists())
+        self.assertEqual((context / "pins/.config/mise/conf.d/standards.toml").readlink(), Path(PACKAGE_LINK))
+        self.assertTrue((context / "pins/mise.toml").is_file())
+        self.assertTrue((context / "pins/mise.repository-image.toml").is_file())
+        self.assertTrue((context / "build/source.tar").is_file())
+        self.assertFalse((context / "expected/shape").exists())
 
     def test_prepare_preserves_repository_owned_regular_tombi_config(self):
         _, result = self.prepare_consumer("regular", {}, {"tombi.toml": "[schema]\nenabled = false\n"})
@@ -831,6 +808,7 @@ fi
 
     def test_prepare_still_rejects_unknown_policy_links_and_escaping_stub_substitutions(self):
         for index, (name, target) in enumerate([
+            ("tombi.toml", ".standards-config/config/tombi.toml"),
             ("tombi.toml", ".standards-config/config/other.toml"),
             ("other.toml", ".standards-config/config/tombi.toml"),
             ("nested/tombi.toml", "../.standards-config/config/tombi.toml"),
@@ -847,7 +825,7 @@ fi
                 self.assertFalse(list(self.root.glob("repository-image-*")))
 
     def test_prepare_still_rejects_tracked_policy_with_the_known_stub(self):
-        _, result = self.prepare_consumer("tracked-policy", {"tombi.toml": ".standards-config/config/tombi.toml"},
+        _, result = self.prepare_consumer("tracked-policy", {},
                                           {".standards-config/config/tombi.toml": "Tracked policy fixture\n"})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Tracked Git or standards checkout rejected", result.stderr)
@@ -858,11 +836,10 @@ fi
         src = self.root / "workspace"
         (src / ".github/.devcontainer").mkdir(parents=True)
         (src / ".github/.devcontainer/devcontainer.json").write_text('{// JSONC\n"features":{}}')
-        (src / ".mise.toml").write_text('[tools]\n')
+        (src / "mise.toml").write_text(V2_MISE)
         (src / "source.py").write_text("print('safe')")
-        (src / ".copier-answers.yml").write_text("repo_type: native\n")
-        (src / ".config").mkdir()
-        (src / ".config/mise-bootstrap.toml").write_text("# bootstrap\n")
+        (src / ".config/mise/conf.d").mkdir(parents=True)
+        (src / ".config/mise/conf.d/standards.toml").symlink_to(PACKAGE_LINK)
         def git(*args):
             return subprocess.check_output(["git", "-C", str(src), *args], env=self.env, text=True).strip()
         git("init", "-q")
@@ -873,7 +850,7 @@ fi
         (src / "untracked-secret").write_text("not copied")
         cli = self.stub("devcontainer", 'printf \'{"configuration":{"features":{},"configFilePath":{}}}\'\n')
         result = subprocess.run(["node", str(ASSETS / "image.mjs"), "prepare"], env={**self.env,
-            "GITHUB_WORKSPACE": str(src), "GITHUB_SHA": git("rev-parse", "HEAD"), "STANDARDS_PIN": "b" * 40,
+            "GITHUB_WORKSPACE": str(src), "GITHUB_SHA": git("rev-parse", "HEAD"), **RELEASE,
             "BASE": "ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "a" * 64,
             "CONFIG": ".github/.devcontainer/devcontainer.json", "DEVCONTAINER": str(cli)}, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -883,7 +860,7 @@ fi
         self.assertFalse((context / "src/.standards-config").exists())
         self.assertFalse((context / "src/.git").exists())
         self.assertFalse((context / "src/untracked-secret").exists())
-        self.assertTrue((context / "pins/.mise.toml").exists())
+        self.assertTrue((context / "pins/mise.toml").exists())
         self.assertFalse((context / "pins/source.py").exists())
         self.assertEqual(outputs["assets"], str(ASSETS))
         self.assertEqual(json.loads((context / "features/devcontainer.json").read_text())["remoteUser"], "vscode")

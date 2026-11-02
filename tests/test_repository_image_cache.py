@@ -31,8 +31,8 @@ CONFIG_SAMPLES = (
 )
 
 
-def cache_environment(filename="Dockerfile"):
-    recipe = ROOT / "tests/fixtures" / filename if filename == FROZEN_RECIPE else ASSETS / filename
+def cache_environment(filename=FROZEN_RECIPE):
+    recipe = ROOT / "tests/fixtures" / filename
     dockerfile = recipe.read_text().replace("\\\n", " ")
     environment = {}
     for line in dockerfile.splitlines():
@@ -43,7 +43,7 @@ def cache_environment(filename="Dockerfile"):
 
 class RepositoryImageCaches(unittest.TestCase):
     def test_mutable_cache_trees_follow_native_home_uid_remapping(self):
-        for filename in ("Dockerfile", FROZEN_RECIPE):
+        for filename in (FROZEN_RECIPE,):
             environment = cache_environment(filename)
             for name in CACHE_NAMES:
                 with self.subTest(dockerfile=filename, cache=name):
@@ -53,14 +53,12 @@ class RepositoryImageCaches(unittest.TestCase):
                 with self.subTest(dockerfile=filename, sdk=name):
                     self.assertTrue(environment[name].startswith("/home/vscode/.local/share/"), environment[name])
             self.assertEqual(environment["UV_LINK_MODE"], "copy")
-            recipe = ROOT / "tests/fixtures" / filename if filename == FROZEN_RECIPE else ASSETS / filename
-            dockerfile = recipe.read_text()
+            dockerfile = (ROOT / "tests/fixtures" / filename).read_text()
             self.assertIn("runuser -u vscode -- mkdir -p", dockerfile)
             self.assertNotIn("chmod 777", dockerfile)
-        self.assertIn("USER vscode\nRUN", (ASSETS / "Dockerfile").read_text())
 
     def test_new_cache_paths_retain_package_only_secret_scan_exclusions(self):
-        for filename in ("Dockerfile", FROZEN_RECIPE):
+        for filename in (FROZEN_RECIPE,):
             environment = cache_environment(filename)
             for workflow in ("repository-image.yml",):
                 source = (ROOT / ".github/workflows" / workflow).read_text()

@@ -109,11 +109,7 @@ particularly in private repositories or for API/CLI-created issues.
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages when the starter caller finds `docs/codewiki/metadata.json`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
 A repository workflow that needs the package's tools runs `jdx/mise-action` and
-`mise run setup` with `NODE_AUTH_TOKEN` and `packages: read`. The
-[`standards-bootstrap`](./actions/standards-bootstrap/action.yml) composite
-action is legacy: only the repository image builder still uses it, for a repository that
-has not migrated off the Copier-era Shared Config Directory (see
-[`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md)).
+`mise run setup` with `NODE_AUTH_TOKEN` and `packages: read`.
 
 Tests are not centrally executed: each onboarded repository gates landing
 through its own starter `.github/workflows/test-gate.yml` required status (the
