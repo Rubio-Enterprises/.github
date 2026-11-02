@@ -72,7 +72,7 @@ export function runtimeConfiguration(state, root) {
     if (/[\r\n,]/.test(value)) throw new Error('Unsupported project bind-mount path');
   }
   return {
-    image: state.image, workspaceFolder: state.remote,
+    image: state.reference, workspaceFolder: state.remote,
     workspaceMount: `type=bind,source=${state.workspace},target=${state.remote}`,
     mounts: [
       `type=bind,source=${root},target=/run/project-command,readonly`,
@@ -148,8 +148,13 @@ function prepare() {
   try {
     invoke('docker', ['--config', auth, 'login', 'ghcr.io', '--username', process.env.GITHUB_ACTOR, '--password-stdin'], { capture: true, stdin: input('token') });
     invoke('docker', ['--config', auth, 'pull', state.source]);
-    state.image = invoke('docker', ['image', 'inspect', '--format', '{{.Id}}', state.source], { capture: true }).stdout.trim();
-    if (!imageId.test(state.image)) throw new Error('Invalid immutable Repository Image identity');
+    const [pulled] = JSON.parse(invoke('docker', ['image', 'inspect', state.source], { capture: true }).stdout);
+    state.image = pulled.Id;
+    const repository = state.source.slice(0, state.source.lastIndexOf(':'));
+    const references = (pulled.RepoDigests ?? []).filter(value => typeof value === 'string'
+      && value.startsWith(repository + '@') && imageId.test(value.slice(repository.length + 1)));
+    if (!imageId.test(state.image || '') || references.length !== 1) throw new Error('Invalid immutable Repository Image identity');
+    state.reference = references[0];
     state.pullSeconds = seconds(pullStart);
   } finally {
     fs.rmSync(auth, { recursive: true, force: true });
@@ -183,10 +188,10 @@ function prepare() {
   write(path.join(root, 'state.json'), state);
   append(process.env.GITHUB_ENV, 'PROJECT_COMMAND_STATE', root);
   for (const [key, value] of Object.entries({
-    image: state.image, 'pull-seconds': state.pullSeconds, 'start-seconds': state.startSeconds,
+    image: state.image, reference: state.reference, 'pull-seconds': state.pullSeconds, 'start-seconds': state.startSeconds,
     'cli-seconds': state.cliSeconds, 'prepare-seconds': state.prepareSeconds,
   })) append(process.env.GITHUB_OUTPUT, key, value);
-  console.log(`Repository Image: ${state.image}; pull ${state.pullSeconds}s; start ${state.startSeconds}s; CLI install ${state.cliSeconds}s; prepare total ${state.prepareSeconds}s`);
+  console.log(`Repository Image: ${state.reference}; ID ${state.image}; pull ${state.pullSeconds}s; start ${state.startSeconds}s; CLI install ${state.cliSeconds}s; prepare total ${state.prepareSeconds}s`);
 }
 
 export function forwardNames(value) {

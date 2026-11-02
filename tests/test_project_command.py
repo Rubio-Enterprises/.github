@@ -38,7 +38,8 @@ if name == 'docker':
     elif args[:2] == ['volume', 'ls']:
         print('existing-volume')
     elif args[:2] == ['image', 'inspect']:
-        print('sha256:' + 'a' * 64)
+        print(json.dumps([{'Id': 'sha256:' + 'a' * 64, 'RepoDigests': [
+            'ghcr.io/rubio-enterprises/fixture/devcontainer@sha256:' + 'a' * 64]}]))
     elif args[:1] == ['inspect']:
         state = json.loads(pathlib.Path((fixture / 'state-path').read_text()).read_text())
         print(json.dumps([{'Image': 'sha256:' + 'c' * 64,
@@ -141,6 +142,8 @@ class ProjectCommandTests(unittest.TestCase):
 
     def test_hosted_reuses_one_image_and_forwards_only_invocation_auth(self):
         root = self.prepare()
+        config = json.loads((root / 'devcontainer.json').read_text())
+        self.assertEqual(config['image'], 'ghcr.io/rubio-enterprises/fixture/devcontainer@sha256:' + 'a' * 64)
         result = self.call(INPUT_OPERATION='run', INPUT_RUN='test -n "$NODE_AUTH_TOKEN"',
                            **{'INPUT_FORWARD-ENV': 'NODE_AUTH_TOKEN'}, NODE_AUTH_TOKEN='package-token-fixture')
         self.assertEqual(result.returncode, 0, result.stderr)

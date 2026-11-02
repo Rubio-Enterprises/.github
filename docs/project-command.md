@@ -76,7 +76,9 @@ separate qualification; capability jobs are not migrated by this action.
 
 Prepare checks the actual runner is github-hosted/Linux/X64, installs unmodified CLI 0.89.0,
 pulls `ghcr.io/<owner>/<repo>/devcontainer:main` using disposable Docker auth, removes that auth
-and freezes the local image ID for the job. Generated config uses the checkout, not a
+and freezes its fully qualified `repository@sha256:…` reference for the job. A bare Docker image
+ID is not a Dockerfile FROM reference: BuildKit can interpret `sha256:…` as a Docker Hub name
+during the CLI's UID-adjustment build. Generated config uses the checkout, not a
 PR-supplied Dev Container initializeCommand or arbitrary host mounts. Merged image metadata must
 retain vscode, the baseline shim-ownership hook and the declared mounts, without added
 privileges or lifecycle commands. Only the known tool/cache paths receive root UID repair;
@@ -101,7 +103,7 @@ their existing execution paths.
 
 ## Measurement
 
-Prepare outputs `image`, `pull-seconds` (login/pull/identity resolution) and `start-seconds`
+Prepare outputs `image` (Docker ID), `reference` (fully qualified immutable digest), `pull-seconds` (login/pull/identity resolution) and `start-seconds`
 (metadata/config/CLI startup and UID/lifecycle work after pull). It also reports `cli-seconds`
 (pinned CLI install) and `prepare-seconds` (the complete preparation). Record task/setup and complete job/route
 queue/runtime separately. Fresh hosted VMs normally make pulls cold; an image manifest or warm

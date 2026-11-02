@@ -18,7 +18,9 @@ inputs:
     default: ""
 outputs:
   image:
-    description: Immutable pulled image ID
+    description: Pulled Docker image ID
+  reference:
+    description: Fully qualified immutable Repository Image digest used by the CLI
   pull-seconds:
     description: Time spent pulling the image
   start-seconds:
