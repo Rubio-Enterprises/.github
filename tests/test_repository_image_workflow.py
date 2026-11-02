@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "actions/repository-image"
 TEXT = (ROOT / ".github/workflows/repository-image.yml").read_text()
 MODULE = (ASSETS / "image.mjs").as_uri()
+FROZEN_RECIPE = ROOT / "tests/fixtures/frozen-repository-image-v2.Dockerfile"
 spec = importlib.util.spec_from_file_location("image_audit", ASSETS / "audit.py")
 audit_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit_module)
@@ -469,7 +470,12 @@ exit 2
         context = self.root / "context"
         for directory in ["features", "pins", "src", "empty", "expected", "verify"]:
             (context / directory).mkdir(parents=True, exist_ok=True)
-        (context / "expected/shape").write_text("legacy")
+        (context / "package").mkdir()
+        (context / "package/Dockerfile").write_text("FROM scratch AS ci\n")
+        with tarfile.open(context / "package/standards.tgz", "w:gz") as package:
+            member = tarfile.TarInfo("package/config/fixture")
+            member.size = 7
+            package.addfile(member, io.BytesIO(b"fixture"))
         standards = self.root / "workspace/.standards-config/config"
         standards.mkdir(parents=True)
         (standards / "private.yml").write_text("private fixture\n" * 20)
@@ -506,7 +512,9 @@ done
         args = self.rebased()
         for item, char in [(args[2], "a"), (args[3], "b")]:
             item["annotations"] = {"org.opencontainers.image.base.digest": "sha256:" + char * 64}
-        for arch, native in [("amd64", "x86_64"), ("amd64", "amd64")]:
+        for shape, native in [("legacy", "x86_64"), ("legacy", "amd64"), ("v2", "x86_64"), ("v2", "amd64")]:
+            arch = "amd64"
+            (context / "expected/shape").write_text(shape)
             for item in args[4:6]: item["architecture"] = arch
             for name, data in zip(["base", "base-ci", "dev", "ci", "dev-config", "ci-config"], args[:6]):
                 (fixtures / f"{name}.json").write_text(json.dumps(data))
@@ -527,6 +535,22 @@ done
             self.assertIn("--old_base " + env["BASE"] + " --new_base " + env["BASE_CI"], calls)
             self.assertIn("--cache-from " + env["IMAGE"] + ":main-" + arch, calls)
             self.assertIn("--build-arg BUILDKIT_INLINE_CACHE=1", calls)
+            build_calls = [call for call in calls.splitlines() if call.startswith("build ")]
+            self.assertEqual(len(build_calls), 2)
+            for call in build_calls:
+                recipe = context / "package/Dockerfile" if shape == "v2" else ASSETS / "Dockerfile"
+                self.assertIn("--file " + str(recipe), call)
+                self.assertIn("--build-context pins=" + str(context / "pins"), call)
+                self.assertIn("--build-context expected=" + str(context / "expected"), call)
+                if shape == "v2":
+                    self.assertIn("--target ci", call)
+                    self.assertIn("--secret id=standards_package,src=" + str(context / "package/standards.tgz"), call)
+                    self.assertTrue(call.endswith(str(context / "build")))
+                    self.assertNotIn("--build-context standards=", call)
+                    self.assertNotIn("--build-context src=", call)
+                else:
+                    self.assertNotIn("--target", call)
+                    self.assertIn("--build-context standards=", call)
             self.assertIn("--security-opt no-new-privileges --user 1000", calls)
             self.assertNotIn("push ghcr.io", calls)
             self.assertNotIn("--build-arg STANDARDS_PIN", calls)

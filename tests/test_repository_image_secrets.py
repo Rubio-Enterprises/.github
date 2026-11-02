@@ -195,7 +195,7 @@ class RealTrivyTests(unittest.TestCase):
 
     def test_repository_image_home_caches_exclude_packages_not_nearby_config(self) -> None:
         from test_repository_image_cache import CONFIG_SAMPLES, PACKAGE_SUFFIXES, cache_environment
-        environment = cache_environment("Dockerfile.v2")
+        environment = cache_environment("frozen-repository-image-v2.Dockerfile")
         for name, suffix in PACKAGE_SUFFIXES.items():
             self.put((environment[name] + suffix).lstrip("/"), "TOKEN=" + self.token)
         self.put((environment["UV_PYTHON_INSTALL_DIR"] + "/pypy-3.11.13-linux-x86_64-gnu/lib/fixture.py").lstrip("/"), self.token)
@@ -214,7 +214,7 @@ class RealTrivyTests(unittest.TestCase):
         from test_repository_image_cache import cache_environment
         data = Path(os.environ["PUBLIC_OPENSSL_SOURCE"]).read_bytes()
         self.assertEqual(hashlib.sha256(data).hexdigest(), "f5a2f708afdd360135caa7c7984d639003dec6b012534b5c538fc9ca452aaaaa")
-        home = cache_environment("Dockerfile.v2").get("CARGO_HOME", "/home/vscode/.cargo")
+        home = cache_environment("frozen-repository-image-v2.Dockerfile").get("CARGO_HOME", "/home/vscode/.cargo")
         public = (home + "/registry/src/index.crates.io-1949cf8c6b5b557f/openssl-0.10.81/src/pkey_ctx.rs").lstrip("/")
         self.put(public, data.decode())
         result = self.scan()

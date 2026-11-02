@@ -146,12 +146,30 @@ source-only build path and its legacy provisioning.
 
 The preparation job resolves `latest` or the root `STANDARDS_VERSION` exact Release
 Pin once to a version and SHA-512 integrity. Each native job uses npm to pack that
-exact release with its existing repository token, verifies the tarball, and removes
-job-local registry cache/log state. The token stays outside Docker: only the
+exact release with its existing repository token and verifies its SHA-512 integrity.
+Only then does it read the single regular `package/image/Dockerfile` member into
+job-local `package/Dockerfile`; it never extracts the package tree or follows archive
+links. Duplicate, empty, oversized and non-UTF-8 recipes fail closed. Registry
+cache/log state is removed at job end. The token stays outside Docker: only the
 credential-free tarball is supplied as a BuildKit secret. No token build argument,
 image environment or credential file is involved.
 
-The v2 Dockerfile installs Node from the repository's runtime pin, installs the
+The v2 build selects `--target ci` from that package-owned recipe, with the same
+`pins`/`expected` named contexts, `BASE`/`REPO` arguments, clean source archive and
+`standards_package` secret mount. The recipe's `environment` stage supplies the
+shared environment, paths and permissions. `.github` owns orchestration, not a
+second v2 Dockerfile; there is no network recipe fetch or local fallback.
+
+Releases before 2.1.0 lack the recipe and fail with an error naming the resolved
+version and the remedy: remove the older root `[env].STANDARDS_VERSION` Release
+Pin or raise it to 2.1.0+. An API inventory on 2026-11-02 checked all 112 active
+organization repositories: 100 have image definitions, 98 are package-shaped and
+none has an active older Release Pin in its root mise configuration or profiles.
+The two legacy-shaped image repositories, `pi-ai-accounts` and
+`model-directory-service`, retain the legacy Dockerfile/bootstrap path until they
+migrate. Commented sample Release Pins are not active pins.
+
+The package's `ci` target installs Node from the repository's runtime pin, installs the
 package into tmpfs, then installs the tool pins. Only that package bootstrap uses
 `mise run --skip-tools standards:install`: auto-installing consumer tools first
 would require tools such as uv that the cold package has not provided yet.
@@ -170,8 +188,9 @@ RUN are deliberately not baked; installed project dependencies and other caches
 remain. A separate package-identity context invalidates the cache when the release
 changes, because BuildKit secret bytes alone do not invalidate it.
 
-Both artifacts' all-layer audits reject package prefix/Git files, copied package
+The dev artifact's all-layer audit rejects package prefix/Git files, copied package
 content and compressed tarballs, including copies hidden in dependency caches.
+The CI artifact relies on exact rebase verification rather than a second audit.
 Only the exact runtime package-wiring symlink is allowed. Trivy's broad dependency
 exclusions do not supply this package-absence guarantee.
 
@@ -359,3 +378,14 @@ workflow; shellcheck checks build orchestration. Native builds, first/second cac
 behavior, registry association/visibility and real runner lifecycle remain
 qualification gates, not claims established by fixtures. No base publication is
 required to run the fixture suite.
+
+The frozen `tests/fixtures/frozen-repository-image-v2.Dockerfile` is a test-only
+compatibility baseline from `.github` commit `2df77da`; no action reads it. Public
+PR tests remain independent of private-package credentials. Synthetic tarballs
+test safe extraction and both build branches. Set `STANDARDS_IMAGE_PACKAGE` and
+`STANDARDS_IMAGE_INTEGRITY` to a verified release tarball and its SHA-512 identity
+to compare the real package recipe's CI environment, user, workspace and setup
+commands with the baseline. Private x64 qualification also compares the built
+runtime and installed tool inventory. **Follow-up:** move recipe-behavior and
+source-permission tests into `standards` beside `image/Dockerfile`, then retire
+the frozen baseline; it must not become a maintained alternative recipe.
