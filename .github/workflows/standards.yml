@@ -22,6 +22,8 @@ jobs:
     permissions:
       contents: read
     uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
+    with:
+      enable-hosted-image: true
   standards:
     name: standards
     # This repository is not onboarded; its own pull requests would fail `test -f lefthook.yml`.
@@ -52,12 +54,19 @@ jobs:
         run: |
           test -f lefthook.yml ||
             { echo "::error::repository not onboarded: run npm init @rubio-enterprises/standards"; exit 1; }
+      - name: Prepare the hosted Repository Image
+        if: needs.route.outputs.hosted-image == 'true'
+        uses: Rubio-Enterprises/.github/actions/project-command@main
+        with:
+          operation: prepare
+          hosted-image: 'true'
+          token: ${{ github.token }}
       - id: week
         name: Name this week's cache keys
         run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
       # mise's pipx backend needs uv on PATH on a cold runner (AGENTS.md).
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        if: needs.route.outputs.ci-image != 'true'
+        if: needs.route.outputs.ci-image != 'true' && needs.route.outputs.hosted-image != 'true'
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.12.17"
@@ -65,23 +74,31 @@ jobs:
       # dangling until `setup`, so the package's tool pins cannot enter the key. The weekly prefix
       # bounds how long a cache misses tools a newer Standards Release added.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-        if: needs.route.outputs.ci-image != 'true'
+        if: needs.route.outputs.ci-image != 'true' && needs.route.outputs.hosted-image != 'true'
         with:
           version: ${{ env.MISE_VERSION }}
           install: false
           cache: true
           cache_key_prefix: mise-standards-${{ steps.week.outputs.week }}
       - name: Restore the trivy vulnerability database
+        if: needs.route.outputs.hosted-image != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/trivy/db
           key: trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
-      - name: Trust the checked-out repository in the CI Image
-        if: needs.route.outputs.ci-image == 'true'
-        run: mise trust "$GITHUB_WORKSPACE"
+      - name: Trust the checked-out repository in the image
+        if: needs.route.outputs.ci-image == 'true' || needs.route.outputs.hosted-image == 'true'
+        uses: Rubio-Enterprises/.github/actions/project-command@main
+        with:
+          hosted-image: ${{ needs.route.outputs.hosted-image || 'false' }}
+          run: mise trust "$GITHUB_WORKSPACE"
       - id: setup
         name: Install the Standards Release, its tools and the repository's dependencies
-        run: mise run setup
+        uses: Rubio-Enterprises/.github/actions/project-command@main
+        with:
+          hosted-image: ${{ needs.route.outputs.hosted-image || 'false' }}
+          run: mise run setup
+          forward-env: NODE_AUTH_TOKEN MISE_GITHUB_TOKEN
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -89,28 +106,42 @@ jobs:
       # `check`/`check:pr` must be the package's: same file content as the installed release's
       # mise/standards.toml (by content, not path: the standards repository links its own tree).
       - name: Require the package's own check and check:pr tasks
-        run: |
-          pkg=.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml
-          want="$(git hash-object "$pkg")"
-          for task in check check:pr; do
-            src="$(mise tasks info "$task" --json | jq -r .source)"
-            [ "$(git hash-object "$src")" = "$want" ] ||
-              { echo "::error::$task comes from $src, not the Standards Package; delete the repository's $task task"; exit 1; }
-          done
+        uses: Rubio-Enterprises/.github/actions/project-command@main
+        with:
+          hosted-image: ${{ needs.route.outputs.hosted-image || 'false' }}
+          run: |
+            pkg=.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml
+            want="$(git hash-object "$pkg")"
+            for task in check check:pr; do
+              src="$(mise tasks info "$task" --json | jq -r .source)"
+              [ "$(git hash-object "$src")" = "$want" ] ||
+                { echo "::error::$task comes from $src, not the Standards Package; delete the repository's $task task"; exit 1; }
+            done
       - id: check
         name: Every Check on every file
-        run: mise run check
+        uses: Rubio-Enterprises/.github/actions/project-command@main
+        with:
+          hosted-image: ${{ needs.route.outputs.hosted-image || 'false' }}
+          run: mise run check
+          forward-env: GH_TOKEN
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # zizmor's online audits
       - name: Pull-request Checks
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: mise run check:pr
+        uses: Rubio-Enterprises/.github/actions/project-command@main
+        with:
+          hosted-image: ${{ needs.route.outputs.hosted-image || 'false' }}
+          run: mise run check:pr
+          forward-env: PR_TITLE GITHUB_TOKEN
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Lefthook 2.1 prints no per-job summary in CI when a Fixer's rewrite fails the run.
       - name: Summarize what the Checks rewrote
         if: ${{ failure() && steps.check.outcome == 'failure' }}
-        run: |
-          { echo '```'; git status --short; git diff --stat; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "::error::the Checks failed or a Fixer rewrote files; run 'mise run check' locally and commit the result"
+        uses: Rubio-Enterprises/.github/actions/project-command@main
+        with:
+          hosted-image: ${{ needs.route.outputs.hosted-image || 'false' }}
+          run: |
+            { echo '```'; git status --short; git diff --stat; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::the Checks failed or a Fixer rewrote files; run 'mise run check' locally and commit the result"
