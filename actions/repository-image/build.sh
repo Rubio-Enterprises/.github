@@ -39,23 +39,7 @@ crane() { docker run --rm --network host "$crane_image" "$@"; }
   --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
 docker push "$local_ref/features:build"
 features_digest="$(crane digest --insecure "$local_ref/features:build")"
-shape="$(< "$CONTEXT/expected/shape")"
-dockerfile="$ASSETS/Dockerfile"
-standards="$GITHUB_WORKSPACE/.standards-config"
-pin="${STANDARDS_PIN:-}"
-case "$shape" in
-v2)
-  dockerfile="$CONTEXT/package/Dockerfile"
-  standards="$CONTEXT/package/standards.tgz"
-  pin=
-  ;;
-legacy | none) ;;
-*)
-  echo '::error::invalid prepared standards shape'
-  exit 1
-  ;;
-esac
-build_context="$CONTEXT/empty"
+package="$CONTEXT/package/standards.tgz"
 labels=()
 if [[ -n "${INPUT_KEY:-}" ]]; then
   if ! [[ "$INPUT_KEY" =~ ^sha256:[a-f0-9]{64}$ ]]; then
@@ -65,19 +49,15 @@ if [[ -n "${INPUT_KEY:-}" ]]; then
   labels=(--label "org.rubio-enterprises.image.input-key=$INPUT_KEY"
     --label "org.rubio-enterprises.image.built-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)")
 fi
-args=(--platform "linux/$ARCH" --file "$dockerfile"
+args=(--platform "linux/$ARCH" --file "$CONTEXT/package/Dockerfile" --target ci
   --build-context "pins=$CONTEXT/pins"
   --build-context "expected=$CONTEXT/expected"
   --build-arg "BASE=$local_ref/features@$features_digest"
   --build-arg "REPO=${GITHUB_REPOSITORY#*/}"
   --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+  --secret "id=standards_package,src=$package"
   "${labels[@]}")
-if [[ "$shape" = v2 ]]; then
-  build_context="$CONTEXT/build"
-  args+=(--target ci --secret "id=standards_package,src=$standards")
-else
-  args+=(--build-context "standards=$standards" --build-context "src=$CONTEXT/src")
-fi
+build_context="$CONTEXT/build"
 docker build --check "${args[@]}" "$build_context"
 docker build --provenance=false --sbom=false "${args[@]}" \
   --cache-from "$IMAGE:main-$ARCH" --build-arg BUILDKIT_INLINE_CACHE=1 \
@@ -109,7 +89,7 @@ ref="$(< "$CONTEXT/dev.ref")"
 docker run --rm --network host --user "$(id -u):$(id -g)" \
   --mount "type=bind,src=$CONTEXT,dst=/context" \
   "$crane_image" pull --insecure "$ref" /context/artifact.tar
-python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$standards" "$pin" "$CONTEXT/src"
+python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$package" "$CONTEXT/src"
 rm "$CONTEXT/artifact.tar"
 printf 'Audited registry artifact: %s\n' "$ref"
 docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-limit 512 \

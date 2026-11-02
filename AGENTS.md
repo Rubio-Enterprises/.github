@@ -59,14 +59,6 @@ ops, not reusables: `test-gate` runs `tests/` and reports the `test-gate` contex
 V2 image builds use the `ci` target of `image/Dockerfile` from the repository's
 verified Standards Release (2.1.0+). This repository owns orchestration, not the v2 recipe.
 
-**`actions/standards-bootstrap` (legacy).** The image builder (`repository-image.yml`)
-still provisions the Copier-era Shared Config Directory
-(`.standards-config/`, standards `legacy/copier`, read through the `rubio-standards-reader`
-App) for a repository that has not migrated to the package
-([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). No other workflow here uses it.
-Delete it once no image-building repository carries `.standards-config` and the image builder
-drops its legacy path.
-
 There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
 Repositories join the onboarded set with `npm init @rubio-enterprises/standards`, which copies
 the starter `standards.yml` and `test-gate.yml`.

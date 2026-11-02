@@ -1,8 +1,8 @@
 # Repository image builder
 
-`repository-image.yml` is the generic builder for ADR-0036. It supports both the
-Standards Package (v2) and Copier-era consumers during migration. Repository
-images are built and published for **linux/amd64 only**. Public `base` and
+`repository-image.yml` is the generic builder for ADR-0036. It builds repositories
+wired to the Standards Package (v2); Copier-era and unwired repositories fail
+preparation with an instruction to adopt the package. Repository images are built and published for **linux/amd64 only**. Public `base` and
 `base-ci` images remain multi-architecture for local arm64 builds.
 
 Merging the x64-only workflow makes every caller's next image build x64-only.
@@ -53,13 +53,7 @@ there is no fallback to another base or architecture emulation.
 The central composite action obtains its assets through `GITHUB_ACTION_PATH`.
 The caller cannot substitute a lookalike Dockerfile/script in its checkout.
 `git archive HEAD` supplies committed source, excluding the working checkout's
-Git database, untracked credentials and provisioned standards. The archived
-snapshot omits only these exact template Config Stub symlink path/target pairs,
-without following them:
-
-| Source path | Exact link target |
-| --- | --- |
-| `tombi.toml` | `.standards-config/config/tombi.toml` |
+Git database, untracked credentials and the installed package.
 
 The exact v2 `.config/mise/conf.d/standards.toml` symlink to
 `../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml`
@@ -67,14 +61,10 @@ is preserved in both the source and tool-input contexts, without dereferencing i
 cold target. Other package wiring links are not substituted. The self-hosting `Rubio-Enterprises/standards`
 repository instead preserves its exact `../../../mise/standards.toml` link. This requires
 its own package manifest and regular from-tree mise/Lefthook sources; other callers
-with that link still fail closed. Tracked `.standards/`
-payloads are rejected alongside Git and legacy standards checkouts.
-
-Runtime checkouts and workspace bind mounts retain those stubs. A regular,
-repository-owned `tombi.toml` remains in the snapshot. Other links into standards,
-escaping symlinks and tracked Git or standards directories still fail closed;
-this is not a path-wide exclusion or an all-layer audit exemption. A future
-template stub needs an explicit reviewed pair here and in preparation.
+with that link still fail closed. Tracked `.standards/` payloads, Git
+directories and Copier-era `.standards-config/` checkouts are rejected, as are
+links into either standards location (including the retired `tombi.toml` Config
+Stub) and links that escape the snapshot.
 
 Submodules qualify for **omission only** when every committed gitlink has one
 unique matching path in the committed `.gitmodules`, with an exact
@@ -98,9 +88,8 @@ A separate pin-sensitive context contains top-level mise TOML/lock files, `packa
 and `.config/`; source-only changes do not invalidate that tool context. Projects
 with other tool-input paths need qualification before adoption, not a second
 Dockerfile. The complete source and language lockfiles feed ordinary
-`CI=true mise run setup` after system tool installation. Repositories without
-mise config skip tool/project setup. A mise-bearing repository must expose a
-build-safe `setup` task; Linux cannot provide Xcode/Homebrew build steps.
+`CI=true mise run setup` after system tool installation. The `setup` task must be
+build-safe; Linux cannot provide Xcode/Homebrew build steps.
 The self-hosting standards repository's native `standards:install` packs its own
 checkout, so its tool-input context includes the complete validated source rather
 than only the usual tool inputs. Source changes invalidate that repository's tool
@@ -108,22 +97,17 @@ layer. No task is replaced: both tool installation and setup use its candidate
 package/from-tree checks, while package prefix and npm cache remain tmpfs and all
 layer audits remain unchanged.
 
-### Copier-era provisioning
+### Build environment
 
-`standards-bootstrap` independently provisions a clean full-history checkout and
-exports `STANDARDS_PIN` before preparation. The build mounts standards read-only
-as a named BuildKit context for the tool and setup steps. A separate read-only
-context supplies the expected pin, avoiding pin build arguments in image history.
-Neither context is copied. No standards credential reaches Docker. Builds install
-tools with `mise install --system`, never fetch standards in-container, and set
-`UV_LINK_MODE=copy`. Both generic builders keep mutable uv/npm/pnpm/Go/mise/Cargo
-caches under `/home/vscode/.cache/`. Rustup and uv-managed Python SDK homes are
-`/home/vscode/.local/share/rustup` and `/home/vscode/.local/share/uv/python`.
-Directories are created as vscode, including intermediate data directories.
-The Dev Container CLI re-owns that home when it remaps the remote user's UID/GID
-on Linux; fixed paths outside the home would retain the build UID. Do not mount
-over the home or cache tree if baked caches must remain available. Current standards and a
-validated runtime pin must be provisioned again before runtime setup.
+Builds install tools with `mise install --system`, never fetch standards
+in-container, and set `UV_LINK_MODE=copy`. The recipe keeps mutable
+uv/npm/pnpm/Go/mise/Cargo caches under `/home/vscode/.cache/`. Rustup and
+uv-managed Python SDK homes are `/home/vscode/.local/share/rustup` and
+`/home/vscode/.local/share/uv/python`. Directories are created as vscode,
+including intermediate data directories. The Dev Container CLI re-owns that home
+when it remaps the remote user's UID/GID on Linux; fixed paths outside the home
+would retain the build UID. Do not mount over the home or cache tree if baked
+caches must remain available.
 
 ### Standards Package provisioning (v2)
 
@@ -134,15 +118,10 @@ directories root-owned with `ADD --chown`; extracting as the setup user avoids t
 backend-dependent behavior without recursive ownership or permission changes.
 The archive mount does not persist in an image layer. An application's `.dockerignore`
 remains unchanged inside that archive/image, but cannot filter setup files from this different build.
-Only the exact stub paths already omitted during preparation are excluded by literal
-Git pathspecs; source, package-absence and all-layer scan guards remain unchanged.
-The generic legacy path retains its existing local named source context.
 
-Detection happens before loading consumer mise configuration. V2 requires the exact
-package symlink and root `setup`/`standards:install` tasks, without answers or the
-legacy bootstrap file. Mixed or incomplete wiring fails closed. Copier consumers
-retain their bootstrap/pin/readiness path. Repositories without mise retain the
-source-only build path and its legacy provisioning.
+Detection happens before loading consumer mise configuration. It requires the exact
+package symlink and root `setup`/`standards:install` tasks, without Copier answers or
+the Copier bootstrap file. Missing, mixed or incomplete wiring fails closed.
 
 The preparation job resolves `latest` or the root `STANDARDS_VERSION` exact Release
 Pin once to a version and SHA-512 integrity. Each native job uses npm to pack that
@@ -165,9 +144,10 @@ version and the remedy: remove the older root `[env].STANDARDS_VERSION` Release
 Pin or raise it to 2.1.0+. An API inventory on 2026-11-02 checked all 112 active
 organization repositories: 100 have image definitions, 98 are package-shaped and
 none has an active older Release Pin in its root mise configuration or profiles.
-The two legacy-shaped image repositories, `pi-ai-accounts` and
-`model-directory-service`, retain the legacy Dockerfile/bootstrap path until they
-migrate. Commented sample Release Pins are not active pins.
+The two remaining Copier-era image repositories, `pi-ai-accounts` and
+`model-directory-service`, adopted the package the same day, which retired the
+legacy Dockerfile, `standards-bootstrap` and the reader-App secret inputs.
+Commented sample Release Pins are not active pins.
 
 The package's `ci` target installs Node from the repository's runtime pin, installs the
 package into tmpfs, then installs the tool pins. Only that package bootstrap uses
@@ -242,14 +222,15 @@ always-cleanup step removes the registry on success, failure or cancellation.
 
 Before external push, the dev artifact is inspected across **all layers**,
 including files hidden/deleted by later layers, for persisted standards paths,
-links, exact bundle-only file hashes (files at least 128 bytes) and the build pin.
+links, exact package-only file hashes (files at least 128 bytes) and a
+`STANDARDS_PIN` environment entry.
 The package-root `package/LICENSE` is public legal metadata and does not supply a
 file-content fingerprint. The complete package tarball and every other package
 file remain fingerprinted; an image filename such as `LICENSE` grants no exemption.
 The content comparison also excludes fingerprints already present in regular files
 from the prepared `git archive` source snapshot. The builder passes that snapshot,
 not the working checkout; untracked files, symlink targets and Git/standards
-checkout metadata cannot supply exemptions. Standards paths/links and pin checks
+checkout metadata cannot supply exemptions. Standards path/link and environment checks
 remain unconditional, even for source-matched content. Config/history is inspected
 too. This catches direct bundle-only copies, not arbitrary transformations of
 policy by trusted project setup; source/mount discipline is still necessary.
@@ -283,7 +264,7 @@ can proceed to either external push. A failed build blocks both moving indices
 and pruning.
 
 PR jobs have only contents/packages read; default-branch push/schedule/manual
-jobs have package write. Fork PRs receive no standards secrets and fail closed.
+jobs have package write. The reusable receives no secrets.
 No privileged PR trigger is supported. All third-party actions are SHA-pinned.
 Both packages use `:main` and `:sha-<commit>` as manifest lists containing exactly
 one `linux/amd64` child. `imagetools create --prefer-index=true` explicitly wraps
@@ -322,7 +303,7 @@ index. `:main` and `:main-amd64` do not move, and no Docker-capable job runs.
 Anything else, including an unreadable registry answer, builds as before, and the
 build records the key and build time as labels and verifies them before
 publication. Manual (`workflow_dispatch`) runs always build. Pull requests keep
-the `validate` path. The two legacy-shaped repositories always build.
+the `validate` path.
 
 ### What the key covers
 
@@ -392,9 +373,9 @@ On 2026-11-02, 78 of the 100 image repositories get the inputs rule. The tree ru
 covers 20 repositories whose setup installs a local Python package (9), runs
 other programs (`go list`, `bundle install`, scripts, Playwright, Prisma), has a
 project lifecycle script, a local tarball dependency or an unreviewed install
-script (`yorkie`), plus the self-hosting standards repository; the 2 legacy
-repositories always build. Applying the key to every first-parent main commit,
-with bases and package fixed, skips 60% of builds from 2026-10-16 to 10-28
+script (`yorkie`), plus the self-hosting standards repository. The two other
+repositories, Copier-era at the time, have since adopted the package. Applying the
+key to every first-parent main commit, with bases and package fixed, skips 60% of builds from 2026-10-16 to 10-28
 (1,658 of 2,752) and 44% during the 10-29 to 11-02 migration wave.
 
 ### Baked source
@@ -412,67 +393,16 @@ Add a package to `ALLOWED_INSTALL_SCRIPTS` only after reading its install script
 Changing any file in this action changes every key, so the fleet rebuilds once,
 at each repository's next push.
 
-## Caller and migration
+## Caller
 
-Consumer migration is coordinated separately. A legacy caller uses the actual default branch
-(`master` where applicable), all setup/tool/dependency input paths and a
-repository-specific staggered weekly cron. There is no base-change trigger.
-For example (choose a distinct cron slot, do not copy one slot fleet-wide):
+The starter `standards.yml` calls this reusable on pushes to `main` and manual
+runs when `.github/.devcontainer/devcontainer.json` exists. Do not add a
+duplicate caller concurrency group.
 
-```yaml
-name: repository image
-"on":
-  push:
-    branches: [main]
-    paths: &inputs
-      - .github/.devcontainer/**
-      - .github/workflows/repository-image.yml
-      - .mise*.toml
-      - mise.toml
-      - mise.lock
-      - .config/**
-      - scripts/**
-      - "**/package.json"
-      - "**/package-lock.json"
-      - "**/pnpm-lock.yaml"
-      - "**/pnpm-workspace.yaml"
-      - "**/pyproject.toml"
-      - "**/uv.lock"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "**/go.mod"
-      - "**/go.sum"
-      - "**/Gemfile*"
-      - "**/bun.lock*"
-  pull_request:
-    paths: *inputs
-  schedule:
-    - cron: "41 4 * * 0"
-  workflow_dispatch:
-permissions: {}
-jobs:
-  image:
-    permissions:
-      contents: read
-      packages: write
-    uses: Rubio-Enterprises/.github/.github/workflows/repository-image.yml@main
-    secrets:
-      STANDARDS_READER_APP_ID: ${{ secrets.STANDARDS_READER_APP_ID }}
-      STANDARDS_READER_APP_PRIVATE_KEY:
-        ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-```
-
-Do not add a duplicate caller concurrency group. Source is a workspace snapshot;
-source-only changes need not rebuild unless setup consumes them.
-
-For v2 callers, no reader-App secrets are needed; the caller grants package access
-through its existing `GITHUB_TOKEN`. The copy-once v2 workflow can call this reusable
-when the generic build-definition file exists. V2 definitions with Dockerfiles are
-rejected rather than adapted with token-bearing build arguments.
-
-Legacy definitions with Dockerfiles, baseline Features or cache overrides must
-migrate to the generic definition before calling this reusable. Feature-specific
-lifecycle behavior still needs caller qualification.
+The reusable takes no secrets; the caller grants package access through its
+existing `GITHUB_TOKEN`. Definitions with Dockerfiles, baseline Features or cache
+overrides are rejected rather than adapted with token-bearing build arguments.
+Feature-specific lifecycle behavior still needs caller qualification.
 
 The legacy `devcontainer-image.yml` reusable is retired. On 2026-11-02 an API
 inventory enumerated all 112 non-archived organization repositories, pinned each

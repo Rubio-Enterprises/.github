@@ -18,13 +18,6 @@ name: repository image (reusable)
         description: Matching runner base tag or resolved multiarch index reference
         type: string
         default: ghcr.io/rubio-enterprises/devcontainers/base-ci:latest
-    secrets:
-      STANDARDS_READER_APP_ID:
-        description: Standards-reader App ID; required for shared config bootstrap
-        required: false
-      STANDARDS_READER_APP_PRIVATE_KEY:
-        description: Standards-reader App key; required for shared config bootstrap
-        required: false
 permissions: {}
 concurrency:
   group: repository-image-${{ github.repository }}-${{ github.ref }}
@@ -42,7 +35,6 @@ jobs:
       contents: read
       packages: read
     outputs:
-      shape: ${{ steps.standards.outputs.shape }}
       version: ${{ steps.release.outputs.version }}
       integrity: ${{ steps.release.outputs.integrity }}
       image: ${{ steps.image.outputs.image }}
@@ -90,14 +82,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Detect standards shape
+      - name: Read the Standards Release selector
         id: standards
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         with:
           operation: inspect
       - name: Resolve the Standards Release
         id: release
-        if: steps.standards.outputs.shape == 'v2'
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         env:
           STANDARDS_RELEASE: ${{ steps.standards.outputs.release }}
@@ -117,7 +108,7 @@ jobs:
       # A manual run always rebuilds; pushes alias the published pair when its inputs match
       - name: Compare image inputs with the published pair
         id: key
-        if: steps.image.outputs.publish == 'true' && steps.standards.outputs.shape == 'v2'
+        if: steps.image.outputs.publish == 'true'
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         env:
           IMAGE: ${{ steps.image.outputs.image }}
@@ -157,22 +148,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Provision native shared config
-        if: needs.prepare.outputs.shape != 'v2'
-        uses: Rubio-Enterprises/.github/actions/standards-bootstrap@main
-        with:
-          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
-          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
-          bootstrap-parts: repos
-      - name: Require the image build pin
-        if: needs.prepare.outputs.shape != 'v2'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! [[ "${STANDARDS_PIN:-}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::standards-bootstrap must export a full lowercase STANDARDS_PIN before building" >&2
-            exit 1
-          fi
       - name: Verify native Docker architecture
         shell: bash
         run: |
@@ -206,7 +181,6 @@ jobs:
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         env:
           DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
-          STANDARDS_SHAPE: ${{ needs.prepare.outputs.shape }}
           STANDARDS_VERSION: ${{ needs.prepare.outputs.version }}
           STANDARDS_INTEGRITY: ${{ needs.prepare.outputs.integrity }}
         with:
@@ -214,7 +188,6 @@ jobs:
           config: ${{ inputs.config }}
           base: ${{ needs.prepare.outputs.base }}
       - name: Fetch the verified Standards Package
-        if: needs.prepare.outputs.shape == 'v2'
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         env:
           CONTEXT: ${{ steps.inputs.outputs.context }}
