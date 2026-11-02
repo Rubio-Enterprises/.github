@@ -425,6 +425,7 @@ class Fixtures(unittest.TestCase):
         for name in ["dev", "ci"]:
             (self.root / f"{name}.ref").write_text(f"127.0.0.1:12345/repository/{name}@{digest}\n")
         self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
+if [[ "$*" != *"--user $(id -u):$(id -g)"* ]]; then echo 'crane cannot read runner-owned auth' >&2; exit 13; fi
 for arg in "$@"; do
   if [[ "$arg" = copy ]]; then touch "$RUNNER_TEMP/pushed"; exit "${COPY_STATUS:-0}"; fi
   if [[ "$arg" = digest ]]; then printf '%s\\n' "${PUBLISHED_DIGEST:-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"; exit; fi
@@ -465,7 +466,10 @@ if [[ "$1" = info ]]; then echo "$DOCKER_ARCH"; exit; fi
 if [[ "$1" = port ]]; then echo 127.0.0.1:12345; exit; fi
 if [[ "$1 $2" = 'image save' ]]; then cp "$RUNNER_TEMP/artifact.tar" "${*: -1}"; exit; fi
 for arg in "$@"; do
-  if [[ "$arg" = pull ]]; then cp "$RUNNER_TEMP/artifact.tar" "$CONTEXT/artifact.tar"; exit; fi
+  if [[ "$arg" = pull && "$1" = run ]]; then
+    if [[ "$*" != *"--user $(id -u):$(id -g)"* ]]; then echo 'crane cannot write runner-owned context' >&2; exit 13; fi
+    cp "$RUNNER_TEMP/artifact.tar" "$CONTEXT/artifact.tar"; exit
+  fi
   if [[ "$arg" = digest ]]; then printf 'sha256:%064d\\n' 0; exit; fi
   if [[ "$arg" = manifest || "$arg" = config ]]; then
     ref="${*: -1}"
