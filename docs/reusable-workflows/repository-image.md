@@ -3,7 +3,9 @@
 `repository-image.yml` is the generic builder for ADR-0036. It builds repositories
 wired to the Standards Package (v2); Copier-era and unwired repositories fail
 preparation with an instruction to adopt the package. Repository images are built and published for **linux/amd64 only**. Public `base` and
-`base-ci` images remain multi-architecture for local arm64 builds.
+`base-ci` images remain multi-architecture for local arm64 builds. Every image builds on the
+shared Build Service (mac-dev-playbook ADR 0057 and 0058), described under
+[Build Service](#build-service); the Machine Pool image path and pull-request validation are gone.
 
 Merging the x64-only workflow makes every caller's next image build x64-only.
 Apple Silicon pulls of `:main` or `:sha-<commit>` fail with no matching manifest
@@ -198,8 +200,9 @@ contents match a bundle file, such as the rendered `treefmt.toml` bridge.
 The workflow never changes GHCR visibility, package links or access grants.
 Verify both packages' visibility and same-repository token access before adoption.
 
-Each amd64 job uses a job-local registry (loopback ephemeral port), builds the
-dev image, and uses digest-pinned crane 0.22.1 to rebase onto the matching base-ci.
+The `build` job is a client of the Build Service. The daemon builds the Features image and the
+recipe's `ci` target and pushes them to a staging registry beside it. The job then uses
+digest-pinned crane 0.22.1 against staging to rebase onto the matching base-ci.
 It compares compressed repository layer descriptors, uncompressed diff IDs,
 architecture and full runtime config before/after. Both variants must
 have manifest `org.opencontainers.image.base.digest` annotations matching the
@@ -207,20 +210,19 @@ resolved base index for dev and the resolved base-ci index for CI. Missing or
 incorrect provenance fails the build. Rebase retains dev config;
 base-ci ENV/USER/labels are not assumed to become the CI environment.
 
-The local registry remains alive through scanning and publication. The audit pulls
-the digest-addressed dev artifact with crane; Trivy scans that same immutable
+The audit reads the digest-addressed dev artifact's layers from staging; Trivy scans that same immutable
 registry reference. The CI variant relies on `validateRebase`'s exact repository
 layer descriptors/diff IDs and runtime-config equality, plus `validateProvenance`
 for both base annotations. Its only additional bytes come from the validated
 public base-ci prefix, not another repository build. It is not audited or scanned
 a second time; this does not claim to scan the runner base's additional layers.
 After verification, audit, smoke tests and the scan pass, crane copies both exact manifests
-to GHCR and verifies destination digest equality. Docker-loaded copies are only
-for runtime smoke tests: classic Docker image storage can drop annotations
-and reserialize the manifest when pushing. The workflow's
-always-cleanup step removes the registry on success, failure or cancellation.
+from staging to GHCR with the job's own token and verifies destination digest equality.
+The staging copy is the verified artifact; nothing is rebuilt or reserialized on the way.
+The cleanup step deletes the job's certificate, credentials and build inputs on success,
+failure or cancellation.
 
-Before external push, the dev artifact is inspected across **all layers**,
+Before external push, the dev artifact is inspected across **all layers above the public base**,
 including files hidden/deleted by later layers, for persisted standards paths,
 links, exact package-only file hashes (files at least 128 bytes) and a
 `STANDARDS_PIN` environment entry.
@@ -235,15 +237,17 @@ remain unconditional, even for source-matched content. Config/history is inspect
 too. This catches direct bundle-only copies, not arbitrary transformations of
 policy by trusted project setup; source/mount discipline is still necessary.
 Reports never render matching contents. The CI smoke runs as
-UID 1000 under no-new-privileges and checks the runner, mise/gh/jq, writable
+UID 1000 and checks the runner, mise/gh/jq, writable
 cache/tool/runner paths and uv copy mode. Cache smoke seeds nested cache and
-SDK-home metadata and checks append/create/rename/delete:
+SDK-home metadata and checks append/create/rename/delete. The cache check of the dev image runs as stages
+of `smoke.Dockerfile` on the Build Service, without network. The CI image's runtime check
+and cache check run **once per base pair release** in `Rubio-Enterprises/devcontainers`, not per build:
 
 | Variant / UID | Coverage |
 | --- | --- |
 | dev / 1000 | Original vscode ownership, without UID migration; retained. |
 | dev / 1001 | Dev Container CLI home-only UID/GID migration; retained. |
-| CI / 1000 | Fixed runner identity on the different merged base-ci filesystem; retained because runner-base additions can affect cache paths despite repository-layer identity. |
+| CI / 1000 | Moved off the per-build path, to **once per base pair release** in `Rubio-Enterprises/devcontainers` (see [Build Service](#build-service)): `verify` proves the repository layers and config identical, so only runner-base additions in `base-ci` can change cache paths. |
 | CI / 1001 | Omitted: Container Pool runners use UID 1000, do not run the CLI's UID migration, and dev / 1001 already tests that migration. |
 
 Only the dev / 1001 identity migration runs as root; cache writes and project setup
@@ -263,40 +267,39 @@ documented under [Secret checks](repository-image-secrets.md). No scan failure/s
 can proceed to either external push. A failed build blocks both moving indices
 and pruning.
 
-PR jobs have only contents/packages read; default-branch push/schedule/manual
-jobs have package write. The reusable receives no secrets.
-No privileged PR trigger is supported. All third-party actions are SHA-pinned.
+Only default-branch push, schedule and manual runs build; no pull-request trigger is supported,
+and pull-request validation is gone. The build job has package write and `id-token: write`; the
+reusable receives no secrets. No privileged PR trigger is supported. All third-party actions are
+SHA-pinned.
 Both packages use `:main` and `:sha-<commit>` as manifest lists containing exactly
 one `linux/amd64` child. `imagetools create --prefer-index=true` explicitly wraps
 the single child instead of copying a bare manifest (which could allow implicit
 amd64 emulation on an arm64 host). Publication checks both indices' raw media
 type and platform count. `:sha-<commit>-amd64` and `:main-amd64` remain single-image
 tags; no arm64 tags or cache aliases are produced.
-Inline BuildKit cache is exported and the dev `:main-amd64` alias is imported.
-Cache misses are valid; a real second build must demonstrate reuse. Base refresh
-does not fan out child builds. Per-repository/ref concurrency cancels superseded
+The daemon's own cache replaces inline cache and `--cache-from`; a cold daemon (a weekly rebuild)
+simply builds from scratch. Base refresh does not fan out child builds. Per-repository/ref concurrency cancels superseded
 runs. The build job itself advances both indices, after its verified push; there
-is no second Docker-capable publication job. Registry writes across two packages are
+is no second publication job. Registry writes across two packages are
 not atomic. Retention keeps five untagged versions per package, never deleting
 tagged history or index children; it runs after a build, not after an alias.
 
-## Build Service path (canary)
+## Build Service
 
-The caller input `build-service: true` builds on the shared Build Service instead of a Machine Pool
-runner, as mac-dev-playbook ADR 0057 and 0058 decide. The input exists for the canary and is removed
-when the cutover deletes the Machine Pool path; the default is `false`, so callers that do not set
-it are unchanged. **The caller's `repository-image` job must grant `id-token: write`**, which the
-starter `standards.yml` does from Standards Release 3.0.0. GitHub rejects a called workflow whose job
-asks for more permission than its caller grants, even when the job is skipped, so a caller without
-the grant fails at startup. Merge this workflow only after the fleet carries the permission.
+Every image builds on the shared Build Service, as mac-dev-playbook ADR 0057 and 0058 decide: one
+rootless BuildKit daemon with a password-protected staging registry on the Container Pool host.
+**The caller's `repository-image` job must grant `id-token: write`**, which the starter
+`standards.yml` does from Standards Release 3.0.0. GitHub rejects a called workflow whose job asks
+for more permission than its caller grants, even when the job is skipped, so a caller without the
+grant fails at startup, and with it the caller's `standards` check.
 
-The `build-service` job runs on the image Scale Set (`RUNNERS.image`, falling back to the label
+The `build` job runs on the image Scale Set (`RUNNERS.image`, falling back to the label
 `linux-x64-image`). It has **no hosted fallback**: the daemon is reachable only from that pool. It is a
 thin client with no Docker daemon, no root and no socket.
 
 | Step | Where it runs |
 | --- | --- |
-| Resolve base pair and Standards Release, input key, skip or alias | `prepare` and `alias`, small route, unchanged |
+| Resolve base pair and Standards Release, input key, skip or alias | `prepare` and `alias`, small route |
 | Client tools: Docker CLI, buildx, crane | Job, checksum-pinned, skipped for any already on `PATH` |
 | Client certificate, builder, Docker configs | Job: `connect.sh` |
 | Features image, recipe build (`ci` target) | Build Service, pushed to the staging registry |
@@ -305,7 +308,7 @@ thin client with no Docker daemon, no root and no socket.
 | Cache smoke checks of the dev image | Build Service, as `--network=none` build stages (`smoke.Dockerfile`) |
 | Trivy secret scan | Job, `--image-src remote` against the staging registry |
 | Copy to GHCR, one-entry indices, aliases | Job, with its own `GITHUB_TOKEN` |
-| Prune untagged versions | `prune`, small route, unchanged |
+| Prune untagged versions | `prune`, small route |
 
 **Coordinates come from the image runner**, so this public workflow names no internal host:
 
@@ -367,24 +370,23 @@ digest` is the image digest and the recipe's `BASE` is stable. Without a reachab
 CLI otherwise writes a syntax directive that makes the daemon fetch the `docker/dockerfile:1.4`
 frontend from Docker Hub on every build.
 
-**Canary and rollout notes.**
+**Operating notes.**
 
 - **Scratch runs from a branch.** A push or manual run outside the default branch runs the workflow
   only when the caller sets `image-name`, and the policy step refuses a name that equals the
   repository's own `devcontainer` or `devcontainer-ci` package. A branch can therefore build and
   publish a scratch pair (`:main`, `:sha-<commit>` of the scratch name), never the repository's own.
-  A canary uses this: a temporary branch changes the caller to pass `build-service: true` and a
-  scratch `image-name`, and a manual run of the caller on that branch builds. The workflow ref the
-  Private CA sees stays `repository-image.yml@refs/heads/main`, so the template needs no change.
+  A canary uses this: a temporary branch changes the caller to pass a scratch `image-name`, and a
+  manual run of the caller on that branch builds. The workflow ref the Private CA sees stays
+  `repository-image.yml@refs/heads/main`, so the template needs no change.
 - The called workflow is part of the certificate's claims (`job_workflow_ref`). A caller on a branch
-  does not change it, but a canary that calls a branch of **this** workflow must have that ref allowed
-  by the Private CA template, and the workflow's
-  `Rubio-Enterprises/.github/actions/repository-image@main` references must point at the same branch.
+  does not change it. A new central image workflow needs the Private CA template's workflow list
+  updated, and a branch canary of this workflow needs its ref allowed, with the
+  `Rubio-Enterprises/.github/actions/repository-image@main` references pointing at the same branch.
 - Any change to a file in `actions/repository-image/` changes every repository's image input key, so
-  each repository rebuilds once at its next push. Merging this workflow before the cutover therefore
-  rebuilds the fleet on the Machine Pool.
-- For a repository with extra Features, build the Features image twice on the real builder and require
-  the same digest before the cutover.
+  each repository rebuilds once at its next push.
+- If the daemon is down, image builds fail and are re-run after the fix; nothing waits on them in
+  real time.
 
 ## Image input key
 
@@ -408,8 +410,7 @@ Then the small-route `alias` job (`packages: write`) installs checksum-pinned cr
 index. `:main` and `:main-amd64` do not move, and no Docker-capable job runs.
 Anything else, including an unreadable registry answer, builds as before, and the
 build records the key and build time as labels and verifies them before
-publication. Manual (`workflow_dispatch`) runs always build. Pull requests keep
-the `validate` path.
+publication. Manual (`workflow_dispatch`) runs always build.
 
 ### What the key covers
 
@@ -522,18 +523,20 @@ when revived.
 
 Local contracts exercise base pairing and mismatch rejection, exact rebase
 layer/config equality, clean source preparation, definition rejection, the
-standards-layer audit, single dev fail-closed scan, amd64-only routing,
-one-entry index publication, the image input key's rules and normalizations, the
-published-pair comparison and the alias tags. actionlint checks the
-workflow; shellcheck checks build orchestration. Native builds, first/second cache
-behavior, registry association/visibility and real runner lifecycle remain
+standards-layer audit (archive and above-base directory forms), single dev fail-closed scan,
+amd64-only routing, the Build Service client against stubbed `docker`, `crane`, `step` and `curl`
+(certificate exchange, scoped Docker configs, builder bootstrap, one retry on `Unavailable`,
+smoke stages, pinned tool installation), one-entry index publication, the image input key's rules
+and normalizations, the published-pair comparison and the alias tags. actionlint checks the
+workflow; shellcheck checks the scripts. A real daemon, staging registry and Private CA, first/second
+cache behavior, registry association/visibility and real runner lifecycle remain
 qualification gates, not claims established by fixtures. No base publication is
 required to run the fixture suite.
 
 The frozen `tests/fixtures/frozen-repository-image-v2.Dockerfile` is a test-only
 compatibility baseline from `.github` commit `2df77da`; no action reads it. Public
 PR tests remain independent of private-package credentials. Synthetic tarballs
-test safe extraction and both build branches. Set `STANDARDS_IMAGE_PACKAGE` and
+test safe extraction. Set `STANDARDS_IMAGE_PACKAGE` and
 `STANDARDS_IMAGE_INTEGRITY` to a verified release tarball and its SHA-512 identity
 to compare the real package recipe's CI environment, user, workspace and setup
 commands with the baseline. Private x64 qualification also compares the built
