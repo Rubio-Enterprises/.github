@@ -9,6 +9,7 @@ const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const assets = path.dirname(fileURLToPath(import.meta.url));
 const packageLink = '.config/mise/conf.d/standards.toml';
 const packageTarget = '../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml';
+const selfHostedTarget = '../../../mise/standards.toml';
 const packageName = '@rubio-enterprises/standards';
 const npmAuth = ['--@rubio-enterprises:registry=https://npm.pkg.github.com', '--//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}'];
 const present = file => { try { return fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return; throw error; } };
@@ -18,8 +19,9 @@ export function standardsShape(root) {
   const legacy = ['.copier-answers.yml', '.config/mise-bootstrap.toml'].filter(name => present(path.join(root, name)));
   const configs = ['mise.toml', '.mise.toml'].filter(name => present(path.join(root, name)));
   if (link) {
-    if (legacy.length || configs.length !== 1 || !link.isSymbolicLink() ||
-        fs.readlinkSync(path.join(root, packageLink)) !== packageTarget) {
+    const target = link.isSymbolicLink() && fs.readlinkSync(path.join(root, packageLink));
+    const selfHosted = target === selfHostedTarget && process.env.GITHUB_REPOSITORY === 'Rubio-Enterprises/standards';
+    if (legacy.length || configs.length !== 1 || (target !== packageTarget && !selfHosted)) {
       throw new Error('Ambiguous standards shape: v2 requires the package link and no Copier artifacts');
     }
     if (fs.readdirSync(root).some(name => /^\.?mise\.repository-image(?:\.local)?\.toml$/.test(name))) {
@@ -29,11 +31,19 @@ export function standardsShape(root) {
     if (!fs.lstatSync(config).isFile()) throw new Error('Root mise config must be a regular file');
     const data = JSON.parse(run('python3', ['-c', 'import json,sys,tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], "rb"))))', config]));
     if (!data.tasks?.setup || !data.tasks?.['standards:install']) throw new Error('Incomplete v2 setup tasks');
+    if (selfHosted) {
+      for (const name of ['package.json', 'mise/standards.toml', 'lefthook/standards.yml']) {
+        if (!present(path.join(root, name))?.isFile()) throw new Error('Incomplete standards self-hosting source');
+      }
+      if (JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).name !== packageName) {
+        throw new Error('Standards self-hosting requires its own package manifest');
+      }
+    }
     const release = data.env?.STANDARDS_VERSION ?? 'latest';
     if (typeof release !== 'string' || !/^(latest|[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$/.test(release)) {
       throw new Error('Image builds require latest or an exact Standards Release Pin');
     }
-    return { shape: 'v2', release };
+    return { shape: 'v2', release, selfHosted };
   }
   if (legacy.length === 2 && configs.length === 1) return { shape: 'legacy' };
   if (!legacy.length && !configs.length) return { shape: 'none' };
@@ -208,7 +218,7 @@ function walk(root, visit, relative = '', omitted = []) {
     if (entry.isSymbolicLink()) {
       const link = path.join(root, name);
       const destination = fs.readlinkSync(link);
-      if (name === packageLink && destination === packageTarget) {
+      if (name === packageLink && [packageTarget, selfHostedTarget].includes(destination)) {
         visit(name, true);
         continue;
       }
@@ -287,13 +297,13 @@ function prepare() {
   run('tar', ['-xf', path.join(context, 'source.tar'), '-C', src]);
   fs.rmSync(path.join(context, 'source.tar'));
   qualifySubmodules(workspace, src);
-  const { shape } = standardsShape(src);
+  const { shape, selfHosted } = standardsShape(src);
   if (process.env.STANDARDS_SHAPE && shape !== process.env.STANDARDS_SHAPE) throw new Error('Standards shape changed after resolution');
   if (shape !== 'v2' && !/^[a-f0-9]{40}$/.test(process.env.STANDARDS_PIN || '')) throw new Error('Invalid STANDARDS_PIN');
   const pins = path.join(context, 'pins');
   fs.mkdirSync(pins);
   const omitted = walk(src, (name, symlink) => {
-    if (/^(?:\.mise(?:\..+)?\.toml|mise(?:\..+)?\.toml|mise\.lock|package\.json)$/.test(name) || name.startsWith(`.config${path.sep}`)) {
+    if (selfHosted || /^(?:\.mise(?:\..+)?\.toml|mise(?:\..+)?\.toml|mise\.lock|package\.json)$/.test(name) || name.startsWith(`.config${path.sep}`)) {
       fs.mkdirSync(path.dirname(path.join(pins, name)), { recursive: true });
       if (symlink) fs.symlinkSync(fs.readlinkSync(path.join(src, name)), path.join(pins, name));
       else fs.copyFileSync(path.join(src, name), path.join(pins, name));
