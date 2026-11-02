@@ -63,7 +63,8 @@ class Contracts(unittest.TestCase):
         executable = "\n".join(line for line in TEXT.splitlines() if not line.lstrip().startswith("#"))
         self.assertNotIn("arm64", executable)
         self.assertNotIn("ARM64", TEXT)
-        self.assertNotIn("strategy:", TEXT.split("\n  merge:\n", 1)[0])
+        self.assertNotIn("\n  merge:\n", TEXT)
+        self.assertNotIn("strategy:", TEXT.split("\n  prune:\n", 1)[0])
         self.assertIn("steps: *build-steps", TEXT)
         self.assertNotIn("continue-on-error", TEXT)
         self.assertNotIn("qemu", TEXT.lower())
@@ -86,7 +87,8 @@ class Contracts(unittest.TestCase):
     def test_build_scan_publish_and_retention(self):
         names = ["Provision native shared config", "Require the image build pin",
                  "Prepare central generic build inputs", "Build, audit and verify the image pair",
-                 "Scan the dev artifact for secrets", "Push the verified image pair"]
+                 "Scan the dev artifact for secrets", "Push the verified image pair",
+                 "Publish single-platform indices and cache aliases", "Clean job-local artifacts"]
         positions = [TEXT.index(f"- name: {name}") for name in names]
         self.assertEqual(positions, sorted(positions))
         scan = script("Scan the dev artifact for secrets")
@@ -102,8 +104,8 @@ class Contracts(unittest.TestCase):
         self.assertIn('if [[ "$status" != 0 ]]; then exit "$status"; fi', scan)
         self.assertNotIn(".Match", scan)
         self.assertNotIn(".Content", scan)
-        self.assertIn('needs: [prepare, build]', TEXT)
-        self.assertIn('needs: [prepare, merge]', TEXT)
+        self.assertEqual(TEXT.count('needs: [prepare, build]'), 1)
+        self.assertNotIn('merge]', TEXT)
         self.assertIn('delete-only-untagged-versions: "true"', TEXT)
         self.assertIn('min-versions-to-keep: 5', TEXT)
         self.assertIn('ci-image: ${{ steps.image.outputs.image }}-ci', TEXT)
@@ -130,6 +132,14 @@ class Contracts(unittest.TestCase):
         self.assertIn('/usr/bin/gh --version', smoke)
         self.assertIn('/usr/bin/jq --version', smoke)
         self.assertIn('test ! -e "$workspace/.standards/node_modules"', smoke)
+
+    def test_build_job_publishes_indices_after_its_verified_push(self):
+        steps = TEXT.split("steps: &build-steps", 1)[1].split("\n  build:\n", 1)[0]
+        publish = steps.index("- name: Publish single-platform indices and cache aliases")
+        self.assertLess(steps.index("- name: Push the verified image pair"), publish)
+        self.assertLess(publish, steps.index("- name: Clean job-local artifacts"))
+        self.assertIn("if: needs.prepare.outputs.publish == 'true'", steps[publish:publish + 200])
+        self.assertIn("needs: [prepare, build]", TEXT.split("\n  prune:\n", 1)[1])
 
     def test_legacy_reusable_is_retired(self):
         self.assertFalse((ROOT / ".github/workflows/devcontainer-image.yml").exists())
@@ -515,7 +525,15 @@ done
         for shape, native in [("legacy", "x86_64"), ("legacy", "amd64"), ("v2", "x86_64"), ("v2", "amd64")]:
             arch = "amd64"
             (context / "expected/shape").write_text(shape)
-            for item in args[4:6]: item["architecture"] = arch
+            key = "sha256:" + "e" * 64 if shape == "v2" else ""
+            for item in args[4:6]:
+                item["architecture"] = arch
+                labels = item["config"]["Labels"]
+                labels.pop("org.rubio-enterprises.image.input-key", None)
+                labels.pop("org.rubio-enterprises.image.built-at", None)
+                if key:
+                    labels.update({"org.rubio-enterprises.image.input-key": key,
+                                   "org.rubio-enterprises.image.built-at": "2026-11-02T00:00:00Z"})
             for name, data in zip(["base", "base-ci", "dev", "ci", "dev-config", "ci-config"], args[:6]):
                 (fixtures / f"{name}.json").write_text(json.dumps(data))
             for name in ["base-config", "base-ci-config"]:
@@ -527,7 +545,7 @@ done
                    "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "c" * 40,
                    "GITHUB_REPOSITORY": "Rubio-Enterprises/repo", "GITHUB_SERVER_URL": "https://github.com",
                    "GITHUB_WORKSPACE": str(self.root / "workspace"), "STANDARDS_PIN": "d" * 40,
-                   "DEVCONTAINER": str(cli), "DOCKER_ARCH": native,
+                   "DEVCONTAINER": str(cli), "DOCKER_ARCH": native, "INPUT_KEY": key,
                    "PATH": str(docker.parent) + os.pathsep + os.environ["PATH"]}
             result = subprocess.run(["bash", str(ASSETS / "build.sh")], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -542,6 +560,11 @@ done
                 self.assertIn("--file " + str(recipe), call)
                 self.assertIn("--build-context pins=" + str(context / "pins"), call)
                 self.assertIn("--build-context expected=" + str(context / "expected"), call)
+                if key:
+                    self.assertIn("--label org.rubio-enterprises.image.input-key=" + key, call)
+                    self.assertRegex(call, r"--label org\.rubio-enterprises\.image\.built-at=\d{4}-\d\d-\d\dT")
+                else:
+                    self.assertNotIn("org.rubio-enterprises.image", call)
                 if shape == "v2":
                     self.assertIn("--target ci", call)
                     self.assertIn("--secret id=standards_package,src=" + str(context / "package/standards.tgz"), call)
@@ -573,6 +596,11 @@ done
                 self.assertNotEqual(rejected.returncode, 0, (arch, name))
                 self.assertIn("base digest annotation", rejected.stderr)
                 (fixtures / f"{name}.json").write_text(good)
+            if key:
+                for bad_key in ["sha256:" + "f" * 64, "not-a-key"]:
+                    rejected = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "INPUT_KEY": bad_key},
+                                              capture_output=True, text=True)
+                    self.assertNotEqual(rejected.returncode, 0, bad_key)
             (self.root / "docker-calls").unlink()
             result = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "DOCKER_ARCH": "aarch64"}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)

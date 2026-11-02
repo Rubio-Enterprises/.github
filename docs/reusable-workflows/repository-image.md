@@ -294,9 +294,123 @@ tags; no arm64 tags or cache aliases are produced.
 Inline BuildKit cache is exported and the dev `:main-amd64` alias is imported.
 Cache misses are valid; a real second build must demonstrate reuse. Base refresh
 does not fan out child builds. Per-repository/ref concurrency cancels superseded
-runs. The merge job advances both indices only after the amd64 build passes;
-registry writes across two packages are not atomic. Retention keeps five untagged
-versions per package, never deleting tagged history or index children.
+runs. The build job itself advances both indices, after its verified push; there
+is no second Docker-capable publication job. Registry writes across two packages are
+not atomic. Retention keeps five untagged versions per package, never deleting
+tagged history or index children; it runs after a build, not after an alias.
+
+## Image input key
+
+A default-branch push of a v2 repository builds only when the image's inputs
+changed. The small-route `prepare` job computes an **image input key** for the
+commit and reads the published `:main` pair through the registry API (no Docker
+daemon, `packages: read`). The pair stands in for the commit only when all hold:
+
+- both `:main` tags are one-entry `linux/amd64` manifest lists;
+- both image configs carry `org.rubio-enterprises.image.input-key` equal to the
+  commit's key (the CI image inherits the dev config, which the rebase check
+  keeps identical);
+- the dev and CI manifests' `org.opencontainers.image.base.digest` annotations
+  equal the resolved base and base-ci indices;
+- `org.rubio-enterprises.image.built-at` is at most seven days old, so floating
+  inputs (apt packages a Feature installs, fuzzy tool versions) refresh weekly.
+
+Then the small-route `alias` job (`packages: write`) installs checksum-pinned crane
+0.22.1 and tags the existing index as `:sha-<commit>` and its child as
+`:sha-<commit>-amd64`, by digest, and verifies both tags and the one-entry
+index. `:main` and `:main-amd64` do not move, and no Docker-capable job runs.
+Anything else, including an unreadable registry answer, builds as before, and the
+build records the key and build time as labels and verifies them before
+publication. Manual (`workflow_dispatch`) runs always build. Pull requests keep
+the `validate` path. The two legacy-shaped repositories always build.
+
+### What the key covers
+
+The key is a SHA-256 over: the key schema; a digest of every file in this action
+(the recipe orchestration, `build.sh`, preparation and the key rules) and the Dev
+Container CLI version; the repository and image names; the resolved base and
+base-ci digests; the extra-Features definition and its `devcontainer-lock.json`;
+the image-relevant Standards Package content; and tracked files, by Git object ID,
+chosen by the repository's rule:
+
+- **inputs**: the tool pins that preparation copies (`.mise*.toml`, `mise*.toml`,
+  `mise.lock`, `.config/`), other mise configuration and file tasks, version files
+  (`.tool-versions`, `.node-version`, `.nvmrc`, `.python-version`,
+  `rust-toolchain.toml`, …), Lefthook configuration, and dependency manifests,
+  lockfiles, registry configuration and patches anywhere in the tree (npm, pnpm,
+  Yarn, Bun, uv/pip/Poetry, Cargo and `.cargo/`, Go modules, Bundler), plus
+  `.gitattributes`, `.gitmodules` and gitlinks.
+- **tree**: every tracked file.
+
+Two normalizations make release-please commits match: the root `package.json`
+without its top-level `version`, and the root `package-lock.json` (or
+`npm-shrinkwrap.json`) without its top-level and root-package `version`. Nested
+manifests are not normalized. A `.gitattributes` `export-subst` adds the commit SHA,
+because `git archive` then writes commit-specific bytes.
+
+The Standards Package **version** is not an input. The CI target reads only
+`image/Dockerfile` and, through the package wiring symlink, `mise/standards.toml`
+(tool pins, tasks, hooks and environment); `standards:install` and `lefthook install`
+write only to the build's tmpfs `.standards/` and `.git/`. The inputs rule therefore
+keys on `image/Dockerfile`, `mise/**` and `package.json` without `version`. A
+release that changes only checks configuration, Lefthook, starter files or skills
+(2.1.0 → 2.1.1 → 2.2.0 changed none of these) does not rebuild the fleet. The tree
+rule keys on every package file, because arbitrary setup could read any of them.
+
+### Which rule a repository gets
+
+A repository gets the inputs rule only when `mise run setup` provably reads nothing
+else. The checks fail closed: any doubt selects the tree rule, and the prepare log
+lists each reason.
+
+- `setup` and `standards:install` match the starter exactly, and the package
+  defines no `setup`, `setup:*` or `standards:install` task.
+- Every task reached from `setup:*` uses only `description`, `run`, `dir` and
+  dependencies, and every command (split on `&&`) is one of `npm ci`,
+  `npm --prefix <dir> ci`, `pnpm [--dir <dir>] install --frozen-lockfile`,
+  `bun install --frozen-lockfile`, `uv sync --frozen|--locked`,
+  `uv venv … .venv` with `uv pip install --python .venv -r <file>`, and
+  `cargo fetch --locked`, with the exact flags in `key.mjs`. Any other command
+  (code generation, `go list`, `bundle install`, scripts) selects the tree.
+- No file task named `setup*`, task includes, `[env]` directives other than
+  `_.path`, install hooks, `exec()`/`read_file()` templates, or `path:`/`ref:` or
+  `postinstall` tools in any mise configuration.
+- JavaScript installs: no tracked `package.json` declares a lifecycle script
+  (`preinstall`, `install`, `postinstall`, `prepare`, …) unless every install uses
+  `--ignore-scripts`; no `file:`, `link:`, `portal:` or path dependency; no
+  `.pnpmfile`. Dependency install scripts must come from a reviewed list of
+  packages that only touch their own directory (`ALLOWED_INSTALL_SCRIPTS`): npm's
+  `hasInstallScript` lockfile entries, pnpm 10+'s `allowBuilds` or
+  `onlyBuiltDependencies`, and Bun's `trustedDependencies` plus locked packages on
+  Bun's default trusted list (`bun-default-trusted.txt`, a verbatim copy from
+  `bun-v1.4.4`). Older pnpm selects the tree.
+- `uv sync`: no tracked `pyproject.toml` is installable (`[build-system]` or
+  `tool.uv.package = true`) or has path, workspace or editable sources.
+- `uv pip install -r`: requirement files contain no editable or local entries.
+
+On 2026-11-02, 78 of the 100 image repositories get the inputs rule. The tree rule
+covers 20 repositories whose setup installs a local Python package (9), runs
+other programs (`go list`, `bundle install`, scripts, Playwright, Prisma), has a
+project lifecycle script, a local tarball dependency or an unreviewed install
+script (`yorkie`), plus the self-hosting standards repository; the 2 legacy
+repositories always build. Applying the key to every first-parent main commit,
+with bases and package fixed, skips 60% of builds from 2026-10-16 to 10-28
+(1,658 of 2,752) and 44% during the 10-29 to 11-02 migration wave.
+
+### Baked source
+
+An aliased `:sha-<commit>` carries the source snapshot of the commit that was
+built, not of `<commit>`. No consumer reads that snapshot: the Dev Container CLI,
+the hosted [project command](../project-command.md) and Sprites mount their own
+checkout over `/workspaces/<repo>`; CI Image runners check out into the runner work
+directory; Claude Code cloud sessions do not use the image. Use the checkout, not
+the image, when exact source matters. To remove content from published images,
+such as a leaked credential, run the caller's workflow manually, which always
+rebuilds.
+
+Add a package to `ALLOWED_INSTALL_SCRIPTS` only after reading its install script.
+Changing any file in this action changes every key, so the fleet rebuilds once,
+at each repository's next push.
 
 ## Caller and migration
 
@@ -372,8 +486,9 @@ when revived.
 
 Local contracts exercise base pairing and mismatch rejection, exact rebase
 layer/config equality, clean source preparation, definition rejection, the
-standards-layer audit, single dev fail-closed scan, amd64-only routing and
-one-entry index publication. actionlint checks the
+standards-layer audit, single dev fail-closed scan, amd64-only routing,
+one-entry index publication, the image input key's rules and normalizations, the
+published-pair comparison and the alias tags. actionlint checks the
 workflow; shellcheck checks build orchestration. Native builds, first/second cache
 behavior, registry association/visibility and real runner lifecycle remain
 qualification gates, not claims established by fixtures. No base publication is

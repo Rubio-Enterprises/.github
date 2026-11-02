@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { BUILT_LABEL, KEY_LABEL, MAX_AGE_DAYS, blobReader, inputKey, trackedFiles } from './key.mjs';
 
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const assets = path.dirname(fileURLToPath(import.meta.url));
@@ -75,11 +76,7 @@ function release() {
   output('integrity', result['dist.integrity']);
 }
 
-function pack() {
-  const context = process.env.CONTEXT;
-  const expected = JSON.parse(fs.readFileSync(path.join(context, 'expected/package.json'), 'utf8'));
-  const directory = path.join(context, 'package');
-  fs.mkdirSync(directory);
+function packRelease(directory, expected) {
   const [result] = npm(['pack', `${packageName}@${expected.version}`, '--pack-destination', directory, '--json']);
   if (!result || result.name !== packageName || result.version !== expected.version || result.integrity !== expected.integrity ||
       path.basename(result.filename || '') !== result.filename) throw new Error('Packed package identity mismatch');
@@ -87,6 +84,15 @@ function pack() {
   const bytes = fs.readFileSync(archive);
   if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== expected.integrity) throw new Error('Packed package integrity mismatch');
   if (process.env.NODE_AUTH_TOKEN && bytes.includes(Buffer.from(process.env.NODE_AUTH_TOKEN))) throw new Error('Credential in package archive');
+  return archive;
+}
+
+function pack() {
+  const context = process.env.CONTEXT;
+  const expected = JSON.parse(fs.readFileSync(path.join(context, 'expected/package.json'), 'utf8'));
+  const directory = path.join(context, 'package');
+  fs.mkdirSync(directory);
+  const archive = packRelease(directory, expected);
   run('python3', [path.join(assets, 'recipe.py'), archive, path.join(directory, 'Dockerfile'), expected.version]);
   fs.renameSync(archive, path.join(directory, 'standards.tgz'));
 }
@@ -106,9 +112,10 @@ const sha256 = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex
 
 // Anonymous pulls of the public base packages, so prepare needs no Docker daemon.
 // Digest-addressed content is verified against its digest, as crane does.
-export async function ghcrRepository(name) {
+export async function ghcrRepository(name, credential) {
   const repository = name.slice('ghcr.io/'.length);
-  const response = await fetch(`https://ghcr.io/token?scope=repository:${repository}:pull&service=ghcr.io`);
+  const response = await fetch(`https://ghcr.io/token?scope=repository:${repository}:pull&service=ghcr.io`,
+    credential ? { headers: { Authorization: `Basic ${Buffer.from(credential).toString('base64')}` } } : {});
   if (!response.ok) throw new Error(`Registry token request failed: ${response.status}`);
   const { token } = await response.json();
   const get = async (kind, reference, accept) => {
@@ -168,6 +175,144 @@ export function validateProvenance(dev, ci, baseDigest, ciBaseDigest) {
     if (!digestPattern.test(expected) || manifest.annotations?.['org.opencontainers.image.base.digest'] !== expected) {
       throw new Error('Missing or incorrect manifest base digest annotation');
     }
+  }
+}
+
+export function assertSingleAmd64Index(index) {
+  const entries = index?.manifests;
+  if (index?.schemaVersion !== 2 || !['application/vnd.oci.image.index.v1+json',
+    'application/vnd.docker.distribution.manifest.list.v2+json'].includes(index.mediaType) ||
+      entries?.length !== 1 || entries[0].platform?.os !== 'linux' || entries[0].platform?.architecture !== 'amd64' ||
+      !digestPattern.test(entries[0].digest ?? '')) {
+    throw new Error('Expected a manifest list with exactly one linux/amd64 image');
+  }
+  return entries[0].digest;
+}
+
+// Reads the published :main pair and reports why it cannot stand in for this commit, if it cannot.
+export async function publishedPair({ image, ciImage, key, base, baseCi, now = Date.now(), credential }) {
+  const pair = {};
+  for (const [kind, name, expectedBase] of [['dev', image, base], ['ci', ciImage, baseCi]]) {
+    let index, child, manifest, labels;
+    try {
+      const registry = await ghcrRepository(name, credential);
+      index = await registry.manifest('main');
+      child = assertSingleAmd64Index(index.json);
+      manifest = (await registry.manifest(child)).json;
+      if (!digestPattern.test(manifest.config?.digest ?? '')) throw new Error('Invalid published config digest');
+      labels = (await registry.blob(manifest.config.digest)).json.config?.Labels ?? {};
+    } catch (error) {
+      return { reason: `${kind} :main is unreadable (${error.message})` };
+    }
+    if (labels[KEY_LABEL] !== key) return { reason: `${kind} :main was built from different inputs` };
+    if (manifest.annotations?.['org.opencontainers.image.base.digest'] !== expectedBase.split('@')[1]) {
+      return { reason: `${kind} :main was built on a different base` };
+    }
+    const built = Date.parse(labels[BUILT_LABEL] ?? '');
+    if (!Number.isFinite(built) || built > now + 300e3 || now - built > MAX_AGE_DAYS * 86400e3) {
+      return { reason: `${kind} :main is older than ${MAX_AGE_DAYS} days` };
+    }
+    pair[kind] = { index: index.digest, child };
+  }
+  return { pair };
+}
+
+async function key() {
+  const workspace = process.env.GITHUB_WORKSPACE;
+  const sha = process.env.GITHUB_SHA;
+  const git = (args, input) => execFileSync('git', ['-C', workspace, ...args], { input, maxBuffer: 1 << 30 });
+  if (git(['rev-parse', 'HEAD']).toString().trim() !== sha) throw new Error('Checkout SHA mismatch');
+  const { shape, selfHosted } = standardsShape(workspace);
+  if (shape !== 'v2') throw new Error('Image input keys require the Standards Package shape');
+  const config = process.env.CONFIG;
+  if (!config || path.isAbsolute(config) || config.split('/').includes('..')) throw new Error('Unsafe config path');
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(process.env.DEVCONTAINER_CLI_VERSION || '')) throw new Error('Missing Dev Container CLI version');
+  const bases = { base: process.env.BASE, baseCi: process.env.BASE_CI };
+  for (const [kind, value] of [['base', bases.base], ['base-ci', bases.baseCi]]) {
+    baseReference(value ?? '', kind);
+    if (!value.includes('@')) throw new Error('Image input keys require resolved base references');
+  }
+  const expected = { version: process.env.STANDARDS_VERSION, integrity: process.env.STANDARDS_INTEGRITY };
+  const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'repository-image-key-'));
+  let packageInputs;
+  try {
+    const archive = packRelease(directory, expected);
+    packageInputs = JSON.parse(run('python3', [path.join(assets, 'recipe.py'), 'inputs', archive, expected.version]));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+  const image = process.env.IMAGE;
+  const ciImage = `${image}-ci`;
+  const result = inputKey({
+    files: trackedFiles(git, sha), read: blobReader(git), packageInputs, config, bases,
+    repository: process.env.GITHUB_REPOSITORY, images: { image, ciImage }, cli: process.env.DEVCONTAINER_CLI_VERSION, sha,
+    treeReasons: selfHosted ? ['self-hosted standards source'] : [],
+  });
+  console.log(`Image input key ${result.key} (${result.rule === 'tree' ? 'whole tracked tree' : 'setup inputs'})`);
+  for (const reason of result.reasons) console.log(`  whole-tree reason: ${reason}`);
+  output('input-key', result.key);
+  output('rule', result.rule);
+  let decision = { reason: 'manual run rebuilds' };
+  if (process.env.FORCE !== 'true') {
+    decision = await publishedPair({
+      image, ciImage, key: result.key, base: bases.base, baseCi: bases.baseCi,
+      credential: `${process.env.GITHUB_ACTOR}:${process.env.REGISTRY_TOKEN}`,
+    });
+  }
+  if (!decision.pair) {
+    console.log(`Building: ${decision.reason}`);
+    output('skip', 'false');
+    return;
+  }
+  console.log(`::notice::Image inputs unchanged; aliasing ${image}@${decision.pair.dev.index} instead of building`);
+  output('skip', 'true');
+  for (const kind of ['dev', 'ci']) {
+    output(`${kind}-index`, decision.pair[kind].index);
+    output(`${kind}-child`, decision.pair[kind].child);
+  }
+}
+
+const CRANE = {
+  version: '0.22.1',
+  sha256: '0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0',
+};
+
+async function installCrane(directory) {
+  if (process.env.RUNNER_OS !== 'Linux' || process.env.RUNNER_ARCH !== 'X64') throw new Error('Pinned crane requires Linux X64');
+  const response = await fetch(`https://github.com/google/go-containerregistry/releases/download/v${CRANE.version}/go-containerregistry_Linux_x86_64.tar.gz`);
+  if (!response.ok) throw new Error(`crane download failed: ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (createHash('sha256').update(bytes).digest('hex') !== CRANE.sha256) throw new Error('crane checksum mismatch');
+  fs.writeFileSync(path.join(directory, 'crane.tar.gz'), bytes);
+  run('tar', ['-xzf', path.join(directory, 'crane.tar.gz'), '-C', directory, 'crane']);
+  return path.join(directory, 'crane');
+}
+
+// Points this commit's tags at the published pair whose recorded inputs match; never builds or moves :main.
+export async function alias(env = process.env, install = installCrane) {
+  const sha = env.GITHUB_SHA;
+  if (!/^[a-f0-9]{40}$/.test(sha || '')) throw new Error('Invalid commit SHA');
+  const directory = fs.mkdtempSync(path.join(env.RUNNER_TEMP, 'repository-image-alias-'));
+  try {
+    const crane = await install(directory);
+    const craneEnv = { ...process.env, DOCKER_CONFIG: path.join(directory, 'auth') };
+    const call = (args, input) => execFileSync(crane, args, { env: craneEnv, input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'inherit'] }).trim();
+    call(['auth', 'login', 'ghcr.io', '--username', env.GITHUB_ACTOR, '--password-stdin'], env.REGISTRY_TOKEN);
+    for (const [name, prefix] of [[env.IMAGE, 'DEV'], [`${env.IMAGE}-ci`, 'CI']]) {
+      const index = env[`${prefix}_INDEX`];
+      const child = env[`${prefix}_CHILD`];
+      if (!digestPattern.test(index || '') || !digestPattern.test(child || '')) throw new Error('Invalid published digests');
+      if (assertSingleAmd64Index(JSON.parse(call(['manifest', `${name}@${index}`]))) !== child) throw new Error('Published index child changed');
+      call(['tag', `${name}@${index}`, `sha-${sha}`]);
+      call(['tag', `${name}@${child}`, `sha-${sha}-amd64`]);
+      if (call(['digest', `${name}:sha-${sha}`]) !== index || call(['digest', `${name}:sha-${sha}-amd64`]) !== child) {
+        throw new Error('Alias tags do not resolve to the published pair');
+      }
+      assertSingleAmd64Index(JSON.parse(call(['manifest', `${name}:sha-${sha}`])));
+      console.log(`Aliased ${name}:sha-${sha} -> ${index}`);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 }
 
@@ -353,11 +498,20 @@ function verify() {
   const read = name => JSON.parse(fs.readFileSync(path.join(directory, `${name}.json`), 'utf8'));
   validateRebase(read('base'), read('base-ci'), read('dev'), read('ci'), read('dev-config'), read('ci-config'), process.env.ARCH);
   validateProvenance(read('dev'), read('ci'), process.env.BASE?.split('@')[1], process.env.BASE_CI?.split('@')[1]);
+  validateInputKey(read('dev-config'), process.env.INPUT_KEY);
+}
+
+export function validateInputKey(config, key) {
+  if (!key) return;
+  const labels = config.config?.Labels ?? {};
+  if (labels[KEY_LABEL] !== key || !Number.isFinite(Date.parse(labels[BUILT_LABEL] ?? ''))) {
+    throw new Error('Built image does not record its image input key');
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const operation = { resolve, prepare, verify, inspect, release, pack,
+    const operation = { resolve, prepare, verify, inspect, release, pack, key, alias: () => alias(),
       shape: () => console.log(standardsShape(process.cwd()).shape) }[process.argv[2]];
     if (!operation) throw new Error('Unknown image operation');
     await operation();

@@ -52,6 +52,12 @@ jobs:
       ci-package: ${{ steps.image.outputs.package }}-ci
       base: ${{ steps.bases.outputs.base }}
       base-ci: ${{ steps.bases.outputs.base-ci }}
+      input-key: ${{ steps.key.outputs.input-key }}
+      skip: ${{ steps.key.outputs.skip }}
+      dev-index: ${{ steps.key.outputs.dev-index }}
+      dev-child: ${{ steps.key.outputs.dev-child }}
+      ci-index: ${{ steps.key.outputs.ci-index }}
+      ci-child: ${{ steps.key.outputs.ci-child }}
     steps:
       - name: Resolve image and publication policy
         id: image
@@ -101,9 +107,6 @@ jobs:
           npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
         with:
           operation: release
-      - name: Remove registry cache and logs
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/standards-registry-cache"
       - name: Resolve and validate the public base pair
         id: bases
         uses: Rubio-Enterprises/.github/actions/repository-image@main
@@ -111,6 +114,30 @@ jobs:
           operation: resolve
           base: ${{ inputs.base }}
           base-ci: ${{ inputs.base-ci }}
+      # A manual run always rebuilds; pushes alias the published pair when its inputs match
+      - name: Compare image inputs with the published pair
+        id: key
+        if: steps.image.outputs.publish == 'true' && steps.standards.outputs.shape == 'v2'
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          STANDARDS_VERSION: ${{ steps.release.outputs.version }}
+          STANDARDS_INTEGRITY: ${{ steps.release.outputs.integrity }}
+          DEVCONTAINER_CLI_VERSION: 0.89.0
+          FORCE: ${{ github.event_name != 'push' }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        with:
+          operation: key
+          config: ${{ inputs.config }}
+          base: ${{ steps.bases.outputs.base }}
+          base-ci: ${{ steps.bases.outputs.base-ci }}
+      - name: Remove registry cache and logs
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/standards-registry-cache"
 
   validate:
     name: Validate (amd64)
@@ -220,6 +247,7 @@ jobs:
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
           DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          INPUT_KEY: ${{ needs.prepare.outputs.input-key }}
         run: bash "$ASSETS/build.sh"
       - name: Scan the dev artifact for secrets
         shell: bash
@@ -352,49 +380,8 @@ jobs:
             fi
             printf 'Published verified digest: %s -> %s\n' "$ref" "$target"
           done
-      - name: Clean job-local artifacts
-        if: always()
-        shell: bash
-        env:
-          CONTEXT: ${{ steps.inputs.outputs.context }}
-          IMAGE: ${{ needs.prepare.outputs.image }}
-          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
-        run: |
-          rm -rf "$RUNNER_TEMP/standards-registry-cache"
-          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
-          docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
-          if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
-
-  build:
-    name: Build (amd64)
-    needs: prepare
-    if: needs.prepare.outputs.publish == 'true'
-    permissions:
-      contents: read
-      packages: write
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
-    timeout-minutes: 120
-    env: *build-env
-    steps: *build-steps
-
-  merge:
-    name: Publish amd64 image indices
-    needs: [prepare, build]
-    permissions:
-      packages: write
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
-    timeout-minutes: 15
-    env: *build-env
-    steps:
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Log in to GHCR
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
       - name: Publish single-platform indices and cache aliases
+        if: needs.prepare.outputs.publish == 'true'
         shell: bash
         env:
           IMAGE: ${{ needs.prepare.outputs.image }}
@@ -419,10 +406,60 @@ jobs:
               ' > /dev/null
             done
           done
+      - name: Clean job-local artifacts
+        if: always()
+        shell: bash
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+        run: |
+          rm -rf "$RUNNER_TEMP/standards-registry-cache"
+          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
+          docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
+          if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
+
+  build:
+    name: Build and publish (amd64)
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.skip != 'true'
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 120
+    env: *build-env
+    steps: *build-steps
+
+  alias:
+    name: Alias the unchanged image pair
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'true'
+    permissions:
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Point the commit tags at the published pair
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          DEV_INDEX: ${{ needs.prepare.outputs.dev-index }}
+          DEV_CHILD: ${{ needs.prepare.outputs.dev-child }}
+          CI_INDEX: ${{ needs.prepare.outputs.ci-index }}
+          CI_CHILD: ${{ needs.prepare.outputs.ci-child }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: alias
 
   prune:
     name: Prune untagged versions
-    needs: [prepare, merge]
+    needs: [prepare, build]
     permissions:
       packages: write
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}

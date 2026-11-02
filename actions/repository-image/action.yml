@@ -2,7 +2,7 @@ name: Repository image assets
 description: Central generic build inputs and immutable base-pair validation
 inputs:
   operation:
-    description: resolve, inspect, release, prepare or pack
+    description: resolve, inspect, release, prepare, pack, key or alias
     required: true
   base:
     description: Public base tag or immutable index reference
@@ -38,6 +38,27 @@ outputs:
   context:
     description: Prepared job-local build inputs
     value: ${{ steps.run.outputs.context }}
+  input-key:
+    description: Image input key of this commit
+    value: ${{ steps.run.outputs.input-key }}
+  rule:
+    description: inputs (setup reads only manifests) or tree (setup may read any tracked file)
+    value: ${{ steps.run.outputs.rule }}
+  skip:
+    description: true when the published :main pair already has this commit's image inputs
+    value: ${{ steps.run.outputs.skip }}
+  dev-index:
+    description: Published dev index digest to alias
+    value: ${{ steps.run.outputs.dev-index }}
+  dev-child:
+    description: Published dev amd64 image digest to alias
+    value: ${{ steps.run.outputs.dev-child }}
+  ci-index:
+    description: Published CI index digest to alias
+    value: ${{ steps.run.outputs.ci-index }}
+  ci-child:
+    description: Published CI amd64 image digest to alias
+    value: ${{ steps.run.outputs.ci-child }}
 runs:
   using: composite
   steps:
