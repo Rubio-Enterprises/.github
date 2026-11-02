@@ -62,7 +62,9 @@ if name == 'devcontainer':
     elif args[0] == 'up':
         (fixture / 'state-path').write_text(str(root / 'state.json'))
         (fixture / 'started').touch()
-        if fail == 'up': sys.exit(3)
+        if fail == 'up':
+            print(json.dumps({'outcome': 'error', 'description': 'UID build fixture diagnostic'}))
+            sys.exit(3)
         print(json.dumps({'containerId': 'b' * 64}))
     elif args[0] == 'exec':
         command = args[args.index('--id-label') + 2:]
@@ -185,6 +187,7 @@ exit 7
             with self.subTest(failure=failure):
                 result = self.call(FAIL_AT=failure)
                 self.assertNotEqual(result.returncode, 0)
+                if failure == 'up': self.assertIn('UID build fixture diagnostic', result.stderr)
                 root = self.state()
                 self.assertFalse((root / 'auth').exists())
                 result = self.cleanup(root)

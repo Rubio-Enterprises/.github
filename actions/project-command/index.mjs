@@ -159,7 +159,14 @@ function prepare() {
   write(path.join(root, 'devcontainer.json'), config);
   write(path.join(root, 'state.json'), state);
   qualifyMetadata(JSON.parse(cli(state, root, ['read-configuration', '--include-merged-configuration'], { capture: true }).stdout), config);
-  const up = JSON.parse(cli(state, root, ['up', '--skip-post-create', '--default-user-env-probe', 'none'], { capture: true }).stdout);
+  const upResult = cli(state, root, ['up', '--skip-post-create', '--default-user-env-probe', 'none', '--log-level', 'debug'], {
+    capture: true, allowFailure: true,
+  });
+  const up = JSON.parse(upResult.stdout || '{}');
+  if (upResult.status) {
+    if (typeof up.description === 'string') console.error(up.description);
+    throw new Error('Dev Container startup failed; see the credential-free startup diagnostic');
+  }
   if (!containerId.test(up.containerId || '')) throw new Error('CLI did not return a container identity');
   state.container = up.containerId;
   write(path.join(root, 'state.json'), state);
