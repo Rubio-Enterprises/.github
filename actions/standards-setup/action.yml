@@ -1,8 +1,8 @@
 name: standards-setup
 description: >-
   Run the repository's `mise run setup` with the Standards Setup Caches: mise's tool installs and
-  npm's package cache, saved only from the default branch and restored everywhere else
-  (docs/standards-setup.md).
+  the repository's installed node_modules, saved only from the default branch and restored
+  everywhere else (docs/standards-setup.md).
 
 inputs:
   token:
@@ -24,9 +24,9 @@ outputs:
   mise-cache-hit:
     description: '"true" when the exact mise key was restored'
     value: ${{ steps.mise.outputs.cache-hit }}
-  npm-cache-hit:
-    description: '"true" when the exact npm key was restored'
-    value: ${{ steps.npm.outputs.cache-hit }}
+  node-modules-cache-hit:
+    description: '"true" when the exact node_modules key was restored'
+    value: ${{ steps.node-modules.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -39,17 +39,17 @@ runs:
       shell: bash
       env:
         MISE_FILES: ${{ hashFiles('mise.toml', '.mise.toml', 'mise.*.toml', '.mise.*.toml', 'mise.lock', '.mise.lock', '.config/mise/config.toml', '.config/mise/config.*.toml', '.tool-versions') }}
-        NPM_LOCKS: ${{ hashFiles('**/package-lock.json', '!**/node_modules/**') }}
+        NODE_MANIFESTS: ${{ hashFiles('**/package-lock.json', '**/package.json', '**/.npmrc', '!**/node_modules/**', '!.standards/**') }}
       run: |
         set -euo pipefail
         mise_dir="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
-        npm_dir="${npm_config_cache:-$HOME/.npm}"
         case "$RUNNER_OS" in
           Linux) os="$(. /etc/os-release && echo "${ID}${VERSION_ID}")" ;;
           macOS) os="macos$(sw_vers -productVersion | cut -d. -f1)" ;;
           *) os="$RUNNER_OS" ;;
         esac
         mise_version="$(mise --version 2>/dev/null | cut -d' ' -f1)"
+        node_version="$(node --version 2>/dev/null || echo none)"
         # pipx tools are uv venvs bound to the interpreter uv resolves, so a cache never crosses one.
         py="$(uv python find 2>/dev/null || true)"
         pyver="$([ -n "$py" ] && "$py" -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || true)"
@@ -57,23 +57,23 @@ runs:
         week="$(date -u +%G-W%V)"
         platform="${RUNNER_OS}-${RUNNER_ARCH}-${os}"
         mise_base="standards-mise-v1-${platform}-${mise_version:-none}-${interpreter}"
-        npm_base="standards-npm-v1-${platform}"
         {
           echo "mise-paths<<EOF"
           echo "${mise_dir}/installs"
           echo "${mise_dir}/shims"
           echo "EOF"
-          echo "npm-path=${npm_dir}"
+          echo "node-modules-paths<<EOF"
+          echo "**/node_modules"
+          echo "!**/node_modules/**/node_modules"
+          echo "!.standards/**"
+          echo "EOF"
           echo "mise-key=${mise_base}-${week}-${MISE_FILES}"
           echo "mise-restore-keys<<EOF"
           echo "${mise_base}-${week}-"
           echo "${mise_base}-"
           echo "EOF"
-          echo "npm-key=${npm_base}-${week}-${NPM_LOCKS}"
-          echo "npm-restore-keys<<EOF"
-          echo "${npm_base}-${week}-"
-          echo "${npm_base}-"
-          echo "EOF"
+          # No npm manifests, no node_modules cache.
+          echo "node-modules-key=${NODE_MANIFESTS:+standards-node-modules-v1-${platform}-${node_version}-${NODE_MANIFESTS}}"
         } >>"$GITHUB_OUTPUT"
 
     # The seed restores only its exact key: a cache it saves is built fresh, so it holds what this
@@ -86,14 +86,15 @@ runs:
         path: ${{ steps.keys.outputs.mise-paths }}
         key: ${{ steps.keys.outputs.mise-key }}
         restore-keys: ${{ inputs.save != 'true' && steps.keys.outputs.mise-restore-keys || '' }}
-    - name: Restore npm's package cache
-      id: npm
-      if: inputs.restore == 'true'
+    # node_modules restores only on an exact key: a partial tree is never reused. Setup still decides:
+    # the repository's install step skips `npm ci` only when the tree's install stamp matches.
+    - name: Restore the installed node_modules
+      id: node-modules
+      if: inputs.restore == 'true' && steps.keys.outputs.node-modules-key != ''
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
-        path: ${{ steps.keys.outputs.npm-path }}
-        key: ${{ steps.keys.outputs.npm-key }}
-        restore-keys: ${{ inputs.save != 'true' && steps.keys.outputs.npm-restore-keys || '' }}
+        path: ${{ steps.keys.outputs.node-modules-paths }}
+        key: ${{ steps.keys.outputs.node-modules-key }}
 
     - name: Install the Standards Release, its tools and the repository's dependencies
       shell: bash
@@ -108,9 +109,11 @@ runs:
       with:
         path: ${{ steps.keys.outputs.mise-paths }}
         key: ${{ steps.keys.outputs.mise-key }}
-    - name: Save npm's package cache
-      if: inputs.restore == 'true' && inputs.save == 'true' && steps.npm.outputs.cache-hit != 'true'
+    - name: Save the installed node_modules
+      if: >-
+        inputs.restore == 'true' && inputs.save == 'true' &&
+        steps.node-modules.outputs.cache-hit != 'true' && hashFiles('node_modules/.standards-install') != ''
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
-        path: ${{ steps.keys.outputs.npm-path }}
-        key: ${{ steps.keys.outputs.npm-key }}
+        path: ${{ steps.keys.outputs.node-modules-paths }}
+        key: ${{ steps.keys.outputs.node-modules-key }}
