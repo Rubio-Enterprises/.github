@@ -84,7 +84,11 @@ system_roots="${BUILD_SERVICE_SYSTEM_ROOTS:-/etc/ssl/certs/ca-certificates.crt}"
 cat "$system_roots" "$dir/ca.crt" > "$dir/ca-bundle.pem"
 export SSL_CERT_FILE="$dir/ca-bundle.pem"
 
-IFS= read -r credential < "$BUILD_SERVICE_REGISTRY_AUTH_FILE"
+# The first line is user:password. read drops its newline; it fails at the end of a file with no newline but still sets the
+# variable, so that case is accepted. A CR from a CRLF file is stripped too, so neither ends up in the password.
+credential=
+IFS= read -r credential < "$BUILD_SERVICE_REGISTRY_AUTH_FILE" || [[ -n "$credential" ]] || fail 'The registry credential file is empty'
+credential="${credential%$'\r'}"
 [[ "$credential" == ?*:?* ]] || fail 'The registry credential file must hold user:password'
 echo "::add-mask::${credential#*:}"
 plugins='[]'

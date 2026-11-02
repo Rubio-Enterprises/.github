@@ -275,6 +275,28 @@ esac
             self.assertFalse((directory / name).exists(), name)
         self.assertEqual(self.calls("docker-calls"), [])
 
+    def test_the_registry_credential_is_used_without_its_line_ending(self):
+        # Lane P's file ends in a newline; others have none, CRLF endings or trailing blank lines
+        for content in (b"builder:s3cret\n", b"builder:s3cret", b"builder:s3cret\r\n", b"builder:s3cret\n\n", b"builder:s3cret\nignored:line\n"):
+            for name in ("crane-calls", "crane-stdin-stage.example.invalid:5000", "docker-calls", "github-env"):
+                (self.root / name).unlink(missing_ok=True)
+            shutil.rmtree(self.root / "build-service", ignore_errors=True)
+            self.auth.write_bytes(content)
+            result = self.connect()
+            self.assertEqual(result.returncode, 0, (content, result.stdout, result.stderr))
+            self.assertEqual((self.root / "crane-stdin-stage.example.invalid:5000").read_bytes(), b"s3cret", content)
+            self.assertEqual(self.calls("crane-calls")[0], "auth login stage.example.invalid:5000 --username builder --password-stdin", content)
+            self.assertIn("::add-mask::s3cret\n", result.stdout, content)
+            self.assertNotIn("::add-mask::s3cret\r", result.stdout, content)
+            for config in ("docker-build", "docker-publish"):
+                self.assertEqual(list(json.loads((self.root / "build-service" / config / "config.json").read_text())["auths"]),
+                                 ["stage.example.invalid:5000"], content)
+        for content in (b"", b"\n", b"no-colon\n", b":password\n", b"user:\n"):
+            self.auth.write_bytes(content)
+            result = self.connect()
+            self.assertNotEqual(result.returncode, 0, content)
+            self.assertRegex(result.stdout, r"credential file (is empty|must hold user:password)", content)
+
     def test_a_configured_server_name_and_audience_are_used(self):
         result = self.connect(BUILD_SERVICE_SERVERNAME="buildkitd", BUILD_SERVICE_AUDIENCE="other-audience")
         self.assertEqual(result.returncode, 0, result.stderr)
