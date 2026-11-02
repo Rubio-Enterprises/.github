@@ -279,7 +279,7 @@ async function installCrane(directory) {
 }
 
 // Build Service client jobs run without a Docker daemon, so they need the Docker CLI, the buildx plugin, crane (staging
-// registry and GHCR) and step (client certificate). Each is installed from a checksum-pinned release unless already on PATH,
+// registry and GHCR). Each is installed from a checksum-pinned release unless already on PATH,
 // which lets the image runner bake them in.
 export const CLIENT_TOOLS = [
   {
@@ -293,10 +293,6 @@ export const CLIENT_TOOLS = [
   {
     name: 'crane', sha256: CRANE.sha256, member: 'crane',
     url: `https://github.com/google/go-containerregistry/releases/download/v${CRANE.version}/go-containerregistry_Linux_x86_64.tar.gz`,
-  },
-  {
-    name: 'step', url: 'https://github.com/smallstep/cli/releases/download/v0.31.0/step_linux_0.31.0_amd64.tar.gz',
-    sha256: 'a7e13726efa8782f3d5459174dacf602ab3514b9431f2d42a6a75950b7685e5f', member: 'step_0.31.0/bin/step',
   },
 ];
 

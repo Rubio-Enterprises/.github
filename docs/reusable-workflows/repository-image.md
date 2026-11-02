@@ -297,7 +297,7 @@ thin client with no Docker daemon, no root and no socket.
 | Step | Where it runs |
 | --- | --- |
 | Resolve base pair and Standards Release, input key, skip or alias | `prepare` and `alias`, small route, unchanged |
-| Client tools: Docker CLI, buildx, crane, step | Job, checksum-pinned, skipped for any already on `PATH` |
+| Client tools: Docker CLI, buildx, crane | Job, checksum-pinned, skipped for any already on `PATH` |
 | Client certificate, builder, Docker configs | Job: `connect.sh` |
 | Features image, recipe build (`ci` target) | Build Service, pushed to the staging registry |
 | `crane` rebase, `verify` | Job, against the staging registry (metadata only) |
@@ -314,16 +314,21 @@ thin client with no Docker daemon, no root and no socket.
 | `BUILD_SERVICE_BUILDER` | `tcp://host:port` of the BuildKit daemon |
 | `BUILD_SERVICE_REGISTRY` | `host:port` of the staging registry (TLS, password) |
 | `BUILD_SERVICE_REGISTRY_AUTH_FILE` | File with one line, `user:password` |
-| `BUILD_SERVICE_CA_URL`, `BUILD_SERVICE_CA_ROOT` | Private CA API and the file holding its root certificate |
+| `BUILD_SERVICE_CA_URL`, `BUILD_SERVICE_CA_ROOT_SHA256` | Private CA API and the lowercase hex SHA-256 fingerprint of its root, without colons |
 | `BUILD_SERVICE_SERVERNAME` | Optional TLS server name of the daemon (default: the endpoint's host) |
 | `BUILD_SERVICE_AUDIENCE` | Optional OIDC audience (default `homelab-build-service`) |
 
-**Identity.** The job requests a GitHub OIDC token for the audience and exchanges it with the Private
-CA (`step ca certificate`) for an hour-long client certificate that names the repository. The CA's
-template accepts only this workflow on the default branch. The exchange lives in one function,
-`request_certificate` in `connect.sh`, so a change to the CA's provisioner changes one place. The
-daemon trusts only that CA. The Private CA is on every image build's path: its outage stops image
-builds.
+**Identity.** The job fetches the Private CA root from `BUILD_SERVICE_CA_URL` and trusts it only when its
+SHA-256 matches `BUILD_SERVICE_CA_ROOT_SHA256`. It then requests a GitHub OIDC token for the audience
+and POSTs it with a fresh CSR to the CA's `/1.0/sign`, which returns a one-hour client certificate
+that names the repository (the client step of mac-dev-playbook
+`docs/homelab/references/operations/build-service-client-certificates.md`). The CA takes the
+identity from the token and issues only to this workflow on the default branch. **No token appears in a
+command line**: curl reads the runtime request token's header from stdin, and jq reads the OIDC token
+from stdin and writes the request body to curl's stdin. The exchange lives in one function,
+`request_certificate` in `connect.sh`. The runner needs `curl`, `openssl` and `jq`. The job's 45
+minute timeout is shorter than the certificate's life, so a build never needs a renewal. The daemon
+trusts only that CA. The Private CA is on every image build's path: its outage stops image builds.
 
 **Credentials stay scoped.** buildx forwards its configured credentials to the daemon during a build,
 so the job keeps two Docker configs under `$RUNNER_TEMP/build-service/`. `docker-build` holds only
