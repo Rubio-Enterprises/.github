@@ -360,7 +360,7 @@ jobs:
           set -euo pipefail
           crane_image=gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
           crane() {
-            docker run --rm --network host --env DOCKER_CONFIG=/auth \
+            docker run --rm --network host --user "$(id -u):$(id -g)" --env DOCKER_CONFIG=/auth \
               --mount "type=bind,src=${DOCKER_CONFIG:-$HOME/.docker},dst=/auth,readonly" \
               "$crane_image" "$@"
           }

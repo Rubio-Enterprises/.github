@@ -87,7 +87,8 @@ docker tag "$local_ref/dev:build" "$IMAGE:sha-$GITHUB_SHA-$ARCH"
 docker tag "$local_ref/ci:build" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH"
 for name in dev ci; do
   ref="$(< "$CONTEXT/$name.ref")"
-  docker run --rm --network host --mount "type=bind,src=$CONTEXT,dst=/context" \
+  docker run --rm --network host --user "$(id -u):$(id -g)" \
+    --mount "type=bind,src=$CONTEXT,dst=/context" \
     "$crane_image" pull --insecure "$ref" /context/artifact.tar
   python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$standards" "$pin" "$CONTEXT/src"
   rm "$CONTEXT/artifact.tar"
