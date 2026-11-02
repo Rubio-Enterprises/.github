@@ -282,9 +282,7 @@ Issues are tracked in GitHub Issues; external PRs are not a triage request surfa
 
 ### Triage labels
 
-Use the default mattpocock/skills triage labels: `needs-triage`, `needs-info`,
-`ready-for-agent`, `ready-for-human`, and `wontfix`. See
-`docs/agents/triage-labels.md`.
+Use the canonical state labels in `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
