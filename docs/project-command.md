@@ -81,8 +81,8 @@ ID is not a Dockerfile FROM reference: BuildKit can interpret `sha256:…` as a 
 during the CLI's UID-adjustment build. Generated config uses the checkout, not a
 PR-supplied Dev Container initializeCommand or arbitrary host mounts. Merged image metadata must
 retain vscode, the baseline shim-ownership hook and the declared mounts, without added
-privileges or lifecycle commands. Only the known tool/cache paths receive root UID repair;
-project commands remain nonroot.
+privileges or lifecycle commands. Only the shared mise tool/shim directories receive root UID
+repair; the CLI migrates home-owned download caches, and project commands remain nonroot.
 
 The checkout bind mount can hide dependencies baked in the image workspace, so setup still
 reconciles them. Image-baked tool and download-cache locations remain available. No host home,

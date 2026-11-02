@@ -45,6 +45,8 @@ if name == 'docker':
         print(json.dumps([{'Image': 'sha256:' + 'c' * 64,
             'Config': {'Labels': {'rubio.project-command': state['label']}},
             'Mounts': [{'Type': 'volume', 'Name': 'owned-volume'}, {'Type': 'volume', 'Name': 'existing-volume'}]}]))
+    elif args[:1] == ['exec']:
+        assert args[-2:] == ['/usr/local/share/mise', '/usr/local/share/mise-shims']
     elif args[:1] == ['ps']:
         if (fixture / 'started').exists(): print('b' * 64)
     elif args[:1] == ['rm']:
