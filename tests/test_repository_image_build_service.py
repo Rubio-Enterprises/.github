@@ -483,7 +483,7 @@ class Tools(Workspace):
         node = shutil.which("node")
         path = f"{Path(node).parent}{os.pathsep}/usr/bin{os.pathsep}/bin"
         with tempfile.TemporaryDirectory() as clean:  # no docker, crane or step on PATH
-            for name in ("node", "tar"):
+            for name in ("node", "tar", "gzip"):
                 (Path(clean) / name).symlink_to(shutil.which(name))
             result = self.run_install(self.assets(), path=clean)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -498,7 +498,7 @@ class Tools(Workspace):
 
     def test_a_checksum_mismatch_installs_nothing_further(self):
         with tempfile.TemporaryDirectory() as clean:
-            for name in ("node", "tar"):
+            for name in ("node", "tar", "gzip"):
                 (Path(clean) / name).symlink_to(shutil.which(name))
             result = self.run_install(self.assets(), pins={"crane": "0" * 64}, path=clean)
         self.assertNotEqual(result.returncode, 0)
@@ -509,7 +509,7 @@ class Tools(Workspace):
 
     def test_tools_already_on_path_are_left_alone(self):
         with tempfile.TemporaryDirectory() as clean:
-            for name in ("node", "tar"):
+            for name in ("node", "tar", "gzip"):
                 (Path(clean) / name).symlink_to(shutil.which(name))
             for name in ("docker", "crane", "step"):
                 tool = Path(clean) / name
