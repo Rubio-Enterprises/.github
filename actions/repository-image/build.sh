@@ -6,8 +6,9 @@ registry="repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH"
 crane_image=gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
 registry_image=registry@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
 local_ref=
+keep_registry=false
 cleanup() {
-  docker rm -f "$registry" >/dev/null 2>&1 || true
+  if [[ "$keep_registry" != true ]]; then docker rm -f "$registry" >/dev/null 2>&1 || true; fi
   if [[ -n "$local_ref" ]]; then
     docker image rm "$local_ref/features:build" "$local_ref/dev:build" "$local_ref/ci:build" >/dev/null 2>&1 || true
   fi
@@ -62,6 +63,8 @@ docker build --provenance=false --sbom=false "${args[@]}" \
   --cache-from "$IMAGE:main-$ARCH" --build-arg BUILDKIT_INLINE_CACHE=1 \
   -t "$local_ref/dev:build" "$build_context"
 docker push "$local_ref/dev:build"
+crane mutate --insecure "$local_ref/dev:build" \
+  --annotation "org.opencontainers.image.base.digest=${BASE##*@}" -t "$local_ref/dev:build"
 crane rebase --insecure --platform "linux/$ARCH" "$local_ref/dev:build" \
   --old_base "$BASE" --new_base "$BASE_CI" -t "$local_ref/ci:build"
 mkdir -p "$CONTEXT/verify"
@@ -69,7 +72,11 @@ for name in base base-ci dev ci; do
   case "$name" in
     base) ref="$BASE" ;;
     base-ci) ref="$BASE_CI" ;;
-    *) ref="$local_ref/$name:build" ;;
+    *)
+      digest="$(crane digest --insecure "$local_ref/$name:build")"
+      ref="$local_ref/$name@$digest"
+      printf '%s\n' "$ref" > "$CONTEXT/$name.ref"
+      ;;
   esac
   crane manifest --insecure --platform "linux/$ARCH" "$ref" > "$CONTEXT/verify/$name.json"
   crane config --insecure --platform "linux/$ARCH" "$ref" > "$CONTEXT/verify/$name-config.json"
@@ -78,10 +85,13 @@ node "$ASSETS/image.mjs" verify "$CONTEXT/verify"
 docker pull "$local_ref/ci:build"
 docker tag "$local_ref/dev:build" "$IMAGE:sha-$GITHUB_SHA-$ARCH"
 docker tag "$local_ref/ci:build" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH"
-for artifact in "$IMAGE" "$CI_IMAGE"; do
-  docker image save "$artifact:sha-$GITHUB_SHA-$ARCH" -o "$CONTEXT/artifact.tar"
+for name in dev ci; do
+  ref="$(< "$CONTEXT/$name.ref")"
+  docker run --rm --network host --mount "type=bind,src=$CONTEXT,dst=/context" \
+    "$crane_image" pull --insecure "$ref" /context/artifact.tar
   python3 "$ASSETS/audit.py" "$CONTEXT/artifact.tar" "$standards" "$pin" "$CONTEXT/src"
   rm "$CONTEXT/artifact.tar"
+  printf 'Audited registry artifact: %s\n' "$ref"
 done
 docker run --rm --security-opt no-new-privileges --user 1000 --memory 1g --pids-limit 512 \
   --entrypoint bash "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" -euc '
@@ -109,3 +119,5 @@ for artifact in "$IMAGE" "$CI_IMAGE"; do
       -s -- "$uid" < "$ASSETS/cache-smoke.sh"
   done
 done
+# Scanning and publication consume these registry manifests, not Docker's reserialization
+keep_registry=true

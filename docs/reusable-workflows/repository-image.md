@@ -192,10 +192,21 @@ Verify both packages' visibility and same-repository token access before adoptio
 Each native job uses a job-local registry (loopback ephemeral port), builds the
 dev image, and uses digest-pinned crane 0.22.1 to rebase onto the matching base-ci.
 It compares compressed repository layer descriptors, uncompressed diff IDs,
-architecture and full runtime config before/after. Rebase retains dev config;
+architecture and full runtime config before/after. Both native architectures must
+have manifest `org.opencontainers.image.base.digest` annotations matching the
+resolved base index for dev and the resolved base-ci index for CI. Missing or
+incorrect provenance fails the build. Rebase retains dev config;
 base-ci ENV/USER/labels are not assumed to become the CI environment.
 
-Before external push, both saved artifacts are inspected across **all layers**,
+The local registry remains alive through scanning and publication. Audits pull
+its digest-addressed artifacts with crane; Trivy scans those same immutable
+registry references. After both scans pass, crane copies those exact manifests
+to GHCR and verifies destination digest equality. Docker-loaded copies are only
+for runtime smoke tests: classic Docker image storage can drop annotations
+and reserialize the manifest when pushing. The workflow's
+always-cleanup step removes the registry on success, failure or cancellation.
+
+Before external push, both registry artifacts are inspected across **all layers**,
 including files hidden/deleted by later layers, for persisted standards paths,
 links, exact bundle-only file hashes (files at least 128 bytes) and the build pin.
 The package-root `package/LICENSE` is public legal metadata and does not supply a
@@ -220,7 +231,7 @@ metadata. Runtime setup and Feature-specific behavior require caller qualificati
 Docker/KVM/ARM project jobs stay on Machine Pools; macOS native jobs stay native.
 
 The checksum-pinned Trivy 0.76.1 policy is identical in both reusables, scanning
-both local artifacts' filesystem and image config/history with no caller ignore
+both local-registry artifacts' filesystem and image config/history with no caller ignore
 policy and no matched secret text. Public mise install trees, Rustup/uv-managed
 SDK directories and Go/Bun/Cargo/package caches, including RubyGems/Bundler
 packages and cached gem archives, use scan-root-anchored exclusions. Home
