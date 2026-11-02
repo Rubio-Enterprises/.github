@@ -31,7 +31,7 @@ RUN --mount=type=bind,from=pins,target=/workspaces/.mise-pins \
  && runuser -u vscode -- env HOME=/home/vscode CI=true MISE_YES=1 \
       MISE_TRUSTED_CONFIG_PATHS=/workspaces/.mise-pins npm_config_cache=/run/npm-cache \
       MISE_ENV=repository-image \
-      bash -euc 'mise install --system node; mise run standards:install; mise install --system' \
+      bash -euc 'mise install --system node; mise run --skip-tools standards:install; mise install --system' \
  && rm -rf /home/vscode/.cache/mise /home/vscode/.local/state
 ENV PATH=/usr/local/share/mise/shims:${PATH}
 # Older BuildKit can leave nested ADD --chown archive directories root-owned

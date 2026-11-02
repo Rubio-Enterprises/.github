@@ -145,7 +145,10 @@ credential-free tarball is supplied as a BuildKit secret. No token build argumen
 image environment or credential file is involved.
 
 The v2 Dockerfile installs Node from the repository's runtime pin, installs the
-package into tmpfs, then installs the tool pins. Project setup runs unchanged as
+package into tmpfs, then installs the tool pins. Only that package bootstrap uses
+`mise run --skip-tools standards:install`: auto-installing consumer tools first
+would require tools such as uv that the cold package has not provided yet.
+The subsequent full tool installation and canonical setup are unchanged. Project setup runs unchanged as
 `mise run setup`, with build-local `STANDARDS_VERSION=file:/run/standards.tgz`.
 A transient `mise.repository-image.toml` profile supplies that override because
 root mise `[env]` values take precedence over inherited environment variables.
