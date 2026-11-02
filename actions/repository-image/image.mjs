@@ -178,28 +178,24 @@ function output(key, value) {
 export async function resolve(env = process.env) {
   const refs = {};
   const images = {};
+  const arch = 'amd64';
   for (const [kind, input] of [['base', env.BASE], ['base-ci', env.BASE_CI]]) {
     const name = baseReference(input, kind);
     const registry = await ghcrRepository(name);
     const index = await registry.manifest(input.slice(name.length + 1));
     if (!digestPattern.test(index.digest)) throw new Error('Invalid registry index digest');
     refs[kind] = `${name}@${index.digest}`;
-    images[kind] = {};
-    for (const arch of ['amd64', 'arm64']) {
-      const entries = index.json.manifests?.filter(entry => entry.platform?.os === 'linux' && entry.platform?.architecture === arch);
-      if (entries?.length !== 1) {
-        throw new Error('Base index must have exactly one image for each native architecture');
-      }
-      const manifest = (await registry.manifest(entries[0].digest)).json;
-      if (!digestPattern.test(manifest.config?.digest ?? '')) throw new Error('Invalid image config digest');
-      images[kind][arch] = { manifest, config: (await registry.blob(manifest.config.digest)).json };
+    const entries = index.json.manifests?.filter(entry => entry.platform?.os === 'linux' && entry.platform?.architecture === arch);
+    if (entries?.length !== 1) {
+      throw new Error('Base index must have exactly one linux/amd64 image');
     }
+    const manifest = (await registry.manifest(entries[0].digest)).json;
+    if (!digestPattern.test(manifest.config?.digest ?? '')) throw new Error('Invalid image config digest');
+    images[kind] = { manifest, config: (await registry.blob(manifest.config.digest)).json };
   }
-  for (const arch of ['amd64', 'arm64']) {
-    const base = images.base[arch];
-    const ci = images['base-ci'][arch];
-    validatePair(base.manifest, ci.manifest, base.config, ci.config, refs.base.split('@')[1], arch);
-  }
+  const base = images.base;
+  const ci = images['base-ci'];
+  validatePair(base.manifest, ci.manifest, base.config, ci.config, refs.base.split('@')[1], arch);
   for (const [key, ref] of Object.entries(refs)) output(key, ref);
 }
 

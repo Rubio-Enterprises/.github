@@ -102,7 +102,7 @@ particularly in private repositories or for API/CLI-created issues.
 | Workflow | Purpose |
 | --- | --- |
 | [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness for a suite that needs its own job; runs `mise run setup`, then an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `ci-platform = macos` callers run on `RUNNERS.macos` |
-| [`devcontainer-image.yml`](./.github/workflows/devcontainer-image.yml) | Builds native amd64/arm64 Dev Container images, publishes a private GHCR multi-arch image, and prunes untagged versions; see [its contract](./docs/reusable-workflows/devcontainer-image.md) |
+| [`repository-image.yml`](./.github/workflows/repository-image.yml) | Builds amd64-only Dev Container/CI image pairs and publishes one-entry indices; Apple Silicon uses a local build config. See [its contract](./docs/reusable-workflows/repository-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-range gitleaks scan runs in the package's `check:pr`) |
 | [`standards.yml`](./.github/workflows/standards.yml) | Injected, not called: the Standards Check. Installs the repository's Standards Release and runs `mise run check` and `mise run check:pr`; routed by the `ci-platform`/`ci-size` properties; see [its contract](./docs/standards-check.md) |
 | [`release-please.yml`](./.github/workflows/release-please.yml) | release-please with the `rubio-release-please` App token, a root `uv.lock` refresh and auto-merge on the release PR; called by the starter `standards.yml` when `release-please-config.json` exists; see [its contract](./docs/reusable-workflows/release-please.md) |
@@ -111,7 +111,7 @@ particularly in private repositories or for API/CLI-created issues.
 A repository workflow that needs the package's tools runs `jdx/mise-action` and
 `mise run setup` with `NODE_AUTH_TOKEN` and `packages: read`. The
 [`standards-bootstrap`](./actions/standards-bootstrap/action.yml) composite
-action is legacy: only the image builders still use it, for a repository that
+action is legacy: only the repository image builder still uses it, for a repository that
 has not migrated off the Copier-era Shared Config Directory (see
 [`docs/standards-bootstrap.md`](./docs/standards-bootstrap.md)).
 

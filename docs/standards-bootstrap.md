@@ -1,9 +1,9 @@
 # `standards-bootstrap` action
 
-> **Legacy.** Only the image builders (`repository-image.yml`, `devcontainer-image.yml`) still use
+> **Legacy.** Only the image builder (`repository-image.yml`) still uses
 > this action, for a repository that has not migrated to the `@rubio-enterprises/standards`
 > package and still carries the Copier-era stub below. Migrated repositories run
-> `mise run setup` instead. Delete the action once the image builders drop their legacy path.
+> `mise run setup` instead. Delete the action once the image builder drops its legacy path.
 
 `actions/standards-bootstrap` provisions a repository's gitignored Shared Config
 Directory, `.standards-config/`, before mise loads its shared includes. Standards
@@ -51,7 +51,7 @@ this action. An empty, malformed or wrong pin, dirty/shallow/missing checkout or
 wrong origin fails before setup. Bootstrap, repeated setup and later hooks use
 one pin without standards Git transport; they do not receive its App token.
 
-The image builders use it (`repository-image.yml` and `devcontainer-image.yml`, with
+The image builder uses it (`repository-image.yml`, with
 `bootstrap-parts: repos`). The Copier-era gates and the `e2e` and `cloud-setup-smoke`
 reusables that also used it are retired or migrated.
 
@@ -113,7 +113,7 @@ jobs:
 - `cache-key-prefix`: mise-action's `cache_key_prefix`. Default `mise-v1`.
 - `bootstrap-parts`: `repos,tools` (default) or `repos`. The latter provisions
   and verifies only the checkout for jobs that install tools elsewhere, such as
-  [Dev Container image builds](reusable-workflows/devcontainer-image.md). It
+  [repository image builds](reusable-workflows/repository-image.md). It
   skips mise-action's tool cache and environment export; no preceding setup-uv
   step is needed because no pipx tools are installed. Unknown values fail before
   token minting.

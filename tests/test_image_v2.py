@@ -448,6 +448,6 @@ else:
         workflow = legacy.TEXT
         self.assertIn("if: needs.prepare.outputs.shape != 'v2'", workflow)
         self.assertIn("STANDARDS_INTEGRITY: ${{ needs.prepare.outputs.integrity }}", workflow)
-        build_step = workflow.split("- name: Build, rebase and audit both architecture artifacts", 1)[1].split("- name: Scan both", 1)[0]
+        build_step = workflow.split("- name: Build, audit and verify the image pair", 1)[1].split("- name: Scan the dev", 1)[0]
         self.assertNotIn("NODE_AUTH_TOKEN", build_step)
         self.assertIn("npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc", workflow)

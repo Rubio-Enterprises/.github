@@ -57,7 +57,12 @@ class Contracts(unittest.TestCase):
         self.assertIn("contents: read\n      packages: read", TEXT)
         self.assertIn("contents: read\n      packages: write", TEXT)
         self.assertIn(".docker || fromJSON('[\"ubuntu-latest\"]')", TEXT)
-        self.assertIn(".arm || fromJSON('[\"ubuntu-24.04-arm\"]')", TEXT)
+        self.assertIn("ARCH: amd64", TEXT)
+        self.assertNotIn("matrix.arch", TEXT)
+        executable = "\n".join(line for line in TEXT.splitlines() if not line.lstrip().startswith("#"))
+        self.assertNotIn("arm64", executable)
+        self.assertNotIn("ARM64", TEXT)
+        self.assertNotIn("strategy:", TEXT.split("\n  merge:\n", 1)[0])
         self.assertIn("steps: *build-steps", TEXT)
         self.assertNotIn("continue-on-error", TEXT)
         self.assertNotIn("qemu", TEXT.lower())
@@ -79,12 +84,14 @@ class Contracts(unittest.TestCase):
 
     def test_build_scan_publish_and_retention(self):
         names = ["Provision native shared config", "Require the image build pin",
-                 "Prepare central generic build inputs", "Build, rebase and audit both architecture artifacts",
-                 "Scan both local artifacts for secrets", "Push the scanned architecture image"]
+                 "Prepare central generic build inputs", "Build, audit and verify the image pair",
+                 "Scan the dev artifact for secrets", "Push the verified image pair"]
         positions = [TEXT.index(f"- name: {name}") for name in names]
         self.assertEqual(positions, sorted(positions))
-        scan = script("Scan both local artifacts for secrets")
-        self.assertIn('for artifact in "$IMAGE" "$CI_IMAGE"', scan)
+        scan = script("Scan the dev artifact for secrets")
+        self.assertNotIn('for artifact', scan)
+        self.assertIn('ref="$(< "$CONTEXT/dev.ref")"', scan)
+        self.assertNotIn('ci.ref', scan)
         self.assertIn('--image-src remote --insecure --scanners secret --image-config-scanners secret', scan)
         self.assertIn('"$ref"', scan)
         build = (ASSETS / "build.sh").read_text()
@@ -99,8 +106,8 @@ class Contracts(unittest.TestCase):
         self.assertIn('delete-only-untagged-versions: "true"', TEXT)
         self.assertIn('min-versions-to-keep: 5', TEXT)
         self.assertIn('ci-image: ${{ steps.image.outputs.image }}-ci', TEXT)
-        for name in ("Resolve image and publication policy", "Scan both local artifacts for secrets",
-                     "Publish multi-architecture tags and cache aliases"):
+        for name in ("Resolve image and publication policy", "Scan the dev artifact for secrets",
+                     "Publish single-platform indices and cache aliases"):
             self.assertNotIn("${{", script(name))
 
     def test_generic_dockerfile_never_copies_standards_or_declares_pin(self):
@@ -123,17 +130,9 @@ class Contracts(unittest.TestCase):
         self.assertIn('/usr/bin/jq --version', smoke)
         self.assertIn('test ! -e "$workspace/.standards/node_modules"', smoke)
 
-    def test_scan_policy_and_checksum_pins_match_legacy_contract(self):
-        from test_devcontainer_image_workflow import script as legacy_script
-        scan = script("Scan both local artifacts for secrets")
-        old = legacy_script("Scan the local image for secrets")
-        for text in [scan, old]:
-            policy = text.split("<<'TRIVY'\n", 1)[1].split("\nTRIVY", 1)[0]
-            if text == scan:
-                new_policy = policy
-            else:
-                self.assertEqual(new_policy, policy)
-        self.assertEqual(script("Install checksum-pinned Trivy"), legacy_script("Install checksum-pinned Trivy"))
+    def test_legacy_reusable_is_retired(self):
+        self.assertFalse((ROOT / ".github/workflows/devcontainer-image.yml").exists())
+        self.assertFalse((ROOT / "docs/reusable-workflows/devcontainer-image.md").exists())
 
 
 class Fixtures(unittest.TestCase):
@@ -187,7 +186,7 @@ class Fixtures(unittest.TestCase):
             if field == "uncompressed": args[3]["rootfs"]["diff_ids"][0] = "other"
             self.assertNotEqual(self.node("validatePair", args).returncode, 0, field)
 
-    def resolve(self, base=None, base_ci=None, tamper=None):
+    def resolve(self, base=None, base_ci=None, tamper=None, arches=("amd64", "arm64"), bad_amd64=False):
         """Run resolve against an in-memory registry; returns (process, outputs)."""
         def blob(value):
             data = json.dumps(value).encode()
@@ -197,9 +196,11 @@ class Fixtures(unittest.TestCase):
         base_digest = None
         for kind in ["base", "base-ci"]:
             entries = []
-            for arch in ["amd64", "arm64"]:
+            for arch in arches:
                 args = self.pair(arch)
                 image_config = args[2] if kind == "base" else args[3]
+                if bad_amd64 and arch == "amd64":
+                    image_config["architecture"] = "arm64"
                 if kind == "base-ci":
                     image_config["config"]["Labels"]["org.opencontainers.image.base.digest"] = base_digest
                 config_digest, config_data = blob(image_config)
@@ -253,13 +254,24 @@ class Fixtures(unittest.TestCase):
             key = next(key for key in content if key.startswith("base-ci/blobs/"))
             content[key] = content[key].replace(b"linux", b"Linux")
 
-        def one_arch(content, indices):
-            index = json.loads(content["base/manifests/latest"])
-            index["manifests"] = index["manifests"][:1]
-            content["base/manifests/latest"] = json.dumps(index).encode()
+        def corrupt_unused_arm64(content, indices):
+            for kind in ["base", "base-ci"]:
+                index = json.loads(content[f"{kind}/manifests/latest"])
+                entry = next(entry for entry in index["manifests"] if entry["platform"]["architecture"] == "arm64")
+                content[f"{kind}/manifests/{entry['digest']}"] = b"unused malformed arm64 manifest"
+
+        result, values, _ = self.resolve(tamper=corrupt_unused_arm64)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(values), 2)
+        result, values, _ = self.resolve(arches=("amd64",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(values), 2)
 
         name = "ghcr.io/rubio-enterprises/devcontainers/"
-        for label, kwargs in [("tampered blob", {"tamper": corrupt}), ("one architecture", {"tamper": one_arch}),
+        for label, kwargs in [("tampered blob", {"tamper": corrupt}),
+                              ("missing amd64", {"arches": ("arm64",)}),
+                              ("duplicate amd64", {"arches": ("amd64", "amd64")}),
+                              ("wrong amd64 config", {"bad_amd64": True}),
                               ("unknown digest", {"base": f"{name}base@sha256:" + "0" * 64})]:
             result, values, _ = self.resolve(**kwargs)
             self.assertNotEqual(result.returncode, 0, label)
@@ -413,13 +425,13 @@ class Fixtures(unittest.TestCase):
         target.chmod(0o755)
         return target
 
-    def test_two_artifact_secret_scan_is_fail_closed_before_any_push(self):
+    def test_single_dev_secret_scan_is_fail_closed_before_either_push(self):
         binary = self.root / "trivy/trivy"
         binary.parent.mkdir()
         binary.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/calls"\ncase "${*: -1}" in */ci@*) exit "${CI_STATUS:-0}";; *) exit "${DEV_STATUS:-0}";; esac\n')
         binary.chmod(0o755)
         self.env.update(IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer", CI_IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer-ci",
-                        CONTEXT=str(self.root), ARCH="arm64", GITHUB_SHA="a" * 40,
+                        CONTEXT=str(self.root), ARCH="amd64", GITHUB_SHA="a" * 40,
                         PATH=str(self.root) + os.pathsep + os.environ["PATH"])
         digest = "sha256:" + "b" * 64
         for name in ["dev", "ci"]:
@@ -432,18 +444,19 @@ for arg in "$@"; do
 done
 exit 2
 ''')
-        source = script("Scan both local artifacts for secrets") + script("Push the scanned architecture image")
-        for dev, ci in [(1, 0), (0, 1), (0, 2), (0, 0)]:
+        source = script("Scan the dev artifact for secrets") + script("Push the verified image pair")
+        for dev in (1, 2, 0):
             (self.root / "pushed").unlink(missing_ok=True)
-            result = subprocess.run(["bash", "-e", "-c", source], env={**self.env, "DEV_STATUS": str(dev), "CI_STATUS": str(ci)}, capture_output=True, text=True)
-            self.assertEqual(result.returncode, dev or ci, result.stderr)
-            self.assertEqual((self.root / "pushed").exists(), not (dev or ci))
-            calls = (self.root / "calls").read_text()
-            self.assertNotIn(".Match", calls)
-            self.assertIn("--image-src remote --insecure", calls)
-            self.assertIn("/dev@" + digest, calls)
-            if dev == 0:
-                self.assertIn("/ci@" + digest, calls)
+            (self.root / "calls").unlink(missing_ok=True)
+            result = subprocess.run(["bash", "-e", "-c", source], env={**self.env, "DEV_STATUS": str(dev), "CI_STATUS": "99"}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, dev, result.stderr)
+            self.assertEqual((self.root / "pushed").exists(), not dev)
+            calls = (self.root / "calls").read_text().splitlines()
+            self.assertEqual(len(calls), 1)
+            self.assertNotIn(".Match", calls[0])
+            self.assertIn("--image-src remote --insecure", calls[0])
+            self.assertIn("/dev@" + digest, calls[0])
+            self.assertNotIn("/ci@", calls[0])
         copies = (self.root / "docker-calls").read_text()
         for name in ["dev", "ci"]:
             self.assertIn("copy " + (self.root / f"{name}.ref").read_text().strip(), copies)
@@ -493,7 +506,7 @@ done
         args = self.rebased()
         for item, char in [(args[2], "a"), (args[3], "b")]:
             item["annotations"] = {"org.opencontainers.image.base.digest": "sha256:" + char * 64}
-        for arch, native in [("amd64", "x86_64"), ("arm64", "aarch64")]:
+        for arch, native in [("amd64", "x86_64"), ("amd64", "amd64")]:
             for item in args[4:6]: item["architecture"] = arch
             for name, data in zip(["base", "base-ci", "dev", "ci", "dev-config", "ci-config"], args[:6]):
                 (fixtures / f"{name}.json").write_text(json.dumps(data))
@@ -518,7 +531,13 @@ done
             self.assertNotIn("push ghcr.io", calls)
             self.assertNotIn("--build-arg STANDARDS_PIN", calls)
             self.assertIn("--platform linux/" + arch, (self.root / "cli-call").read_text())
-            self.assertIn("pull --insecure " + (context / "ci.ref").read_text().strip(), calls)
+            self.assertIn("pull --insecure " + (context / "dev.ref").read_text().strip(), calls)
+            self.assertNotIn("pull --insecure " + (context / "ci.ref").read_text().strip(), calls)
+            self.assertEqual(result.stdout.count("Audited registry artifact:"), 1)
+            cache_calls = [call for call in calls.splitlines() if "-s -- " in call]
+            self.assertEqual(len(cache_calls), 3)
+            for call, (image, uid) in zip(cache_calls, [(env["IMAGE"], 1000), (env["IMAGE"], 1001), (env["CI_IMAGE"], 1000)]):
+                self.assertIn(f"{image}:sha-{env['GITHUB_SHA']}-amd64 -s -- {uid}", call)
             self.assertNotIn("image save", calls)
             self.assertNotIn("rm -f repository-image-", calls)
             for name in ["dev", "ci"]:
@@ -531,11 +550,81 @@ done
                 self.assertIn("base digest annotation", rejected.stderr)
                 (fixtures / f"{name}.json").write_text(good)
             (self.root / "docker-calls").unlink()
-            result = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "DOCKER_ARCH": "wrong"}, capture_output=True, text=True)
+            result = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "DOCKER_ARCH": "aarch64"}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertNotIn("build --", (self.root / "docker-calls").read_text())
             (self.root / "docker-calls").unlink()
         self.assertTrue(safe_archive.exists())
+
+    def test_publication_wraps_each_amd64_child_in_a_one_entry_index(self):
+        self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
+if [[ "$*" == *'inspect --raw'* ]]; then
+  printf '%s\\n' "${INDEX_JSON:?}"
+fi
+''')
+        image = "ghcr.io/rubio-enterprises/repo/devcontainer"
+        sha = "a" * 40
+        index = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
+                 "manifests": [{"platform": {"os": "linux", "architecture": "amd64"}}]}
+        env = {**self.env, "IMAGE": image, "CI_IMAGE": image + "-ci", "GITHUB_SHA": sha,
+               "INDEX_JSON": json.dumps(index), "PATH": str(self.root) + os.pathsep + os.environ["PATH"]}
+        source = script("Publish single-platform indices and cache aliases")
+        result = subprocess.run(["bash", "-e", "-c", source], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / "docker-calls").read_text().splitlines()
+        self.assertEqual(len(calls), 8)
+        for artifact, offset in [(image, 0), (image + "-ci", 4)]:
+            self.assertEqual(calls[offset], f"buildx imagetools create --prefer-index=true --tag {artifact}:main --tag {artifact}:sha-{sha} {artifact}:sha-{sha}-amd64")
+            self.assertEqual(calls[offset + 1], f"buildx imagetools create --prefer-index=false --tag {artifact}:main-amd64 {artifact}:sha-{sha}-amd64")
+            for tag, call in zip(("main", f"sha-{sha}"), calls[offset + 2:offset + 4]):
+                self.assertEqual(call, f"buildx imagetools inspect --raw {artifact}:{tag}")
+        self.assertNotIn("arm64", "\n".join(calls))
+        for bad in [dict(index, manifests=[]), dict(index, manifests=index["manifests"] * 2),
+                    dict(index, mediaType="application/vnd.oci.image.manifest.v1+json"),
+                    dict(index, manifests=[{"platform": {"os": "linux", "architecture": "arm64"}}])]:
+            result = subprocess.run(["bash", "-e", "-c", source], env={**env, "INDEX_JSON": json.dumps(bad)}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, bad)
+
+    def test_image_name_and_config_validation_are_preserved(self):
+        source = script("Resolve image and publication policy")
+        env = {**self.env, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises",
+               "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo", "CONFIG": ".github/.devcontainer/devcontainer.json",
+               "PUBLISH": "false", "IMAGE_INPUT": ""}
+        for image in ("", "ghcr.io/Rubio-Enterprises/Repo/qual"):
+            result = subprocess.run(["bash", "-e", "-c", source], env={**env, "IMAGE_INPUT": image}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("image=ghcr.io/rubio-enterprises/repo/qual", (self.root / "output").read_text())
+        for overrides in [{"IMAGE_INPUT": value} for value in (
+            "evil.io/rubio-enterprises/repo", "ghcr.io/other/repo", "ghcr.io/rubio-enterprises/repo:tag",
+            "ghcr.io/rubio-enterprises/repo@sha256:" + "a" * 64, "ghcr.io/rubio-enterprises/repo\\npublish=true")
+        ] + [{"CONFIG": value} for value in ("", "/etc/config", "../config", "dir/../config", "dir/..")]:
+            result = subprocess.run(["bash", "-e", "-c", source], env={**env, **overrides}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, overrides)
+
+    def test_legacy_image_build_pin_remains_strict(self):
+        for pin in ("", "a" * 39, "A" * 40, "a" * 40 + "\\nother=value", "a" * 40):
+            result = subprocess.run(["bash", "-e", "-c", script("Require the image build pin")],
+                                    env={**self.env, "STANDARDS_PIN": pin}, capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, pin == "a" * 40)
+
+    def test_trivy_failed_checksum_prevents_extraction(self):
+        self.stub("curl", 'touch "$RUNNER_TEMP/trivy.tar.gz"\n')
+        self.stub("sha256sum", 'cat > "$RUNNER_TEMP/checksum-input"; exit 1\n')
+        self.stub("tar", 'touch "$RUNNER_TEMP/extracted"\n')
+        result = subprocess.run(["bash", "-e", "-c", script("Install checksum-pinned Trivy")],
+                                env={**self.env, "PATH": str(self.root) + os.pathsep + os.environ["PATH"]}, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "extracted").exists())
+        self.assertTrue((self.root / "checksum-input").read_text().startswith("c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0  "))
+
+    def test_workflow_native_gate_rejects_arm64_before_building(self):
+        self.stub("docker", 'echo "${DOCKER_ARCH:?}"\n')
+        for arch, native, success in [("amd64", "x86_64", True), ("amd64", "amd64", True),
+                                       ("amd64", "aarch64", False), ("arm64", "aarch64", False)]:
+            result = subprocess.run(["bash", "-e", "-c", script("Verify native Docker architecture")],
+                                    env={**self.env, "PATH": str(self.root) + os.pathsep + os.environ["PATH"],
+                                         "ARCH": arch, "DOCKER_ARCH": native}, capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, success, (arch, native))
 
     def prepare_consumer(self, name, links, extra_files=None, untracked_files=None, gitlinks=None):
         src = self.root / name
