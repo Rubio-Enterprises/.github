@@ -7,6 +7,11 @@ crane_image=gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175a
 registry_image=registry@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
 local_ref=
 cleanup() {
+  if [[ -n "${mem_sampler:-}" ]]; then
+    kill "$mem_sampler" 2>/dev/null || true
+    echo "PROBE_MEMORY_SAMPLED arch=$ARCH mode=${probe_mode:-native} cache=${probe_cache:-warm} peak_used_mib=$(cat "$mem_peak_file" 2>/dev/null || echo unknown)" \
+      | tee -a "${RUNNER_TEMP:-/tmp}/probe-metrics.txt"
+  fi
   docker rm -f "$registry" >/dev/null 2>&1 || true
   if [[ -n "$local_ref" ]]; then
     docker image rm "$local_ref/features:build" "$local_ref/dev:build" "$local_ref/ci:build" >/dev/null 2>&1 || true
@@ -19,6 +24,18 @@ probe_cache="${PROBE_CACHE:-warm}"
 cpu_usec() { awk '/^usage_usec/ {print $2; found=1} END {if (!found) print 0}' /sys/fs/cgroup/cpu.stat 2>/dev/null || echo 0; }
 phase_wall="$(date +%s.%N)"
 phase_cpu="$(cpu_usec)"
+# Probe-only: sample peak used memory (MemTotal - MemAvailable; lxcfs-virtualized in Incus containers).
+mem_peak_file="${RUNNER_TEMP:-/tmp}/probe-mem-peak-mib"
+echo 0 > "$mem_peak_file"
+(
+  peak=0
+  while :; do
+    used="$(awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2} END {print int((t-a)/1024)}' /proc/meminfo)"
+    if (( used > peak )); then peak="$used"; echo "$peak" > "$mem_peak_file"; fi
+    sleep 2
+  done
+) &
+mem_sampler=$!
 phase() {
   local now cpu
   now="$(date +%s.%N)"
