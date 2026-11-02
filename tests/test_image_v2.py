@@ -92,6 +92,63 @@ class ImageV2(unittest.TestCase):
             config.write('STANDARDS_TEST_GATE = "off"\n')
         self.assertEqual(self.invoke("inspect").returncode, 0)
 
+    def self_hosted(self):
+        self.env["GITHUB_REPOSITORY"] = "Rubio-Enterprises/standards"
+        link = self.repo / LINK
+        link.unlink()
+        link.symlink_to("../../../mise/standards.toml")
+        (self.repo / "mise").mkdir()
+        (self.repo / "mise/standards.toml").write_text("[tasks.probe]\nrun = 'true'\n")
+        (self.repo / "lefthook").mkdir()
+        (self.repo / "lefthook/standards.yml").write_text("pre-commit: {}\n")
+        (self.repo / "package.json").write_text(json.dumps({
+            "name": "@rubio-enterprises/standards", "version": "2.0.0",
+            "files": ["mise/", "lefthook/"],
+        }))
+        (self.repo / "mise.toml").write_text(
+            '[tasks.setup]\ndepends = ["standards:install"]\n[tasks."standards:install"]\n'
+            'run = \'npm install --prefix .standards --no-save --install-links --no-audit --no-fund --ignore-scripts "$PWD"\'\n'
+        )
+
+    def test_self_hosted_shape_requires_the_standards_repository_and_own_source(self):
+        self.self_hosted()
+        self.assertEqual(self.invoke("inspect").returncode, 0)
+        self.assertEqual(self.outputs(), {"shape": "v2", "release": "latest"})
+        for repo in ["Rubio-Enterprises/consumer", "", "other/standards"]:
+            with self.subTest(repository=repo):
+                self.assertNotEqual(self.invoke("inspect", GITHUB_REPOSITORY=repo).returncode, 0)
+        for file in ["package.json", "mise/standards.toml", "lefthook/standards.yml"]:
+            target = self.repo / file
+            original = target.read_bytes()
+            target.unlink()
+            self.assertNotEqual(self.invoke("inspect").returncode, 0, file)
+            target.write_bytes(original)
+        (self.repo / "package.json").write_text('{"name":"another-package"}')
+        self.assertNotEqual(self.invoke("inspect").returncode, 0)
+
+    @unittest.skipUnless(shutil.which("mise") and shutil.which("npm"), "native mise/npm unavailable")
+    def test_self_hosted_tools_context_can_pack_its_own_source_without_registry_auth(self):
+        self.self_hosted()
+        context = self.prepare_source()
+        pins = context / "pins"
+        self.assertEqual(os.readlink(pins / LINK), "../../../mise/standards.toml")
+        for file in ["mise/standards.toml", "lefthook/standards.yml", "package.json"]:
+            self.assertEqual((pins / file).read_bytes(), (self.repo / file).read_bytes())
+        profile = pins / "mise.repository-image.toml"
+        profile.write_text(profile.read_text().replace("/run/npm-cache", str(self.root / "npm-cache")))
+        result = subprocess.run(
+            ["mise", "run", "standards:install"], cwd=pins,
+            env={**self.env, "NODE_AUTH_TOKEN": "", "MISE_ENV": "repository-image",
+                 "MISE_TRUSTED_CONFIG_PATHS": str(pins), "npm_config_cache": str(self.root / "npm-cache")},
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = pins / ".standards/node_modules/@rubio-enterprises/standards"
+        self.assertFalse(installed.is_symlink())
+        self.assertEqual((installed / "mise/standards.toml").read_bytes(), (pins / "mise/standards.toml").read_bytes())
+        with tarfile.open(context / "build/source.tar") as source:
+            self.assertEqual(source.getmember(LINK).linkname, "../../../mise/standards.toml")
+
     def test_mixed_partial_or_unsafe_shapes_fail_closed(self):
         for name in [".copier-answers.yml", ".config/mise-bootstrap.toml", ".mise.toml", "mise.repository-image.toml"]:
             file = self.repo / name

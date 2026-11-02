@@ -57,7 +57,10 @@ without following them:
 The exact v2 `.config/mise/conf.d/standards.toml` symlink to
 `../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml`
 is preserved in both the source and tool-input contexts, without dereferencing its
-cold target. Other package wiring links are not substituted. Tracked `.standards/`
+cold target. Other package wiring links are not substituted. The self-hosting `Rubio-Enterprises/standards`
+repository instead preserves its exact `../../../mise/standards.toml` link. This requires
+its own package manifest and regular from-tree mise/Lefthook sources; other callers
+with that link still fail closed. Tracked `.standards/`
 payloads are rejected alongside Git and legacy standards checkouts.
 
 Runtime checkouts and workspace bind mounts retain those stubs. A regular,
@@ -91,6 +94,12 @@ Dockerfile. The complete source and language lockfiles feed ordinary
 `CI=true mise run setup` after system tool installation. Repositories without
 mise config skip tool/project setup. A mise-bearing repository must expose a
 build-safe `setup` task; Linux cannot provide Xcode/Homebrew build steps.
+The self-hosting standards repository's native `standards:install` packs its own
+checkout, so its tool-input context includes the complete validated source rather
+than only the usual tool inputs. Source changes invalidate that repository's tool
+layer. No task is replaced: both tool installation and setup use its candidate
+package/from-tree checks, while package prefix and npm cache remain tmpfs and all
+layer audits remain unchanged.
 
 ### Copier-era provisioning
 
