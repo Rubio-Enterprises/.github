@@ -329,8 +329,9 @@ esac
             for forbidden in ("--cache-from", "BUILDKIT_INLINE_CACHE", "--insecure", "ghcr.io/rubio-enterprises/repo"):
                 self.assertNotIn(forbidden, text)
         smoke = docker[2]
-        self.assertIn("--no-cache-filter runtime,dev-1000,dev-1001", smoke)
-        self.assertIn(f"--build-arg DEV_IMAGE={STAGING}/dev@{DEV} --build-arg CI_IMAGE={STAGING}/ci@{CI}", smoke)
+        self.assertIn("--no-cache-filter dev-1000,dev-1001", smoke)
+        self.assertIn(f"--build-arg DEV_IMAGE={STAGING}/dev@{DEV}", smoke)
+        self.assertNotIn("CI_IMAGE", smoke)
         self.assertIn("--output type=cacheonly", smoke)
         self.assertTrue(smoke.endswith(f"{self.context}/smoke"))
         self.assertEqual((self.context / "smoke/Dockerfile").read_text(), (ASSETS / "smoke.Dockerfile").read_text())
@@ -414,30 +415,22 @@ class SmokeStages(unittest.TestCase):
 
     def test_every_stage_is_forced_to_run_and_feeds_the_output(self):
         stages = re.findall(r"^FROM \S+ AS (\S+)$", self.DOCKERFILE, re.MULTILINE)
-        self.assertEqual(stages, ["runtime", "dev-1000", "dev-1001"])
+        self.assertEqual(stages, ["dev-1000", "dev-1001"])
         build = (ASSETS / "build-service.sh").read_text()
         self.assertIn("--no-cache-filter " + ",".join(stages), build)
         final = self.DOCKERFILE.split("FROM scratch\n", 1)[1]
         for stage in stages:
             self.assertIn(f"COPY --from={stage} /tmp/smoke-ok /{stage}", final)
 
-    def test_checks_run_without_network_and_the_ci_cache_check_left_the_per_build_path(self):
-        self.assertEqual(self.DOCKERFILE.count("RUN --network=none"), 3)
-        self.assertNotIn("ci-1000", self.DOCKERFILE)
+    def test_checks_run_without_network_on_the_dev_image_only(self):
+        self.assertEqual(self.DOCKERFILE.count("RUN --network=none"), 2)
         self.assertNotIn("--network=host", self.DOCKERFILE)
         self.assertEqual(len(re.findall(r"cache-smoke\.sh 100[01] &&", self.DOCKERFILE)), 2)
-        self.assertIn("FROM ${CI_IMAGE} AS runtime\nUSER 1000", self.DOCKERFILE)
         self.assertEqual(self.DOCKERFILE.count("FROM ${DEV_IMAGE}"), 2)
+        # The CI image's runtime and cache checks run once per base pair release in devcontainers
+        for gone in ("CI_IMAGE", "runtime", "Runner.Listener", "ci-1000"):
+            self.assertNotIn(gone, self.DOCKERFILE.split("ARG DEV_IMAGE", 1)[1])
         self.assertNotIn("# syntax=", self.DOCKERFILE)  # the daemon's bundled frontend: no extra image pull
-
-    def test_runtime_checks_match_the_ones_they_replace(self):
-        runtime = self.DOCKERFILE.split("<<'SMOKE'\n", 1)[1].split("\nSMOKE", 1)[0]
-        build = (ASSETS / "build.sh").read_text()
-        old = build.split("-euc '", 1)[1].split("\n  '", 1)[0]
-        old_checks = [line.strip() for line in old.splitlines() if line.strip()]
-        self.assertGreater(len(old_checks), 10)
-        for check in old_checks:
-            self.assertIn(check, runtime)
 
 
 class Tools(Workspace):

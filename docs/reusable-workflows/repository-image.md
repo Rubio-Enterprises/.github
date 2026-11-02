@@ -302,7 +302,7 @@ thin client with no Docker daemon, no root and no socket.
 | Features image, recipe build (`ci` target) | Build Service, pushed to the staging registry |
 | `crane` rebase, `verify` | Job, against the staging registry (metadata only) |
 | Image audit | Job, on the layers above the public base only |
-| Runtime and cache smoke checks | Build Service, as `--network=none` build stages (`smoke.Dockerfile`) |
+| Cache smoke checks of the dev image | Build Service, as `--network=none` build stages (`smoke.Dockerfile`) |
 | Trivy secret scan | Job, `--image-src remote` against the staging registry |
 | Copy to GHCR, one-entry indices, aliases | Job, with its own `GITHUB_TOKEN` |
 | Prune untagged versions | `prune`, small route, unchanged |
@@ -344,17 +344,14 @@ stops image builds until it is fixed.
   base layers byte-identical to the published base, which holds no standards content, and skipping them
   saves 40 to 70 percent of the download. `audit.py` accepts a directory of `config.json` and ordered
   `layer-*` blobs besides a saved-image archive.
-- The smoke checks run as stages of `smoke.Dockerfile`: the CI image's runtime check and the dev
-  image's cache check for UID 1000 and 1001. `--no-cache-filter` makes every stage execute on every
-  build. BuildKit has no equivalent of `--memory 1g --pids-limit 512`; the daemon's own cgroup bounds
-  the checks.
-- **The per-build CI image cache check (CI / UID 1000) is gone.** `verify` proves the repository layers
-  and config identical to the dev image's, so only the runner-base additions in `base-ci` can change
-  cache paths. It is meant to run **once per base pair release in `Rubio-Enterprises/devcontainers`**:
-  after publishing a new `base` and `base-ci`, build a reference repository image (the recipe's
-  `environment` stage over a small fixture), rebase it onto the new `base-ci`, and run
-  `cache-smoke.sh 1000` against the result. Until that check exists, `base-ci` releases are unchecked
-  for it.
+- The dev image's cache checks for UID 1000 and 1001 run as stages of `smoke.Dockerfile`.
+  `--no-cache-filter` makes every stage execute on every build. BuildKit has no equivalent of
+  `--memory 1g --pids-limit 512`; the daemon's own cgroup bounds the checks.
+- **The per-build CI image checks (runtime, and cache for UID 1000) are gone.** `verify` proves the
+  CI image is the dev image's repository layers and config on `base-ci`, so only the runner-base
+  additions can differ. They run **once per base pair release**, in the `Base images` workflow of
+  `Rubio-Enterprises/devcontainers`, against `base-ci` plus a reference repository layer. This
+  workflow reuses this action's `cache-smoke.sh` for that check, so keep it compatible.
 
 **Staging.** Builds push `features`, `dev` and `ci` to `<registry>/<owner>/<repo>/…:run-<run>-<attempt>`.
 The registry is disposable; nothing prunes it from here.

@@ -93,7 +93,6 @@ node "$ASSETS/image.mjs" verify "$CONTEXT/verify"
 # Audit only the layers above the public base. verify proved the base layers byte-identical to the published base, so
 # they cannot hold standards content, and skipping them saves 40 percent to 70 percent of the download.
 dev_ref="$(< "$CONTEXT/dev.ref")"
-ci_ref="$(< "$CONTEXT/ci.ref")"
 audit="$CONTEXT/audit"
 mkdir -p "$audit"
 layers="$(node "$ASSETS/image.mjs" above-base "$CONTEXT/verify")"
@@ -107,12 +106,12 @@ python3 "$ASSETS/audit.py" "$audit" "$package" "$CONTEXT/src"
 rm -rf "$audit"
 printf 'Audited registry artifact: %s\n' "$dev_ref"
 
-# Runtime and cache smoke checks run as build stages without network; the CI image's cache check runs once per base release
+# The dev image's cache checks run as build stages without network. The CI image's runtime and cache checks run once per
+# base pair release in Rubio-Enterprises/devcontainers: verify proved its repository layers and config identical to dev's.
 smoke="$CONTEXT/smoke"
 mkdir -p "$smoke"
 cp "$ASSETS/smoke.Dockerfile" "$smoke/Dockerfile"
 cp "$ASSETS/cache-smoke.sh" "$smoke/cache-smoke.sh"
 retry_unavailable docker buildx build --provenance=false --sbom=false --platform "linux/$ARCH" \
-  --no-cache-filter runtime,dev-1000,dev-1001 \
-  --build-arg "DEV_IMAGE=$dev_ref" --build-arg "CI_IMAGE=$ci_ref" \
+  --no-cache-filter dev-1000,dev-1001 --build-arg "DEV_IMAGE=$dev_ref" \
   --output type=cacheonly "$smoke"
