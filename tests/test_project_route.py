@@ -29,7 +29,7 @@ const core = { setOutput: (key, value) => { output[key] = value; }, info: () => 
 const github = { request: async (path, args) => {
   calls.push({path, args});
   if (input.apiError) throw new Error('metadata API unavailable');
-  return {data: input.properties};
+  return {data: path.includes('/git/trees/') ? input.tree : input.properties};
 } };
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 (async () => {
@@ -45,8 +45,9 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 
 
 def run_route(*, route='auto', runners=None, admitted=None, repository=None,
-              name='org-ops', owner='Rubio-Enterprises', properties=None, api_error=False):
-    repo = {'id': ID, 'private': True, 'custom_properties': {
+              name='org-ops', owner='Rubio-Enterprises', properties=None, api_error=False,
+              hosted=False, tree=None):
+    repo = {'id': ID, 'private': True, 'default_branch': 'main', 'custom_properties': {
         'ci-platform': 'linux', 'ci-size': 'small',
     }}
     if repository is not None:
@@ -59,22 +60,29 @@ def run_route(*, route='auto', runners=None, admitted=None, repository=None,
             {'property_name': 'ci-size', 'value': 'small'},
         ],
         'apiError': api_error,
+        'tree': tree if tree is not None else {
+            'sha': 'a' * 40, 'truncated': False, 'tree': [{
+                'path': '.github/.devcontainer/devcontainer.json', 'type': 'blob', 'mode': '100644',
+            }],
+        },
     }
     result = subprocess.run(
         ['node', '-e', HARNESS], input=json.dumps(payload), text=True, capture_output=True,
         check=False, env={**os.environ, 'ROUTE': route,
                           'RUNNERS': json.dumps(RUNNERS if runners is None else runners),
-                          'CI_IMAGE_REPOS': json.dumps([ID] if admitted is None else admitted)},
+                          'CI_IMAGE_REPOS': json.dumps([ID] if admitted is None else admitted),
+                          'ENABLE_HOSTED_IMAGE': str(hosted).lower()},
     )
     return result.returncode, json.loads(result.stdout)
 
 
 class ProjectRouteTests(unittest.TestCase):
-    def assert_route(self, expected, *, image=False, **kwargs):
+    def assert_route(self, expected, *, image=False, hosted_image=False, **kwargs):
         code, result = run_route(**kwargs)
         self.assertEqual(code, 0, result)
         self.assertEqual(json.loads(result['output']['runner']), expected)
         self.assertEqual(result['output']['ci-image'], str(image).lower())
+        self.assertEqual(result['output']['hosted-image'], str(hosted_image).lower())
         return result
 
     def test_both_image_classes_match_the_inventory_labels(self):
@@ -167,6 +175,55 @@ class ProjectRouteTests(unittest.TestCase):
                 code, result = run_route(**kwargs)
                 self.assertEqual(code, 1, result)
                 self.assertEqual(result['output'], {})
+
+    def test_opted_in_hosted_small_and_medium_use_images_without_pool_admission(self):
+        for private in (False, True):
+            for route in ('small', 'medium'):
+                with self.subTest(private=private, route=route):
+                    result = self.assert_route(['ubuntu-latest'], route=route, runners={},
+                                              admitted=[], hosted=True, hosted_image=True,
+                                              repository={'private': private})
+                    self.assertEqual(result['calls'][0]['args']['tree_sha'], 'main')
+
+    def test_hosted_opt_in_does_not_touch_native_image_or_capability_constraints(self):
+        self.assert_route([f'ci-{ID}-org-ops-small'], image=True, hosted=True)
+        self.assert_route(['linux-x64-small'], admitted=[], hosted=True)
+        for route in ('docker', 'kvm', 'arm', 'macos', 'vrt'):
+            result = self.assert_route(
+                {'arm': ['ubuntu-24.04-arm'], 'macos': ['macos-26'],
+                 'vrt': ['linux-x64-medium']}.get(route, ['ubuntu-latest']),
+                route=route, runners={}, hosted=True)
+            self.assertEqual(result['calls'], [])
+        for labels in (['self-hosted', 'linux-x64-small', 'custom'], ['custom-hosted-x64']):
+            result = self.assert_route(labels, runners={'small': labels}, hosted=True)
+            self.assertEqual(result['calls'], [])
+
+    def test_supported_hosted_ubuntu_version_is_preserved(self):
+        for label in ('ubuntu-latest', 'ubuntu-24.04', 'ubuntu-22.04'):
+            self.assert_route([label], hosted=True, hosted_image=True, runners={'small': [label]})
+
+    def test_no_declared_image_keeps_the_plain_hosted_route(self):
+        self.assert_route(['ubuntu-slim'], hosted=True, runners={}, tree={
+            'sha': 'a' * 40, 'truncated': False, 'tree': [],
+        })
+
+    def test_hosted_declaration_errors_fail_without_a_native_fallback(self):
+        trees = [
+            {}, {'sha': 'a' * 40, 'truncated': True, 'tree': []},
+            {'sha': 'bad', 'truncated': False, 'tree': []},
+            {'sha': 'a' * 40, 'truncated': False, 'tree': [{
+                'path': '.github/.devcontainer/devcontainer.json', 'type': 'blob', 'mode': '120000',
+            }]},
+        ]
+        for tree in trees:
+            with self.subTest(tree=tree):
+                code, result = run_route(hosted=True, runners={}, tree=tree)
+                self.assertEqual(code, 1, result)
+                self.assertEqual(result['output'], {})
+        for kwargs in ({'api_error': True}, {'repository': {'default_branch': ''}}):
+            code, result = run_route(hosted=True, runners={}, **kwargs)
+            self.assertEqual(code, 1, result)
+            self.assertEqual(result['output'], {})
 
     def test_workflow_is_route_only_and_uses_no_inherited_secret_or_project_code(self):
         self.assertIn('workflow_call:', WORKFLOW)
