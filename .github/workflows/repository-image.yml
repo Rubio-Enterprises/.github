@@ -240,6 +240,7 @@ jobs:
       - name: Scan both local artifacts for secrets
         shell: bash
         env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
           ARCH: ${{ matrix.arch }}
@@ -333,28 +334,47 @@ jobs:
           # shellcheck disable=SC2016
           template='{{ range . }}{{ $target := .Target }}{{ range .Secrets }}{{ printf "%s:%d-%d: %s (%s)\n" $target .StartLine .EndLine .RuleID .Severity }}{{ end }}{{ end }}'
           for artifact in "$IMAGE" "$CI_IMAGE"; do
+            name=dev
+            if [[ "$artifact" == "$CI_IMAGE" ]]; then name=ci; fi
+            ref="$(< "$CONTEXT/$name.ref")"
             SECONDS=0
             status=0
             "$RUNNER_TEMP/trivy/trivy" image \
-              --image-src docker --scanners secret --image-config-scanners secret \
+              --image-src remote --insecure --scanners secret --image-config-scanners secret \
               --exit-code 1 --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
               --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
               --timeout 15m --format template --template "$template" \
-              "$artifact:sha-$GITHUB_SHA-$ARCH" || status=$?
-            printf 'Secret scan (%s, %s): %s seconds (exit %s)\n' "$artifact" "$ARCH" "$SECONDS" "$status"
+              "$ref" || status=$?
+            printf 'Secret scan (%s, %s): %s seconds (exit %s)\n' "$ref" "$ARCH" "$SECONDS" "$status"
             if [[ "$status" != 0 ]]; then exit "$status"; fi
           done
       - name: Push the scanned architecture image
         if: needs.prepare.outputs.publish == 'true'
         shell: bash
         env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
+          crane_image=gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
+          crane() {
+            docker run --rm --network host --env DOCKER_CONFIG=/auth \
+              --mount "type=bind,src=${DOCKER_CONFIG:-$HOME/.docker},dst=/auth,readonly" \
+              "$crane_image" "$@"
+          }
           for artifact in "$IMAGE" "$CI_IMAGE"; do
-            docker push "$artifact:sha-$GITHUB_SHA-$ARCH"
+            name=dev
+            if [[ "$artifact" == "$CI_IMAGE" ]]; then name=ci; fi
+            ref="$(< "$CONTEXT/$name.ref")"
+            target="$artifact:sha-$GITHUB_SHA-$ARCH"
+            crane copy "$ref" "$target"
+            if [[ "$(crane digest "$target")" != "${ref##*@}" ]]; then
+              echo '::error::Published manifest differs from the audited and scanned artifact'
+              exit 1
+            fi
+            printf 'Published audited/scanned digest: %s -> %s\n' "$ref" "$target"
           done
       - name: Clean job-local artifacts
         if: always()

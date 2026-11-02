@@ -162,6 +162,14 @@ export function validateRebase(base, ciBase, dev, ci, devConfig, ciConfig, arch)
   if (!devConfig.config.Env?.includes('UV_LINK_MODE=copy')) throw new Error('Missing uv copy mode');
 }
 
+export function validateProvenance(dev, ci, baseDigest, ciBaseDigest) {
+  for (const [manifest, expected] of [[dev, baseDigest], [ci, ciBaseDigest]]) {
+    if (!digestPattern.test(expected) || manifest.annotations?.['org.opencontainers.image.base.digest'] !== expected) {
+      throw new Error('Missing or incorrect manifest base digest annotation');
+    }
+  }
+}
+
 function output(key, value) {
   if (/[\r\n]/.test(value)) throw new Error('Multiline output rejected');
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
@@ -347,6 +355,7 @@ function verify() {
   const directory = process.argv[3];
   const read = name => JSON.parse(fs.readFileSync(path.join(directory, `${name}.json`), 'utf8'));
   validateRebase(read('base'), read('base-ci'), read('dev'), read('ci'), read('dev-config'), read('ci-config'), process.env.ARCH);
+  validateProvenance(read('dev'), read('ci'), process.env.BASE?.split('@')[1], process.env.BASE_CI?.split('@')[1]);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

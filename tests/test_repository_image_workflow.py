@@ -85,7 +85,11 @@ class Contracts(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         scan = script("Scan both local artifacts for secrets")
         self.assertIn('for artifact in "$IMAGE" "$CI_IMAGE"', scan)
-        self.assertIn('--image-src docker --scanners secret --image-config-scanners secret', scan)
+        self.assertIn('--image-src remote --insecure --scanners secret --image-config-scanners secret', scan)
+        self.assertIn('"$ref"', scan)
+        build = (ASSETS / "build.sh").read_text()
+        self.assertIn('pull --insecure "$ref" /context/artifact.tar', build)
+        self.assertNotIn('docker image save', build)
         self.assertIn('--config \'\' --ignorefile \'\'', scan)
         self.assertIn('if [[ "$status" != 0 ]]; then exit "$status"; fi', scan)
         self.assertNotIn(".Match", scan)
@@ -286,6 +290,20 @@ class Fixtures(unittest.TestCase):
             if field == "diff_ids": args[5]["rootfs"]["diff_ids"][-1] = "other"
             self.assertNotEqual(self.node("validateRebase", args).returncode, 0, field)
 
+    def test_provenance_rejects_missing_or_wrong_base_on_either_artifact_and_arch(self):
+        key = "org.opencontainers.image.base.digest"
+        for arch in ["amd64", "arm64"]:
+            expected = ["sha256:" + "a" * 64, "sha256:" + "b" * 64]
+            images = [{"annotations": {key: digest}} for digest in expected]
+            self.assertEqual(self.node("validateProvenance", [*images, *expected]).returncode, 0, arch)
+            for artifact in range(2):
+                for value in [None, "sha256:" + "c" * 64, "malformed"]:
+                    damaged = json.loads(json.dumps(images))
+                    damaged[artifact]["annotations"] = {} if value is None else {key: value}
+                    result = self.node("validateProvenance", [*damaged, *expected])
+                    self.assertNotEqual(result.returncode, 0, (arch, artifact, value))
+                    self.assertIn("base digest annotation", result.stderr)
+
     def make_archive(self, files, image_config=None, links=None):
         layer = io.BytesIO()
         with tarfile.open(fileobj=layer, mode="w") as contents:
@@ -398,18 +416,40 @@ class Fixtures(unittest.TestCase):
     def test_two_artifact_secret_scan_is_fail_closed_before_any_push(self):
         binary = self.root / "trivy/trivy"
         binary.parent.mkdir()
-        binary.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/calls"\ncase "${*: -1}" in *-ci:*) exit "${CI_STATUS:-0}";; *) exit "${DEV_STATUS:-0}";; esac\n')
+        binary.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/calls"\ncase "${*: -1}" in */ci@*) exit "${CI_STATUS:-0}";; *) exit "${DEV_STATUS:-0}";; esac\n')
         binary.chmod(0o755)
         self.env.update(IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer", CI_IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer-ci",
-                        ARCH="arm64", GITHUB_SHA="a" * 40, PATH=str(self.root) + os.pathsep + os.environ["PATH"])
-        self.stub("docker", 'touch "$RUNNER_TEMP/pushed"\n')
+                        CONTEXT=str(self.root), ARCH="arm64", GITHUB_SHA="a" * 40,
+                        PATH=str(self.root) + os.pathsep + os.environ["PATH"])
+        digest = "sha256:" + "b" * 64
+        for name in ["dev", "ci"]:
+            (self.root / f"{name}.ref").write_text(f"127.0.0.1:12345/repository/{name}@{digest}\n")
+        self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
+for arg in "$@"; do
+  if [[ "$arg" = copy ]]; then touch "$RUNNER_TEMP/pushed"; exit "${COPY_STATUS:-0}"; fi
+  if [[ "$arg" = digest ]]; then printf '%s\\n' "${PUBLISHED_DIGEST:-sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"; exit; fi
+done
+exit 2
+''')
         source = script("Scan both local artifacts for secrets") + script("Push the scanned architecture image")
         for dev, ci in [(1, 0), (0, 1), (0, 2), (0, 0)]:
             (self.root / "pushed").unlink(missing_ok=True)
             result = subprocess.run(["bash", "-e", "-c", source], env={**self.env, "DEV_STATUS": str(dev), "CI_STATUS": str(ci)}, capture_output=True, text=True)
             self.assertEqual(result.returncode, dev or ci, result.stderr)
             self.assertEqual((self.root / "pushed").exists(), not (dev or ci))
-            self.assertNotIn(".Match", (self.root / "calls").read_text())
+            calls = (self.root / "calls").read_text()
+            self.assertNotIn(".Match", calls)
+            self.assertIn("--image-src remote --insecure", calls)
+            self.assertIn("/dev@" + digest, calls)
+            if dev == 0:
+                self.assertIn("/ci@" + digest, calls)
+        copies = (self.root / "docker-calls").read_text()
+        for name in ["dev", "ci"]:
+            self.assertIn("copy " + (self.root / f"{name}.ref").read_text().strip(), copies)
+        self.assertNotIn("push ghcr.io", copies)
+        for overrides in [{"COPY_STATUS": "2"}, {"PUBLISHED_DIGEST": "sha256:" + "c" * 64}]:
+            result = subprocess.run(["bash", "-e", "-c", source], env={**self.env, **overrides}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, overrides)
 
     def test_build_orchestration_with_native_architecture_and_rebase_fixtures(self):
         context = self.root / "context"
@@ -425,14 +465,15 @@ if [[ "$1" = info ]]; then echo "$DOCKER_ARCH"; exit; fi
 if [[ "$1" = port ]]; then echo 127.0.0.1:12345; exit; fi
 if [[ "$1 $2" = 'image save' ]]; then cp "$RUNNER_TEMP/artifact.tar" "${*: -1}"; exit; fi
 for arg in "$@"; do
+  if [[ "$arg" = pull ]]; then cp "$RUNNER_TEMP/artifact.tar" "$CONTEXT/artifact.tar"; exit; fi
   if [[ "$arg" = digest ]]; then printf 'sha256:%064d\\n' 0; exit; fi
   if [[ "$arg" = manifest || "$arg" = config ]]; then
     ref="${*: -1}"
     case "$ref" in
       *base-ci@*) name=base-ci;;
       *base@*) name=base;;
-      */dev:*) name=dev;;
-      */ci:*) name=ci;;
+      */dev:*|*/dev@*) name=dev;;
+      */ci:*|*/ci@*) name=ci;;
       *) exit 2;;
     esac
     if [[ "$arg" = config ]]; then name="$name-config"; fi
@@ -446,6 +487,8 @@ done
         fixtures = self.root / "fixtures"
         fixtures.mkdir()
         args = self.rebased()
+        for item, char in [(args[2], "a"), (args[3], "b")]:
+            item["annotations"] = {"org.opencontainers.image.base.digest": "sha256:" + char * 64}
         for arch, native in [("amd64", "x86_64"), ("arm64", "aarch64")]:
             for item in args[4:6]: item["architecture"] = arch
             for name, data in zip(["base", "base-ci", "dev", "ci", "dev-config", "ci-config"], args[:6]):
@@ -471,6 +514,18 @@ done
             self.assertNotIn("push ghcr.io", calls)
             self.assertNotIn("--build-arg STANDARDS_PIN", calls)
             self.assertIn("--platform linux/" + arch, (self.root / "cli-call").read_text())
+            self.assertIn("pull --insecure " + (context / "ci.ref").read_text().strip(), calls)
+            self.assertNotIn("image save", calls)
+            self.assertNotIn("rm -f repository-image-", calls)
+            for name in ["dev", "ci"]:
+                good = (fixtures / f"{name}.json").read_text()
+                damaged = json.loads(good)
+                damaged.pop("annotations")
+                (fixtures / f"{name}.json").write_text(json.dumps(damaged))
+                rejected = subprocess.run(["bash", str(ASSETS / "build.sh")], env=env, capture_output=True, text=True)
+                self.assertNotEqual(rejected.returncode, 0, (arch, name))
+                self.assertIn("base digest annotation", rejected.stderr)
+                (fixtures / f"{name}.json").write_text(good)
             (self.root / "docker-calls").unlink()
             result = subprocess.run(["bash", str(ASSETS / "build.sh")], env={**env, "DOCKER_ARCH": "wrong"}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
