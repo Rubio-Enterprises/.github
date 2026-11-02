@@ -178,7 +178,7 @@ function prepare() {
   const [container] = JSON.parse(invoke('docker', ['inspect', state.container], { capture: true }).stdout);
   if (container.Config?.Labels?.['rubio.project-command'] !== state.label) throw new Error('CLI container ownership mismatch');
   invoke('docker', ['exec', '--user', 'root', state.container, 'chown', '-R',
-    `${process.getuid()}:${process.getgid()}`, '/usr/local/share/mise', '/usr/local/share/mise-shims', '/var/cache/devcontainer']);
+    `${process.getuid()}:${process.getgid()}`, '/usr/local/share/mise', '/usr/local/share/mise-shims']);
   cli(state, root, ['run-user-commands', '--default-user-env-probe', 'none', '--skip-post-attach']);
   const uid = cli(state, root, ['exec', 'id', '-u'], { capture: true }).stdout.trim();
   if (!/^\d+$/.test(uid) || uid === '0') throw new Error('Project commands must run as a nonroot user');
