@@ -352,49 +352,8 @@ jobs:
             fi
             printf 'Published verified digest: %s -> %s\n' "$ref" "$target"
           done
-      - name: Clean job-local artifacts
-        if: always()
-        shell: bash
-        env:
-          CONTEXT: ${{ steps.inputs.outputs.context }}
-          IMAGE: ${{ needs.prepare.outputs.image }}
-          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
-        run: |
-          rm -rf "$RUNNER_TEMP/standards-registry-cache"
-          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
-          docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
-          if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
-
-  build:
-    name: Build (amd64)
-    needs: prepare
-    if: needs.prepare.outputs.publish == 'true'
-    permissions:
-      contents: read
-      packages: write
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
-    timeout-minutes: 120
-    env: *build-env
-    steps: *build-steps
-
-  merge:
-    name: Publish amd64 image indices
-    needs: [prepare, build]
-    permissions:
-      packages: write
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
-    timeout-minutes: 15
-    env: *build-env
-    steps:
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Log in to GHCR
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
       - name: Publish single-platform indices and cache aliases
+        if: needs.prepare.outputs.publish == 'true'
         shell: bash
         env:
           IMAGE: ${{ needs.prepare.outputs.image }}
@@ -419,10 +378,34 @@ jobs:
               ' > /dev/null
             done
           done
+      - name: Clean job-local artifacts
+        if: always()
+        shell: bash
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+        run: |
+          rm -rf "$RUNNER_TEMP/standards-registry-cache"
+          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
+          docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
+          if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
+
+  build:
+    name: Build and publish (amd64)
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 120
+    env: *build-env
+    steps: *build-steps
 
   prune:
     name: Prune untagged versions
-    needs: [prepare, merge]
+    needs: [prepare, build]
     permissions:
       packages: write
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}

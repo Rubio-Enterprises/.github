@@ -294,9 +294,10 @@ tags; no arm64 tags or cache aliases are produced.
 Inline BuildKit cache is exported and the dev `:main-amd64` alias is imported.
 Cache misses are valid; a real second build must demonstrate reuse. Base refresh
 does not fan out child builds. Per-repository/ref concurrency cancels superseded
-runs. The merge job advances both indices only after the amd64 build passes;
-registry writes across two packages are not atomic. Retention keeps five untagged
-versions per package, never deleting tagged history or index children.
+runs. The build job itself advances both indices, after its verified push; there
+is no second Docker-capable publication job. Registry writes across two packages are
+not atomic. Retention keeps five untagged versions per package, never deleting
+tagged history or index children.
 
 ## Caller and migration
 

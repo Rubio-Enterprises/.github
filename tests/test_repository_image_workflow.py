@@ -63,7 +63,8 @@ class Contracts(unittest.TestCase):
         executable = "\n".join(line for line in TEXT.splitlines() if not line.lstrip().startswith("#"))
         self.assertNotIn("arm64", executable)
         self.assertNotIn("ARM64", TEXT)
-        self.assertNotIn("strategy:", TEXT.split("\n  merge:\n", 1)[0])
+        self.assertNotIn("\n  merge:\n", TEXT)
+        self.assertNotIn("strategy:", TEXT.split("\n  prune:\n", 1)[0])
         self.assertIn("steps: *build-steps", TEXT)
         self.assertNotIn("continue-on-error", TEXT)
         self.assertNotIn("qemu", TEXT.lower())
@@ -86,7 +87,8 @@ class Contracts(unittest.TestCase):
     def test_build_scan_publish_and_retention(self):
         names = ["Provision native shared config", "Require the image build pin",
                  "Prepare central generic build inputs", "Build, audit and verify the image pair",
-                 "Scan the dev artifact for secrets", "Push the verified image pair"]
+                 "Scan the dev artifact for secrets", "Push the verified image pair",
+                 "Publish single-platform indices and cache aliases", "Clean job-local artifacts"]
         positions = [TEXT.index(f"- name: {name}") for name in names]
         self.assertEqual(positions, sorted(positions))
         scan = script("Scan the dev artifact for secrets")
@@ -102,8 +104,8 @@ class Contracts(unittest.TestCase):
         self.assertIn('if [[ "$status" != 0 ]]; then exit "$status"; fi', scan)
         self.assertNotIn(".Match", scan)
         self.assertNotIn(".Content", scan)
-        self.assertIn('needs: [prepare, build]', TEXT)
-        self.assertIn('needs: [prepare, merge]', TEXT)
+        self.assertEqual(TEXT.count('needs: [prepare, build]'), 1)
+        self.assertNotIn('merge]', TEXT)
         self.assertIn('delete-only-untagged-versions: "true"', TEXT)
         self.assertIn('min-versions-to-keep: 5', TEXT)
         self.assertIn('ci-image: ${{ steps.image.outputs.image }}-ci', TEXT)
@@ -130,6 +132,14 @@ class Contracts(unittest.TestCase):
         self.assertIn('/usr/bin/gh --version', smoke)
         self.assertIn('/usr/bin/jq --version', smoke)
         self.assertIn('test ! -e "$workspace/.standards/node_modules"', smoke)
+
+    def test_build_job_publishes_indices_after_its_verified_push(self):
+        steps = TEXT.split("steps: &build-steps", 1)[1].split("\n  build:\n", 1)[0]
+        publish = steps.index("- name: Publish single-platform indices and cache aliases")
+        self.assertLess(steps.index("- name: Push the verified image pair"), publish)
+        self.assertLess(publish, steps.index("- name: Clean job-local artifacts"))
+        self.assertIn("if: needs.prepare.outputs.publish == 'true'", steps[publish:publish + 200])
+        self.assertIn("needs: [prepare, build]", TEXT.split("\n  prune:\n", 1)[1])
 
     def test_legacy_reusable_is_retired(self):
         self.assertFalse((ROOT / ".github/workflows/devcontainer-image.yml").exists())
