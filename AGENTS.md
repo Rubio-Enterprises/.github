@@ -43,8 +43,7 @@ preset are retired (standards v2 flag day, 2026-10-31).
 | --- | --- |
 | `project-route.yml` | Selects native runs-on JSON for project jobs from declared platform/size, RUNNERS and central CI Image admission. Read [`docs/reusable-workflows/project-route.md`](docs/reusable-workflows/project-route.md) before changing routing, adding a caller or skipping image-job bootstrap |
 | `release-please.yml` | release-please with the `rubio-release-please` App token; the starter caller runs it when `release-please-config.json` exists. See [`docs/reusable-workflows/release-please.md`](docs/reusable-workflows/release-please.md) |
-| `repository-image.yml` | Per-repository Dev Container and CI images; the starter caller runs it when `.github/.devcontainer/devcontainer.json` exists. See [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) |
-| `devcontainer-image.yml` | Native amd64/arm64 Dev Container prebuilds, GHCR multi-arch publication and untagged pruning; read [`docs/reusable-workflows/devcontainer-image.md`](docs/reusable-workflows/devcontainer-image.md) before editing its publication or retention contract |
+| `repository-image.yml` | amd64-only per-repository Dev Container and CI image indices; the starter caller runs it when `.github/.devcontainer/devcontainer.json` exists. Read [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) before changing publication, rebase verification or checks |
 | `codewiki-pages.yml` | Push-to-default deploy of a committed CodeWiki (`docs/codewiki/` minus `temp/`, requires the `index.html` viewer) to Pages; the starter caller runs it when `docs/codewiki/metadata.json` exists. Caller grants `contents: read`, `pages: write`, `id-token: write`; Pages enablement/visibility is `.github-private` Terraform's. See [`docs/reusable-workflows/codewiki-pages.md`](docs/reusable-workflows/codewiki-pages.md) |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-range gitleaks scan runs in the package's `check:pr` |
 | `e2e.yml` | E2E harness for a suite that needs its own job; accepts apex `scripts.e2e` or a repo-owned `mise run e2e`, requires nonempty JUnit at `reports/e2e/junit.xml`, supports optional `scripts.e2e:setup` or a mise `e2e-setup` task, and runs `mise run setup` first (the caller grants `packages: read`). Routes `ci-platform = macos` callers to `RUNNERS.macos`, others to `RUNNERS.arm`. Does **not** start a dev server (see its header). Most repositories run `e2e` in their Test Gate instead |
@@ -57,13 +56,13 @@ ops, not reusables: `test-gate` runs `tests/` and reports the `test-gate` contex
 
 `bump-brew.yml` is invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
 
-**`actions/standards-bootstrap` (legacy).** The image builders (`repository-image.yml`,
-`devcontainer-image.yml`) still provision the Copier-era Shared Config Directory
+**`actions/standards-bootstrap` (legacy).** The image builder (`repository-image.yml`)
+still provisions the Copier-era Shared Config Directory
 (`.standards-config/`, standards `legacy/copier`, read through the `rubio-standards-reader`
 App) for a repository that has not migrated to the package
 ([`docs/standards-bootstrap.md`](docs/standards-bootstrap.md)). No other workflow here uses it.
-Delete it once no image-building repository carries `.standards-config` and the image builders
-drop their legacy path.
+Delete it once no image-building repository carries `.standards-config` and the image builder
+drops its legacy path.
 
 There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
 Repositories join the onboarded set with `npm init @rubio-enterprises/standards`, which copies

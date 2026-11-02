@@ -1,9 +1,15 @@
 # Repository image builder
 
 `repository-image.yml` is the generic builder for ADR-0036. It supports both the
-Standards Package (v2) and Copier-era consumers during migration. The
-`devcontainer-image.yml` entry point delegates v2 generic definitions here and
-retains its original Dockerfile build path for legacy consumers.
+Standards Package (v2) and Copier-era consumers during migration. Repository
+images are built and published for **linux/amd64 only**. Public `base` and
+`base-ci` images remain multi-architecture for local arm64 builds.
+
+Merging the x64-only workflow makes every caller's next image build x64-only.
+Apple Silicon pulls of `:main` or `:sha-<commit>` fail with no matching manifest
+until the fleet adds `.devcontainer/local/devcontainer.json` with a local build
+recipe. This transition is owner-accepted (standards#848); forcing amd64 emulation
+is not the local-build path.
 
 ## Contract
 
@@ -28,7 +34,7 @@ Features **before** tool/dependency setup. Its feature metadata stays on the
 Repository Image. A neighboring `devcontainer-lock.json` is used when present.
 
 The reusable defaults to these floating public indices, resolves them once per
-run, and shares immutable references across native amd64/arm64 jobs. Resolution
+run, and shares immutable references across its native amd64 jobs. Resolution
 reads them anonymously through the GHCR registry API and checks every
 digest-addressed manifest and config against its digest, so the resolving job
 runs on the `small` route without a Docker daemon:
@@ -38,7 +44,8 @@ runs on the `small` route without a Docker daemon:
 
 The `base` and `base-ci` inputs can instead supply those same package names with
 `@sha256:<64 lowercase hex>` for qualification. Both must contain exactly one
-Linux image per architecture. Each base-ci config must label
+`linux/amd64` entry; other architectures are not fetched or validated by CI.
+The amd64 base-ci config must label
 `org.opencontainers.image.base.digest` with the resolved **base index digest**,
 and preserve the compressed/uncompressed base layer prefix. Mismatches fail;
 there is no fallback to another base or architecture emulation.
@@ -192,24 +199,29 @@ contents match a bundle file, such as the rendered `treefmt.toml` bridge.
 The workflow never changes GHCR visibility, package links or access grants.
 Verify both packages' visibility and same-repository token access before adoption.
 
-Each native job uses a job-local registry (loopback ephemeral port), builds the
+Each amd64 job uses a job-local registry (loopback ephemeral port), builds the
 dev image, and uses digest-pinned crane 0.22.1 to rebase onto the matching base-ci.
 It compares compressed repository layer descriptors, uncompressed diff IDs,
-architecture and full runtime config before/after. Both native architectures must
+architecture and full runtime config before/after. Both variants must
 have manifest `org.opencontainers.image.base.digest` annotations matching the
 resolved base index for dev and the resolved base-ci index for CI. Missing or
 incorrect provenance fails the build. Rebase retains dev config;
 base-ci ENV/USER/labels are not assumed to become the CI environment.
 
-The local registry remains alive through scanning and publication. Audits pull
-its digest-addressed artifacts with crane; Trivy scans those same immutable
-registry references. After both scans pass, crane copies those exact manifests
+The local registry remains alive through scanning and publication. The audit pulls
+the digest-addressed dev artifact with crane; Trivy scans that same immutable
+registry reference. The CI variant relies on `validateRebase`'s exact repository
+layer descriptors/diff IDs and runtime-config equality, plus `validateProvenance`
+for both base annotations. Its only additional bytes come from the validated
+public base-ci prefix, not another repository build. It is not audited or scanned
+a second time; this does not claim to scan the runner base's additional layers.
+After verification, audit, smoke tests and the scan pass, crane copies both exact manifests
 to GHCR and verifies destination digest equality. Docker-loaded copies are only
 for runtime smoke tests: classic Docker image storage can drop annotations
 and reserialize the manifest when pushing. The workflow's
 always-cleanup step removes the registry on success, failure or cancellation.
 
-Before external push, both registry artifacts are inspected across **all layers**,
+Before external push, the dev artifact is inspected across **all layers**,
 including files hidden/deleted by later layers, for persisted standards paths,
 links, exact bundle-only file hashes (files at least 128 bytes) and the build pin.
 The package-root `package/LICENSE` is public legal metadata and does not supply a
@@ -224,35 +236,46 @@ too. This catches direct bundle-only copies, not arbitrary transformations of
 policy by trusted project setup; source/mount discipline is still necessary.
 Reports never render matching contents. The CI smoke runs as
 UID 1000 under no-new-privileges and checks the runner, mise/gh/jq, writable
-cache/tool/runner paths and uv copy mode. Both dev and CI artifacts also seed
-nested cache and SDK-home metadata as UID 1000 and verify append/create/rename/delete
-as UID 1000 and, in a separate disposable container, UID/GID 1001 after the CLI's
-home-only ownership migration. Only that test's identity migration runs as root;
-cache writes and project setup run as vscode. This is not a test of arbitrary Feature
+cache/tool/runner paths and uv copy mode. Cache smoke seeds nested cache and
+SDK-home metadata and checks append/create/rename/delete:
+
+| Variant / UID | Coverage |
+| --- | --- |
+| dev / 1000 | Original vscode ownership, without UID migration; retained. |
+| dev / 1001 | Dev Container CLI home-only UID/GID migration; retained. |
+| CI / 1000 | Fixed runner identity on the different merged base-ci filesystem; retained because runner-base additions can affect cache paths despite repository-layer identity. |
+| CI / 1001 | Omitted: Container Pool runners use UID 1000, do not run the CLI's UID migration, and dev / 1001 already tests that migration. |
+
+Only the dev / 1001 identity migration runs as root; cache writes and project setup
+run as vscode. This is not a test of arbitrary Feature
 lifecycle commands: plain Container Pool runners do not interpret Dev Container
 metadata. Runtime setup and Feature-specific behavior require caller qualification.
 Docker/KVM/ARM project jobs stay on Machine Pools; macOS native jobs stay native.
 
-The checksum-pinned Trivy 0.76.1 policy is identical in both reusables, scanning
-both local-registry artifacts' filesystem and image config/history with no caller ignore
+Checksum-pinned Trivy 0.76.1 scans the dev artifact's filesystem and image
+config/history once with no caller ignore
 policy and no matched secret text. Public mise install trees, Rustup/uv-managed
 SDK directories and Go/Bun/Cargo/package caches, including RubyGems/Bundler
 packages and cached gem archives, use scan-root-anchored exclusions. Home
 credentials/configuration, first-party source outside preserved dependency exclusions, and environment/history retain
 the same severities. The exact scopes, preserved defaults and blind spots are
-documented in [the legacy reusable](devcontainer-image.md#secret-checks). No
-scan failure/scanner error can proceed to external push. A failed native job
-blocks both multiarch moving tags and pruning. A successful peer may already
-have pushed its individually scanned architecture tags.
+documented under [Secret checks](repository-image-secrets.md). No scan failure/scanner error
+can proceed to either external push. A failed build blocks both moving indices
+and pruning.
 
 PR jobs have only contents/packages read; default-branch push/schedule/manual
 jobs have package write. Fork PRs receive no standards secrets and fail closed.
 No privileged PR trigger is supported. All third-party actions are SHA-pinned.
-Both packages use `:main`, `:sha-<commit>`, and corresponding architecture tags.
-Inline BuildKit cache is exported and the dev `:main-<arch>` alias is imported.
+Both packages use `:main` and `:sha-<commit>` as manifest lists containing exactly
+one `linux/amd64` child. `imagetools create --prefer-index=true` explicitly wraps
+the single child instead of copying a bare manifest (which could allow implicit
+amd64 emulation on an arm64 host). Publication checks both indices' raw media
+type and platform count. `:sha-<commit>-amd64` and `:main-amd64` remain single-image
+tags; no arm64 tags or cache aliases are produced.
+Inline BuildKit cache is exported and the dev `:main-amd64` alias is imported.
 Cache misses are valid; a real second build must demonstrate reuse. Base refresh
 does not fan out child builds. Per-repository/ref concurrency cancels superseded
-runs. The merge job advances both indices only after both architectures pass;
+runs. The merge job advances both indices only after the amd64 build passes;
 registry writes across two packages are not atomic. Retention keeps five untagged
 versions per package, never deleting tagged history or index children.
 
@@ -314,23 +337,24 @@ through its existing `GITHUB_TOKEN`. The copy-once v2 workflow can call this reu
 when the generic build-definition file exists. V2 definitions with Dockerfiles are
 rejected rather than adapted with token-bearing build arguments.
 
-**For unmigrated bookmark-scraper and karakeep revisions**, their
-current build definitions include Dockerfiles, baseline Features and cache paths;
-the new path deliberately rejects that shape. T1 must migrate definitions/locks,
-build-safe setup and runtime cache mounts together, then point callers at this
-reusable only after the bases exist and both native images pass qualification.
-Karakeep's Python prerequisite belongs in its extra apt Feature (installed before
-setup). Bookmark-scraper's desktop/Docker Features retain runtime metadata and
-need their own lifecycle qualification. Removing old Dockerfiles/ignore files and
-retiring the legacy reusable are separate, coordinated changes. No implicit
-fallback, publication, visibility mutation, workflow dispatch or consumer change
-is part of introducing this unused reusable.
+Legacy definitions with Dockerfiles, baseline Features or cache overrides must
+migrate to the generic definition before calling this reusable. Feature-specific
+lifecycle behavior still needs caller qualification.
+
+The legacy `devcontainer-image.yml` reusable is retired. On 2026-11-02 an API
+inventory enumerated all 112 non-archived organization repositories, pinned each
+nonempty default branch to a commit, listed `.github/workflows/` through the
+Contents API and read all 347 workflow blobs. There were zero references to
+`devcontainer-image.yml@` and zero API errors; code search was not used as the
+caller-free proof. Historical/nondefault branches must use the supported reusable
+when revived.
 
 ## Validation boundary
 
 Local contracts exercise base pairing and mismatch rejection, exact rebase
 layer/config equality, clean source preparation, definition rejection, the
-standards-layer audit and both-artifact fail-closed scans. actionlint checks the
+standards-layer audit, single dev fail-closed scan, amd64-only routing and
+one-entry index publication. actionlint checks the
 workflow; shellcheck checks build orchestration. Native builds, first/second cache
 behavior, registry association/visibility and real runner lifecycle remain
 qualification gates, not claims established by fixtures. No base publication is

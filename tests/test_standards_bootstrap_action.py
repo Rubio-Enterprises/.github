@@ -71,7 +71,7 @@ class CallerTests(unittest.TestCase):
             for path in (ROOT / ".github" / "workflows").glob("*.yml")
             if "actions/standards-bootstrap@" in path.read_text(encoding="utf-8")
         }
-        self.assertEqual(callers, {"repository-image.yml", "devcontainer-image.yml"})
+        self.assertEqual(callers, {"repository-image.yml"})
 
 
 class InterfaceTests(unittest.TestCase):

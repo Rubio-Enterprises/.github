@@ -59,7 +59,7 @@ class RepositoryImageCaches(unittest.TestCase):
     def test_new_cache_paths_retain_package_only_secret_scan_exclusions(self):
         for filename in ("Dockerfile", "Dockerfile.v2"):
             environment = cache_environment(filename)
-            for workflow in ("repository-image.yml", "devcontainer-image.yml"):
+            for workflow in ("repository-image.yml",):
                 source = (ROOT / ".github/workflows" / workflow).read_text()
                 policy = source.split("skip-patterns:\n", 1)[1].split("exclude-block:", 1)[0]
                 patterns = re.findall(r'^\s*- "([^"]+)"$', policy, re.MULTILINE)
@@ -70,9 +70,11 @@ class RepositoryImageCaches(unittest.TestCase):
                 for sample in CONFIG_SAMPLES:
                     self.assertFalse(any(fnmatch.fnmatchcase(sample, pattern) for pattern in patterns), sample)
 
-    def test_built_dev_and_ci_artifacts_probe_original_and_remapped_users(self):
+    def test_dev_checks_both_uids_and_ci_checks_only_its_fixed_uid(self):
         build = (ASSETS / "build.sh").read_text()
-        self.assertIn('for artifact in "$IMAGE" "$CI_IMAGE"; do\n  for uid in 1000 1001; do', build)
+        self.assertIn('uids=(1000)', build)
+        self.assertIn('if [[ "$artifact" == "$IMAGE" ]]; then uids+=(1001); fi', build)
+        self.assertIn('for uid in "${uids[@]}"; do', build)
         self.assertIn('-s -- "$uid" < "$ASSETS/cache-smoke.sh"', build)
         smoke = (ASSETS / "cache-smoke.sh").read_text()
         self.assertIn('chown -R "$uid:$uid" /home/vscode', smoke)

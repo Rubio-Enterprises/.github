@@ -113,24 +113,17 @@ jobs:
           base-ci: ${{ inputs.base-ci }}
 
   validate:
-    name: Validate (${{ matrix.arch }})
+    name: Validate (amd64)
     needs: prepare
     if: needs.prepare.outputs.publish == 'false'
     permissions:
       contents: read
       packages: read
-    strategy: &architectures
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
-          - arch: arm64
-            runner: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 120
     # Keep pruning from deleting untagged attestation manifests referenced by an index
     env: &build-env
+      ARCH: amd64
       BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
     steps: &build-steps
       - name: Check out the caller
@@ -155,13 +148,11 @@ jobs:
           fi
       - name: Verify native Docker architecture
         shell: bash
-        env:
-          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           actual="$(docker info --format '{{.Architecture}}')"
           case "$ARCH:$actual" in
-            amd64:x86_64|amd64:amd64|arm64:aarch64|arm64:arm64) ;;
+            amd64:x86_64|amd64:amd64) ;;
             *) echo "::error::Docker architecture does not match linux/$ARCH"; exit 1 ;;
           esac
       - name: Set up Buildx
@@ -208,24 +199,18 @@ jobs:
           operation: pack
       - name: Install checksum-pinned Trivy
         shell: bash
-        env:
-          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           version=0.76.1
-          case "$ARCH" in
-            amd64) platform=64bit; checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0 ;;
-            arm64) platform=ARM64; checksum=e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f ;;
-            *) echo "::error::Unsupported Trivy architecture"; exit 1 ;;
-          esac
+          checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
           archive="$RUNNER_TEMP/trivy.tar.gz"
           curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
             --output "$archive" \
-            "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-${platform}.tar.gz"
+            "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-64bit.tar.gz"
           printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/trivy"
           tar -xzf "$archive" -C "$RUNNER_TEMP/trivy" trivy
-      - name: Build, rebase and audit both architecture artifacts
+      - name: Build, audit and verify the image pair
         shell: bash
         env:
           ASSETS: ${{ steps.inputs.outputs.assets }}
@@ -234,16 +219,12 @@ jobs:
           BASE_CI: ${{ needs.prepare.outputs.base-ci }}
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
-          ARCH: ${{ matrix.arch }}
           DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
         run: bash "$ASSETS/build.sh"
-      - name: Scan both local artifacts for secrets
+      - name: Scan the dev artifact for secrets
         shell: bash
         env:
           CONTEXT: ${{ steps.inputs.outputs.context }}
-          IMAGE: ${{ needs.prepare.outputs.image }}
-          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
-          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           trap 'rm -rf "$RUNNER_TEMP/trivy-cache"' EXIT
@@ -333,29 +314,24 @@ jobs:
           TRIVY
           # shellcheck disable=SC2016
           template='{{ range . }}{{ $target := .Target }}{{ range .Secrets }}{{ printf "%s:%d-%d: %s (%s)\n" $target .StartLine .EndLine .RuleID .Severity }}{{ end }}{{ end }}'
-          for artifact in "$IMAGE" "$CI_IMAGE"; do
-            name=dev
-            if [[ "$artifact" == "$CI_IMAGE" ]]; then name=ci; fi
-            ref="$(< "$CONTEXT/$name.ref")"
-            SECONDS=0
-            status=0
-            "$RUNNER_TEMP/trivy/trivy" image \
-              --image-src remote --insecure --scanners secret --image-config-scanners secret \
-              --exit-code 1 --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
-              --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
-              --timeout 15m --format template --template "$template" \
-              "$ref" || status=$?
-            printf 'Secret scan (%s, %s): %s seconds (exit %s)\n' "$ref" "$ARCH" "$SECONDS" "$status"
-            if [[ "$status" != 0 ]]; then exit "$status"; fi
-          done
-      - name: Push the scanned architecture image
+          ref="$(< "$CONTEXT/dev.ref")"
+          SECONDS=0
+          status=0
+          "$RUNNER_TEMP/trivy/trivy" image \
+            --image-src remote --insecure --scanners secret --image-config-scanners secret \
+            --exit-code 1 --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
+            --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
+            --timeout 15m --format template --template "$template" \
+            "$ref" || status=$?
+          printf 'Secret scan (%s, %s): %s seconds (exit %s)\n' "$ref" "$ARCH" "$SECONDS" "$status"
+          if [[ "$status" != 0 ]]; then exit "$status"; fi
+      - name: Push the verified image pair
         if: needs.prepare.outputs.publish == 'true'
         shell: bash
         env:
           CONTEXT: ${{ steps.inputs.outputs.context }}
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
-          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           crane_image=gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
@@ -371,10 +347,10 @@ jobs:
             target="$artifact:sha-$GITHUB_SHA-$ARCH"
             crane copy "$ref" "$target"
             if [[ "$(crane digest "$target")" != "${ref##*@}" ]]; then
-              echo '::error::Published manifest differs from the audited and scanned artifact'
+              echo '::error::Published manifest differs from the verified artifact'
               exit 1
             fi
-            printf 'Published audited/scanned digest: %s -> %s\n' "$ref" "$target"
+            printf 'Published verified digest: %s -> %s\n' "$ref" "$target"
           done
       - name: Clean job-local artifacts
         if: always()
@@ -383,7 +359,6 @@ jobs:
           CONTEXT: ${{ steps.inputs.outputs.context }}
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
-          ARCH: ${{ matrix.arch }}
         run: |
           rm -rf "$RUNNER_TEMP/standards-registry-cache"
           docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
@@ -391,20 +366,19 @@ jobs:
           if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
 
   build:
-    name: Build (${{ matrix.arch }})
+    name: Build (amd64)
     needs: prepare
     if: needs.prepare.outputs.publish == 'true'
     permissions:
       contents: read
       packages: write
-    strategy: *architectures
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 120
     env: *build-env
     steps: *build-steps
 
   merge:
-    name: Publish multi-architecture image
+    name: Publish amd64 image indices
     needs: [prepare, build]
     permissions:
       packages: write
@@ -420,7 +394,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Publish multi-architecture tags and cache aliases
+      - name: Publish single-platform indices and cache aliases
         shell: bash
         env:
           IMAGE: ${{ needs.prepare.outputs.image }}
@@ -428,15 +402,22 @@ jobs:
         run: |
           set -euo pipefail
           for artifact in "$IMAGE" "$CI_IMAGE"; do
-          docker buildx imagetools create \
-            --tag "$artifact:main" --tag "$artifact:sha-$GITHUB_SHA" \
-            "$artifact:sha-$GITHUB_SHA-amd64" "$artifact:sha-$GITHUB_SHA-arm64"
-          for arch in amd64 arm64; do
+            # A bare manifest permits implicit emulation on arm64; an index fails platform selection.
+            docker buildx imagetools create --prefer-index=true \
+              --tag "$artifact:main" --tag "$artifact:sha-$GITHUB_SHA" \
+              "$artifact:sha-$GITHUB_SHA-amd64"
             docker buildx imagetools create --prefer-index=false \
-              --tag "$artifact:main-$arch" "$artifact:sha-$GITHUB_SHA-$arch"
-          done
-          docker buildx imagetools inspect "$artifact:main"
-          docker buildx imagetools inspect "$artifact:sha-$GITHUB_SHA"
+              --tag "$artifact:main-amd64" "$artifact:sha-$GITHUB_SHA-amd64"
+            for tag in main "sha-$GITHUB_SHA"; do
+              docker buildx imagetools inspect --raw "$artifact:$tag" | jq -e '
+                .schemaVersion == 2 and
+                (.mediaType == "application/vnd.oci.image.index.v1+json" or
+                 .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json") and
+                (.manifests | length) == 1 and
+                .manifests[0].platform.os == "linux" and
+                .manifests[0].platform.architecture == "amd64"
+              ' > /dev/null
+            done
           done
 
   prune:
