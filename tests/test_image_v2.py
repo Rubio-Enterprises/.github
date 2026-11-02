@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tarfile
@@ -109,6 +110,32 @@ class ImageV2(unittest.TestCase):
             '[tasks.setup]\ndepends = ["standards:install"]\n[tasks."standards:install"]\n'
             'run = \'npm install --prefix .standards --no-save --install-links --no-audit --no-fund --ignore-scripts "$PWD"\'\n'
         )
+
+    @unittest.skipUnless(shutil.which("mise") and shutil.which("npm"), "native mise/npm unavailable")
+    def test_package_bootstrap_does_not_install_consumer_tools_before_the_package(self):
+        self.self_hosted()
+        with (self.repo / "mise.toml").open("a") as config:
+            config.write('[tools]\n"pipx:pytest" = "9.1.1"\n')
+        for installer in ["uv", "uvx", "pipx"]:
+            self.stub(installer, 'import os,sys\nfrom pathlib import Path\n'
+                      'Path(os.environ["EARLY_INSTALL"]).write_text("consumer tool installed before package")\n'
+                      'sys.exit(1)\n')
+        instruction = next(line for line in (ASSETS / "Dockerfile.v2").read_text().splitlines()
+                           if "bash -euc 'mise install" in line)
+        commands = instruction.split("'")[1].split("; ")
+        result = subprocess.run(
+            shlex.split(commands[1]), cwd=self.repo,
+            env={**self.env, "NODE_AUTH_TOKEN": "", "MISE_TRUSTED_CONFIG_PATHS": str(self.repo),
+                 "MISE_YES": "1", "npm_config_cache": str(self.root / "npm-cache"),
+                 "EARLY_INSTALL": str(self.root / "early-install")},
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.repo / ".standards/node_modules/@rubio-enterprises/standards/mise/standards.toml").is_file())
+        self.assertFalse((self.root / "early-install").exists())
+        self.assertEqual(commands, ["mise install --system node",
+                                    "mise run --skip-tools standards:install",
+                                    "mise install --system"])
 
     def test_self_hosted_shape_requires_the_standards_repository_and_own_source(self):
         self.self_hosted()
