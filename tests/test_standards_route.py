@@ -25,13 +25,26 @@ class StandardsRouteTests(unittest.TestCase):
     def test_image_mode_does_not_restore_plain_mise_data_or_bootstrap_tools(self):
         for action in ('astral-sh/setup-uv@', 'jdx/mise-action@'):
             step = WORKFLOW.split('- uses: ' + action, 1)[1].split('\n      - ', 1)[0]
-            self.assertIn("if: needs.route.outputs.ci-image != 'true'", step)
+            self.assertIn("if: needs.route.outputs.ci-image != 'true' && needs.route.outputs.hosted-image != 'true'", step)
         self.assertIn('run: mise trust "$GITHUB_WORKSPACE"', WORKFLOW)
         self.assertLess(WORKFLOW.index('mise trust'), WORKFLOW.index('run: mise run setup'))
         setup = WORKFLOW.split('      - id: setup\n', 1)[1].split('\n      - ', 1)[0]
         self.assertIn('run: mise run setup', setup)
         self.assertIn('NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}', setup)
         self.assertIn('MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}', setup)
+
+    def test_hosted_caller_prepares_once_and_transports_all_project_steps(self):
+        self.assertIn('enable-hosted-image: true', WORKFLOW)
+        self.assertEqual(WORKFLOW.count('operation: prepare'), 1)
+        self.assertEqual(WORKFLOW.count('uses: Rubio-Enterprises/.github/actions/project-command@main'), 7)
+        self.assertIn("if: needs.route.outputs.hosted-image == 'true'", WORKFLOW)
+        self.assertIn('forward-env: NODE_AUTH_TOKEN MISE_GITHUB_TOKEN', WORKFLOW)
+        self.assertIn('forward-env: PR_TITLE GITHUB_TOKEN', WORKFLOW)
+        self.assertIn('forward-env: GH_TOKEN', WORKFLOW)
+        self.assertIn("!cancelled() && steps.setup.outcome == 'success'", WORKFLOW)
+        self.assertIn("failure() && steps.check.outcome == 'failure'", WORKFLOW)
+        trivy = extract_step(WORKFLOW, 'Restore the trivy vulnerability database')
+        self.assertIn("if: needs.route.outputs.hosted-image != 'true'", trivy)
 
     def test_all_project_checks_and_the_package_task_origin_guard_remain(self):
         for command in ('run: mise run setup', 'run: mise run check\n', 'run: mise run check:pr'):

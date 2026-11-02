@@ -27,7 +27,11 @@ defined in this repository.
 The [project router](reusable-workflows/project-route.md) preserves these routes and their hosted
 fallbacks. For an admitted private/internal repository on a self-hosted small/medium route, it
 selects that repository's CI Image label instead. Admission remains the central Terraform-owned
-`CI_IMAGE_REPOS` ID array; this workflow does not change it.
+`CI_IMAGE_REPOS` ID array; this workflow does not change it. Hosted small/medium routes with a
+regular default-branch image build definition use the [project-command transport](project-command.md)
+through the Dev Container CLI. Eligible slim jobs select ubuntu-latest because slim cannot run
+Docker. No image declaration retains the plain route; a declared image failing to pull fails the
+job. Capability/native macOS routes remain unchanged.
 
 The repository itself must be onboarded: `npm init @rubio-enterprises/standards` writes
 `lefthook.yml`, the starter `mise.toml` with its `setup` task, and the
@@ -38,8 +42,10 @@ The repository itself must be onboarded: `npm init @rubio-enterprises/standards`
 1. Checks out the pull request with full history and no persisted credentials.
 2. Fails with `repository not onboarded` when `lefthook.yml` is missing.
 3. On plain runners, installs uv, then mise (`jdx/mise-action`, pinned `MISE_VERSION`, no tool
-   install yet). CI Image runners use the image's tools and explicitly trust the checkout instead.
-4. Restores mise's data cache only on plain runners, and the trivy vulnerability database on both.
+   install yet). CI Image runners execute directly with the image's tools. Hosted image jobs
+   prepare one job-scoped CLI environment; both image modes explicitly trust the checkout instead.
+4. Restores mise's data cache only on plain runners. The trivy database restore remains on native
+   plain/CI Image runners; hosted containers do not share the host home and fetch their own database.
 5. Runs `mise run setup` with `NODE_AUTH_TOKEN` set to the job token. The repository's `setup`
    installs the package into `.standards/`, the missing tools, the git hooks and every
    `setup:*` task (the repository's own dependencies).
@@ -52,6 +58,13 @@ The repository itself must be onboarded: `npm init @rubio-enterprises/standards`
    the title, and the PR conventions (Danger; pull requests only, not merge groups).
 9. When `check` fails, writes `git status` and `git diff --stat` to the job summary: Lefthook
    2.1 prints no per-job summary in CI when a Fixer's rewrite fails the run.
+
+Hosted preparation freezes a pulled image identity and owns native post cleanup, including partial
+startup and task failure. Each project step keeps its original ID/condition and executes through
+the transport, which is direct in native/CI Image mode. Setup forwards NODE_AUTH_TOKEN and
+MISE_GITHUB_TOKEN only for setup; check forwards GH_TOKEN, and check:pr forwards PR_TITLE and
+GITHUB_TOKEN. File-output/summary channels and GitHub context are bridged, not the whole host
+home/environment. A missing prepared hosted environment cannot silently execute on the host.
 
 The tasks receive `BASE_SHA` and `HEAD_SHA` (the pull request's or merge group's), `PR_TITLE`,
 `GITHUB_TOKEN`/`GH_TOKEN` (the job token) and `GITHUB_EVENT_NAME`. Those names are the interface
