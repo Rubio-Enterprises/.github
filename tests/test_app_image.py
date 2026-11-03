@@ -1021,6 +1021,55 @@ esac
         self.assertIn("--env A=1 --env B=two words", run)
         self.assertNotEqual(self.smoke(SMOKE_ENV="not an assignment").returncode, 0)
 
+    def test_listed_files_are_mounted_read_only_for_a_server_and_a_command_line_tool(self):
+        (self.workspace / "ci").mkdir()
+        (self.workspace / "ci/config.json").write_text("{}")
+        (self.workspace / "ci/token").write_text("smoke")
+        files = "ci/config.json:/etc/app/config.json\n# note\n\nci/token:/etc/app/token\r\n"
+        for kind, extra in (("a server", {}), ("a command-line tool", {"SMOKE_COMMAND": "--version"})):
+            with self.subTest(kind):
+                (self.temp / "docker-calls").unlink(missing_ok=True)
+                result = self.smoke(SMOKE_FILES=files, **extra)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                run = next(c for c in self.docker_commands() if c.startswith("run "))
+                workspace = str(self.workspace.resolve())
+                self.assertIn(f"--volume {workspace}/ci/config.json:/etc/app/config.json:ro --volume {workspace}/ci/token:/etc/app/token:ro", run)
+                self.assertNotIn("--mount", run)
+
+    def test_no_files_means_no_mounts(self):
+        for value in ("", "  \n\n"):
+            with self.subTest(repr(value)):
+                (self.temp / "docker-calls").unlink(missing_ok=True)
+                self.assertEqual(self.smoke(SMOKE_FILES=value).returncode, 0)
+                self.assertNotIn("--volume", next(c for c in self.docker_commands() if c.startswith("run ")))
+
+    def test_files_outside_the_repository_or_not_regular_files_are_refused_before_anything_runs(self):
+        (self.workspace / "ci").mkdir()
+        (self.workspace / "ci/config.json").write_text("{}")
+        outside = self.root / "secret"
+        outside.write_text("x")
+        (self.workspace / "ci/link").symlink_to(outside)
+        (self.workspace / "ci/dirlink").symlink_to(self.root)
+        cases = {
+            "no destination": "ci/config.json",
+            "relative destination": "ci/config.json:etc/config.json",
+            "two colons": "ci/config.json:/etc/a:/etc/b",
+            "absolute source": f"{outside}:/etc/secret",
+            "parent traversal": "../secret:/etc/secret",
+            "traversal in the middle": "ci/../../secret:/etc/secret",
+            "missing": "ci/missing.json:/etc/missing",
+            "a directory": "ci:/etc/dir",
+            "a symlink": "ci/link:/etc/secret",
+            "through a symlinked directory": "ci/dirlink/secret:/etc/secret",
+        }
+        for name, line in cases.items():
+            with self.subTest(name):
+                (self.temp / "docker-calls").unlink(missing_ok=True)
+                result = self.smoke(SMOKE_FILES=line)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("smoke-files", result.stdout)
+                self.assertEqual(self.docker_commands(), [])
+
     def test_the_image_must_be_a_ghcr_digest_and_a_failed_pull_stops_the_run(self):
         for image in ("ghcr.io/rubio-enterprises/example:latest", f"docker.io/library/alpine@{DIGEST}", ""):
             with self.subTest(image):
