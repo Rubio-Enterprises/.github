@@ -80,7 +80,7 @@ scan() {
   local output="$1"
   shift
   (cd "$state" && "$TRIVY_BIN" image --image-src remote --platform "$platform" --exit-code 0 --config '' --ignorefile '' \
-    --cache-dir "$cache" --disable-telemetry --skip-version-check --timeout 15m --format json --output "$output" "$@" "$ref")
+    --cache-dir "$cache" --quiet --disable-telemetry --skip-version-check --timeout 15m --format json --output "$output" "$@" "$ref")
 }
 secrets="$state/secrets.json"
 scan "$secrets" --scanners secret --image-config-scanners secret > /dev/null || fail 'The secret scan did not complete'

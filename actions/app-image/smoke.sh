@@ -66,7 +66,7 @@ fi
 echo 'The server became healthy'
 
 # The processes of the container as the host sees them: none may run as uid 0, and a distroless image has no `id` to exec
-uids="$(docker top "$container" -o uid | tail -n +2 | tr -d ' ')"
+uids="$(docker top "$container" -eo pid,uid | awk 'NR > 1 {print $2}')"
 [[ -n "$uids" ]] || fail 'Could not list the container processes'
 if grep -qx 0 <<< "$uids"; then fail 'A process in the container runs as root'; fi
 echo 'No process in the container runs as root'

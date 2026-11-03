@@ -937,7 +937,8 @@ case "$1" in
     n="$(cat "$RUNNER_TEMP/inspect-count" 2>/dev/null || echo 0)"; echo $((n + 1)) > "$RUNNER_TEMP/inspect-count"
     IFS=, read -r -a sequence <<< "${STATES:-running healthy}"
     printf '%s\\n' "${sequence[$(( n < ${#sequence[@]} ? n : ${#sequence[@]} - 1 ))]//+/ }" ;;
-  top) printf 'UID\\n%s\\n' "${TOP_UIDS:-1000}" ;;
+  top) [[ "$*" == *"-eo pid,uid"* ]] || { echo "Couldn't find PID field in ps output" >&2; exit 1; }
+       printf 'PID UID\\n'; while read -r uid; do printf '42 %s\\n' "$uid"; done <<< "${TOP_UIDS:-1000}" ;;
   logs|rm) ;;
 esac
 ''')
