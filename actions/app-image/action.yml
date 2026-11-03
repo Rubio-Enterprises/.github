@@ -4,10 +4,19 @@ inputs:
   operation:
     description: connect, build, publish or prune
     required: true
+# A composite action's inner steps write to their own step outputs: only what is declared here reaches the calling workflow
+outputs:
+  digest:
+    description: build, publish. Digest of the built image (the index digest when it carries attestations)
+    value: ${{ steps.run.outputs.digest }}
+  image:
+    description: publish. The GHCR image@digest the copy produced
+    value: ${{ steps.run.outputs.image }}
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: run
+      shell: bash
       env:
         OPERATION: ${{ inputs.operation }}
       run: |
