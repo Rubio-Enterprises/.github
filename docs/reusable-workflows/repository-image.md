@@ -369,10 +369,17 @@ frontend from Docker Hub on every build.
 
 **Canary and rollout notes.**
 
-- The called workflow is part of the certificate's claims (`job_workflow_ref`). A canary that calls
-  this workflow from a branch must have that ref allowed by the Private CA template, and the
-  workflow's `Rubio-Enterprises/.github/actions/repository-image@main` references must point at the
-  same branch.
+- **Scratch runs from a branch.** A push or manual run outside the default branch runs the workflow
+  only when the caller sets `image-name`, and the policy step refuses a name that equals the
+  repository's own `devcontainer` or `devcontainer-ci` package. A branch can therefore build and
+  publish a scratch pair (`:main`, `:sha-<commit>` of the scratch name), never the repository's own.
+  A canary uses this: a temporary branch changes the caller to pass `build-service: true` and a
+  scratch `image-name`, and a manual run of the caller on that branch builds. The workflow ref the
+  Private CA sees stays `repository-image.yml@refs/heads/main`, so the template needs no change.
+- The called workflow is part of the certificate's claims (`job_workflow_ref`). A caller on a branch
+  does not change it, but a canary that calls a branch of **this** workflow must have that ref allowed
+  by the Private CA template, and the workflow's
+  `Rubio-Enterprises/.github/actions/repository-image@main` references must point at the same branch.
 - Any change to a file in `actions/repository-image/` changes every repository's image input key, so
   each repository rebuilds once at its next push. Merging this workflow before the cutover therefore
   rebuilds the fleet on the Machine Pool.

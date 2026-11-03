@@ -627,7 +627,7 @@ fi
         source = script("Resolve image and publication policy")
         env = {**self.env, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises",
                "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo", "CONFIG": ".github/.devcontainer/devcontainer.json",
-               "PUBLISH": "false", "IMAGE_INPUT": ""}
+               "PUBLISH": "false", "ON_DEFAULT_BRANCH": "true", "IMAGE_INPUT": ""}
         for image in ("", "ghcr.io/Rubio-Enterprises/Repo/qual"):
             result = subprocess.run(["bash", "-e", "-c", source], env={**env, "IMAGE_INPUT": image}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -638,6 +638,32 @@ fi
         ] + [{"CONFIG": value} for value in ("", "/etc/config", "../config", "dir/../config", "dir/..")]:
             result = subprocess.run(["bash", "-e", "-c", source], env={**env, **overrides}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, overrides)
+
+    def test_a_branch_may_publish_only_a_scratch_image_never_the_repositorys_own_pair(self):
+        source = script("Resolve image and publication policy")
+        env = {**self.env, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo",
+               "CONFIG": ".github/.devcontainer/devcontainer.json", "PUBLISH": "true", "ON_DEFAULT_BRANCH": "false"}
+        own = "ghcr.io/rubio-enterprises/repo/devcontainer"
+        for image, accepted in [(own + "-canary", True), ("ghcr.io/rubio-enterprises/repo/other", True),
+                                (own, False), (own + "-ci", False), ("ghcr.io/Rubio-Enterprises/Repo/DevContainer", False),
+                                ("", False)]:
+            (self.root / "output").unlink(missing_ok=True)
+            result = subprocess.run(["bash", "-e", "-c", source], env={**env, "IMAGE_INPUT": image}, capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, accepted, (image, result.stdout, result.stderr))
+            if not accepted:
+                self.assertIn("scratch image-name", result.stdout)
+                self.assertFalse((self.root / "output").exists(), image)
+        # The default branch, and a pull request that publishes nothing, keep the repository's own names
+        for overrides in ({"ON_DEFAULT_BRANCH": "true"}, {"PUBLISH": "false"}):
+            result = subprocess.run(["bash", "-e", "-c", source], env={**env, **overrides, "IMAGE_INPUT": ""}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, (overrides, result.stdout))
+
+    def test_prepare_runs_outside_the_default_branch_only_for_a_named_image(self):
+        prepare = TEXT.split("\n  prepare:\n", 1)[1].split("\n  validate:\n", 1)[0]
+        condition = prepare.split("if: >-\n", 1)[1].split("runs-on:", 1)[0]
+        self.assertIn("github.event_name == 'pull_request' ||", condition)
+        self.assertIn("(github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.image-name != '')", condition)
+        self.assertIn("ON_DEFAULT_BRANCH: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}", prepare)
 
     def test_trivy_failed_checksum_prevents_extraction(self):
         self.stub("curl", 'touch "$RUNNER_TEMP/trivy.tar.gz"\n')
