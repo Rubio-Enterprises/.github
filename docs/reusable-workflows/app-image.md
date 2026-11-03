@@ -44,7 +44,7 @@ for public repositories. Provenance and SBOM attestations come from BuildKit ins
 | `tags`, `flavor` | `docker/metadata-action` rules. `tags` is required when `publish` is true |
 | `publish` | Push the final tags, with `provenance=mode=max` and an SBOM unless `attestations` is false |
 | `candidate` | Push one temporary tag for a later job to pull. Exclusive with `publish` |
-| `verified-image` | Publish only: the `image` output of the candidate a job tested. The publish fails unless its amd64 layers equal the candidate's |
+| `verified-image` | Publish only: the `image` output of the candidate a job tested. The publish fails unless its amd64 layers equal the candidate's. Omit it to publish without the check; a value that resolves empty (an output that is missing) fails the run, never skips the check |
 | `standards-install` | For a Dockerfile that copies a file out of `.standards/`: a separate job runs `mise run standards:install` and hands the directory over as an artifact (see "What runs where") |
 | `ref`, `submodules` | Passed to `actions/checkout`. A `ref` other than the event's also switches `docker/metadata-action` to `context: git`, so tags and labels describe what was built |
 | `timeout-minutes` | Job timeout (default 45) |
@@ -105,6 +105,11 @@ builder (ADR 0058), and a build step that is not reproducible rebuilds to differ
 `verified-image` therefore compares the amd64 layer digests, in order, of the image just built
 and of the candidate that was tested, and fails before anything is published if they differ;
 re-run the workflow. The config (labels, `created`) legitimately differs.
+
+The check cannot be skipped by accident. An omitted input defaults to `none`; one that is passed but
+resolves empty (the job it reads was skipped, or the output was renamed) arrives as an empty string,
+which GitHub does not replace with the default, and the workflow fails with `verified-image was passed
+but is empty`. Pass `none` yourself only to publish without verification on purpose.
 
 ## How a job gets the image to GHCR
 
