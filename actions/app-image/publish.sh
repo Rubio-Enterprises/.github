@@ -13,6 +13,7 @@
 #                   the same amd64 layers, so a cache eviction between the test and this build cannot ship an untested image.
 #                   Unset or `none` skips the check; set but empty fails, because it means a caller wired the input to an output
 #                   that did not resolve
+#   APP_IMAGE_POLICY  true (the pipeline) refuses latest, an image outside <repo>, and an existing tag that would move
 #   MOVING_TAGS     publish only, optional: tags allowed to move to another image, one per line; every other existing tag is refused
 #   REGISTRY_TOKEN  the job's GITHUB_TOKEN
 set -euo pipefail

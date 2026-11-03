@@ -136,7 +136,32 @@ class Tags(unittest.TestCase):
         self.assertEqual(PIPELINE.count("docker/metadata-action@"), 1)
         self.assertEqual(APP_IMAGE.count("docker/metadata-action@"), 2)
         self.assertEqual(PIPELINE.count("flavor: |\n            latest=false\n            ${{ inputs.flavor }}"), 1)
-        self.assertEqual(APP_IMAGE.count("flavor: |\n            latest=false\n            ${{ inputs.flavor }}"), 2)
+        # the builder's build job only under the pipeline; its promote job, which only the pipeline uses, always
+        self.assertEqual(APP_IMAGE.count("flavor: |\n            latest=false\n            ${{ inputs.flavor }}"), 1)
+        self.assertEqual(APP_IMAGE.count("flavor: |\n            ${{ inputs.pipeline && 'latest=false' || '' }}\n            ${{ inputs.flavor }}"), 1)
+
+
+class DirectCallers(unittest.TestCase):
+    """app-image.yml keeps its earlier behaviour for a caller that does not set `pipeline`, until that caller moves."""
+
+    def test_the_pipeline_policy_is_an_input_only_the_pipeline_sets(self):
+        self.assertIn("      pipeline:\n", APP_IMAGE)
+        self.assertRegex(APP_IMAGE, r"      pipeline:\n        description: >-\n(?:          .*\n)+        type: boolean\n        default: false\n")
+        self.assertEqual(re.findall(r"\n      pipeline: (.*)", PIPELINE), ["true"])
+        self.assertIn("pipeline: true", job("build"))
+        self.assertNotIn("pipeline:", job("promote"))  # promotion is the pipeline's alone
+
+    def test_every_policy_step_is_conditional_on_the_input(self):
+        build = APP_IMAGE.split("\n  build:\n", 1)[1].split("\n\n  # Gives a tested candidate", 1)[0]
+        structure = build.split("- name: Check the image's structure\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("if: inputs.pipeline\n", structure)
+        self.assertIn("POLICY: ${{ inputs.pipeline }}", build)
+        self.assertIn('if [[ "$POLICY" == true && "$package" != "$repo"', build)
+        self.assertEqual(build.count("APP_IMAGE_POLICY: ${{ inputs.pipeline }}"), 3)  # build, copy, prune
+        self.assertIn("flavor: |\n            ${{ inputs.pipeline && 'latest=false' || '' }}", build)
+
+    def test_the_arm64_candidate_prunes_under_the_policy(self):
+        self.assertIn('APP_IMAGE_POLICY: "true"', job("build-arm64"))
 
 
 class Builder(unittest.TestCase):

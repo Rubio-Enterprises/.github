@@ -58,18 +58,25 @@ name: app image (reusable)
         description: Add provenance (mode=max) and an SBOM to a candidate or publish build
         type: boolean
         default: true
+      pipeline:
+        description: >-
+          Set by app-image-pipeline.yml only. Turns on the App Image policy for this call: the image must be <repo> or
+          <repo>/<name>, latest is never published, an existing tag is never overwritten, and tier 1 (structure) runs and fails
+          the build. A direct caller keeps the earlier behaviour until it moves onto the pipeline
+        type: boolean
+        default: false
       moving-tags:
         description: >-
-          Publish and promote only. Tags that may move to another image, one exact tag per line (for example a branch channel).
+          Publish and promote only, under the pipeline policy. Tags that may move to another image, one exact tag per line (for example a branch channel).
           Every other existing tag is never overwritten, and latest is never published
         type: string
         default: ""
       server:
-        description: The image is a long-running server, so its configuration must declare a HEALTHCHECK
+        description: Pipeline only. The image is a long-running server, so its configuration must declare a HEALTHCHECK
         type: boolean
         default: false
       block-vulnerabilities:
-        description: Fail the build on a fixable CRITICAL vulnerability. By default the vulnerability report never fails it
+        description: Pipeline only. Fail the build on a fixable CRITICAL vulnerability. By default the vulnerability report never fails it
         type: boolean
         default: false
       verified-image:
@@ -196,6 +203,7 @@ jobs:
           CANDIDATE: ${{ inputs.candidate }}
           TAGS: ${{ inputs.tags }}
           VERIFIED: ${{ inputs.verified-image }}
+          POLICY: ${{ inputs.pipeline }}
         run: |
           set -euo pipefail
           if [[ "$PUBLISH" == true && "$CANDIDATE" == true ]]; then
@@ -215,10 +223,10 @@ jobs:
             echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
             exit 1
           fi
-          # A repository's main image is <repo>; its others are <repo>/<name>
+          # The pipeline's policy: a repository's main image is <repo>; its others are <repo>/<name>
           repo="${GITHUB_REPOSITORY#*/}"
           repo="${repo,,}"
-          if [[ "$package" != "$repo" && "$package" != "$repo/"* ]]; then
+          if [[ "$POLICY" == true && "$package" != "$repo" && "$package" != "$repo/"* ]]; then
             echo "::error::image-name must be $prefix$repo or $prefix$repo/<name>: an image belongs to the repository that builds it"
             exit 1
           fi
@@ -271,9 +279,9 @@ jobs:
           # A ref other than the event's is what gets built, so its tags and labels come from the checkout, not the event
           context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}
           images: ${{ steps.resolve.outputs.image }}
-          # App Images publish no latest tag; metadata-action would add one to every semver release
+          # Under the pipeline, App Images publish no latest tag; metadata-action would add one to every semver release
           flavor: |
-            latest=false
+            ${{ inputs.pipeline && 'latest=false' || '' }}
             ${{ inputs.flavor }}
           tags: ${{ inputs.tags }}
           labels: ${{ inputs.labels }}
@@ -293,11 +301,13 @@ jobs:
           BUILD_ARGS: ${{ inputs.build-args }}
           BUILD_LABELS: ${{ steps.meta.outputs.labels }}
           ATTESTATIONS: ${{ inputs.attestations }}
+          APP_IMAGE_POLICY: ${{ inputs.pipeline }}
         with:
           operation: build
-      # Before anything reaches GHCR: an image that is root, leaks a secret or lacks a HEALTHCHECK it needs is never pushed.
-      # It reads the staged image with the staging credential only
+      # The pipeline's tier 1. Before anything reaches GHCR: an image that is root, leaks a secret or lacks a HEALTHCHECK it needs
+      # is never pushed. It reads the staged image with the staging credential only
       - name: Check the image's structure
+        if: inputs.pipeline
         uses: Rubio-Enterprises/.github/actions/app-image@main
         env:
           SERVER: ${{ inputs.server }}
@@ -313,6 +323,7 @@ jobs:
           MODE: ${{ steps.resolve.outputs.mode }}
           TAGS: ${{ steps.meta.outputs.tags }}
           MOVING_TAGS: ${{ inputs.moving-tags }}
+          APP_IMAGE_POLICY: ${{ inputs.pipeline }}
           VERIFIED_IMAGE: ${{ inputs.verified-image }}
           REGISTRY_TOKEN: ${{ github.token }}
         with:
@@ -323,6 +334,7 @@ jobs:
         env:
           IMAGE: ${{ steps.resolve.outputs.image }}
           GH_TOKEN: ${{ github.token }}
+          APP_IMAGE_POLICY: ${{ inputs.pipeline }}
         with:
           operation: prune
       - name: Remove the job's certificate, credentials and build inputs

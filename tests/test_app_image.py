@@ -192,7 +192,7 @@ class Resolve(unittest.TestCase):
     def resolve(self, **overrides):
         env = {**os.environ, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo",
                "GITHUB_OUTPUT": str(self.output), "IMAGE_INPUT": "", "PUBLISH": "true", "CANDIDATE": "false",
-               "TAGS": "type=raw,value=1", "VERIFIED": "none", **overrides}
+               "TAGS": "type=raw,value=1", "VERIFIED": "none", "POLICY": "true", **overrides}
         return subprocess.run(["bash", "-c", self.script], env=env, capture_output=True, text=True)
 
     def test_an_omitted_verified_image_publishes_without_the_check(self):
@@ -259,7 +259,7 @@ class Workspace(unittest.TestCase):
             "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Example",
             "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_ACTOR": "octocat",
             "STAGING": STAGING, "STAGING_TAG": "run-123-2", "BUILDX_BUILDER": "build-service", "BUILD_SERVICE_RETRY_DELAY": "0",
-            "IMAGE": IMAGE, "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+            "IMAGE": IMAGE, "APP_IMAGE_POLICY": "true", "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
         }
         for key in ("GH_TOKEN", "GITHUB_TOKEN", "REGISTRY_TOKEN"):
             self.env.pop(key, None)
@@ -1084,6 +1084,57 @@ class Changes(Workspace):
         self.merge("assets/logo.png")
         self.assertEqual(self.decide(), "true")
         self.assertEqual(self.decide(IGNORE_PATHS="*.md\nassets/*\n"), "false")
+
+
+class DirectBehaviour(Workspace):
+    """Without the pipeline's policy the scripts behave as they did before the pipeline existed."""
+
+    def setUp(self):
+        super().setUp()
+        self.env["APP_IMAGE_POLICY"] = "false"
+        self.env.update(MODE="publish", REGISTRY_TOKEN=TOKEN, STUB_DIGEST=DIGEST)
+        state = self.root / "runner/app-image"
+        state.mkdir()
+        (state / "digest").write_text(DIGEST + "\n")
+        (state / "staging.ref").write_text(f"{STAGING}/other:run-123-2-publish\n")
+        (self.temp / "published").mkdir()
+        self.stub("crane", '''case "$1" in
+  auth) cat > /dev/null ;;
+  digest) if [[ -f "$RUNNER_TEMP/published/${2//[^a-zA-Z0-9]/_}" ]]; then cat "$RUNNER_TEMP/published/${2//[^a-zA-Z0-9]/_}"; else echo "MANIFEST_UNKNOWN" >&2; exit 1; fi ;;
+esac
+''')
+        self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  if [[ "${args[i]}" = --tag ]]; then printf '%s\\n' "$STUB_DIGEST" > "$RUNNER_TEMP/published/${args[i + 1]//[^a-zA-Z0-9]/_}"; fi
+done
+''')
+
+    def test_latest_a_foreign_image_name_and_a_moved_tag_still_publish(self):
+        other = "ghcr.io/rubio-enterprises/music-assistant"
+        (self.temp / "published" / slug(f"{other}:1.0")).write_text(OTHER + "\n")
+        result = self.run_script("publish.sh", IMAGE=other, TAGS=f"{other}:1.0\n{other}:latest")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.calls("docker-calls")), 1)
+        self.assertIn(f"--tag {other}:latest", self.calls("docker-calls")[0])
+
+    def test_the_other_checks_on_tags_still_apply(self):
+        for tags in ("ghcr.io/rubio-enterprises/other:candidate-release", "ghcr.io/rubio-enterprises/other:-bad", "ghcr.io/rubio-enterprises/x:1"):
+            self.assertNotEqual(self.run_script("publish.sh", IMAGE="ghcr.io/rubio-enterprises/other", TAGS=tags).returncode, 0, tags)
+
+    def test_resolve_accepts_any_name_in_the_owners_namespace(self):
+        script = run_block("Resolve the image and the build mode")
+        output = self.root / "resolve-output"
+        output.touch()
+        env = {**os.environ, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo", "GITHUB_OUTPUT": str(output),
+               "IMAGE_INPUT": "ghcr.io/rubio-enterprises/music-assistant", "PUBLISH": "false", "CANDIDATE": "false", "TAGS": "", "VERIFIED": "none"}
+        self.assertEqual(subprocess.run(["bash", "-c", script], env={**env, "POLICY": "false"}, capture_output=True, text=True).returncode, 0)
+        self.assertNotEqual(subprocess.run(["bash", "-c", script], env={**env, "POLICY": "true"}, capture_output=True, text=True).returncode, 0)
+
+    def test_prune_and_build_resolve_any_name_without_the_policy(self):
+        self.env.update(GH_TOKEN=TOKEN)
+        self.stub("curl", "cat > /dev/null; printf '[]' > \"$(printf '%s\\n' \"$@\" | awk '$0==\"--output\"{getline; print}')\"; printf 200\n")
+        self.assertEqual(self.run_script("prune.sh", IMAGE="ghcr.io/rubio-enterprises/music-assistant").returncode, 0)
 
 
 class Prune(Workspace):

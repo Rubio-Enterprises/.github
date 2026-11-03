@@ -39,12 +39,14 @@ resolve_package() {
   PACKAGE="${image#"ghcr.io/$owner/"}"
   [[ "$PACKAGE" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]] ||
     fail 'image must be an untagged GHCR image with a valid package name'
-  # A repository's main image is <repo>; its others are <repo>/<name>. The workflow's own check says the same before any
-  # step runs; this one keeps every script safe when it is called on its own.
-  local repo="${GITHUB_REPOSITORY#*/}"
-  repo="${repo,,}"
-  [[ "$PACKAGE" == "$repo" || "$PACKAGE" == "$repo/"* ]] ||
-    fail "image $image is outside this repository's namespace: name it ghcr.io/$owner/$repo or ghcr.io/$owner/$repo/<name>"
+  # The pipeline's policy (APP_IMAGE_POLICY=true): a repository's main image is <repo>; its others are <repo>/<name>. The
+  # workflow's own check says the same before any step runs; this one keeps every script safe when it is called on its own.
+  if [[ "${APP_IMAGE_POLICY:-}" == true ]]; then
+    local repo="${GITHUB_REPOSITORY#*/}"
+    repo="${repo,,}"
+    [[ "$PACKAGE" == "$repo" || "$PACKAGE" == "$repo/"* ]] ||
+      fail "image $image is outside this repository's namespace: name it ghcr.io/$owner/$repo or ghcr.io/$owner/$repo/<name>"
+  fi
 }
 
 # The per-job working directory shared by the operations; connect.sh owns the credentials beside it
@@ -80,7 +82,8 @@ ghcr_docker_config() {
 }
 
 # Reads TAGS (full image:tag references, one per line) into TARGETS, refusing a reference that names another repository or
-# digest, an invalid tag, `latest` (App Images publish none) and a tag reserved for candidates, which prune deletes.
+# digest, an invalid tag and a tag reserved for candidates, which prune deletes. Under the pipeline's policy
+# (APP_IMAGE_POLICY=true) it also refuses `latest`: App Images publish none.
 # shellcheck disable=SC2153 # IMAGE is the calling script's input
 collect_tags() {
   local line tag
@@ -91,19 +94,20 @@ collect_tags() {
     [[ "$line" == "$IMAGE":* ]] || fail "tag $line is not a tag of $IMAGE"
     tag="${line#"$IMAGE":}"
     [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || fail "tag $line is not a valid tag"
-    [[ "$tag" != latest ]] || fail "tag $line: App Images publish no latest tag; pin a version"
+    [[ "${APP_IMAGE_POLICY:-}" != true || "$tag" != latest ]] || fail "tag $line: App Images publish no latest tag; pin a version"
     [[ "$tag" != candidate-* ]] || fail "tag $line is reserved for candidate images"
     TARGETS+=("$line")
   done <<< "${TAGS:-}"
   [[ "${#TARGETS[@]}" -gt 0 ]] || fail 'publishing needs at least one tag: pass the tags input'
 }
 
-# An existing tag of the package is never moved to another image, except the ones MOVING_TAGS (one exact tag per line) names.
-# Run it after the GHCR login: it reads each target tag. A tag that does not exist yet passes; any other failure to read it
+# Under the pipeline's policy an existing tag of the package is never moved to another image, except the ones MOVING_TAGS (one
+# exact tag per line) names; without it the check does nothing. Run it after the GHCR login: it reads each target tag. A tag that does not exist yet passes; any other failure to read it
 # stops the publish rather than guess.
 # shellcheck disable=SC2153
 refuse_moved_tags() {
   local digest="$1" target tag current error moving
+  [[ "${APP_IMAGE_POLICY:-}" == true ]] || return 0
   moving=$'\n'"${MOVING_TAGS:-}"$'\n'
   moving="${moving//$'\r'/}"
   error="$(state_dir)/crane-error"
