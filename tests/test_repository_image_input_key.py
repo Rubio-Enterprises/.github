@@ -470,18 +470,16 @@ class WorkflowContracts(unittest.TestCase):
 
     def test_build_runs_only_when_the_published_pair_cannot_stand_in(self):
         build = self.job("build")
-        self.assertIn("!inputs.build-service && needs.prepare.outputs.publish == 'true' &&\n      needs.prepare.outputs.skip != 'true'", build)
-        service = self.job("build-service")
-        self.assertIn("inputs.build-service && needs.prepare.outputs.publish == 'true' &&\n      needs.prepare.outputs.skip != 'true'", service)
-        self.assertIn("INPUT_KEY: ${{ needs.prepare.outputs.input-key }}", service)
-        self.assertIn("INPUT_KEY: ${{ needs.prepare.outputs.input-key }}", TEXT)
+        self.assertIn("if: needs.prepare.outputs.skip != 'true'", build)
+        self.assertNotIn("inputs.build-service", TEXT)
+        self.assertIn("INPUT_KEY: ${{ needs.prepare.outputs.input-key }}", build)
 
     def test_prepare_compares_inputs_without_docker_or_write_access(self):
         prepare = self.job("prepare")
         self.assertIn("contents: read\n      packages: read", prepare)
         self.assertNotIn("packages: write", prepare)
         step = prepare.split("- name: Compare image inputs with the published pair", 1)[1].split("- name:", 1)[0]
-        self.assertIn("if: steps.image.outputs.publish == 'true'\n", step)
+        self.assertNotIn("if:", step)
         self.assertIn("FORCE: ${{ github.event_name != 'push' }}", step)
         self.assertIn("operation: key", step)
         self.assertIn("base: ${{ steps.bases.outputs.base }}", step)

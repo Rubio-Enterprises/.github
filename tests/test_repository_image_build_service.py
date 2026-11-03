@@ -17,7 +17,7 @@ from pathlib import Path
 
 from test_repository_image_workflow import ASSETS, ROOT, TEXT, audit_module, config, manifest, script
 
-SERVICE = TEXT.split("\n  build-service:\n", 1)[1].split("\n\n  alias:\n", 1)[0]
+SERVICE = TEXT.split("\n  build:\n", 1)[1].split("\n\n  alias:\n", 1)[0]
 MODULE = (ASSETS / "image.mjs").as_uri()
 STAGING = "stage.example.invalid:5000/rubio-enterprises/repo"
 TAG = "run-123-1"
@@ -60,12 +60,11 @@ class Workspace(unittest.TestCase):
 
 
 class WorkflowShape(unittest.TestCase):
-    def test_service_path_is_an_opt_in_canary_and_the_machine_path_yields_to_it(self):
-        self.assertRegex(TEXT, r"      build-service:\n        description: >-\n(?:          .*\n)+        type: boolean\n        default: false\n")
-        self.assertIn("!inputs.build-service && needs.prepare.outputs.publish == 'true'", TEXT)
-        self.assertIn("inputs.build-service && needs.prepare.outputs.publish == 'true' &&\n      needs.prepare.outputs.skip != 'true'", SERVICE)
-        self.assertEqual(TEXT.count("id-token: write"), 2)  # the input's description and the one job that needs it
+    def test_the_build_job_is_the_only_builder_and_the_only_one_with_an_identity_token(self):
+        self.assertEqual(TEXT.count("id-token: write"), 1)
+        self.assertIn("needs: prepare\n    if: needs.prepare.outputs.skip != 'true'\n", SERVICE)
         self.assertIn("permissions:\n      contents: read\n      packages: write\n      id-token: write\n", SERVICE)
+        self.assertNotIn("build-service", TEXT.split("\njobs:\n", 1)[0])  # no canary input
 
     def test_service_job_is_a_client_on_the_image_route_with_no_hosted_fallback_or_daemon(self):
         self.assertIn("runs-on: ${{ fromJSON(vars.RUNNERS || '{}').image || fromJSON('[\"linux-x64-image\"]') }}", SERVICE)
@@ -75,7 +74,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("export BUILDX_NO_DEFAULT_ATTESTATIONS=1", (ASSETS / "build-service.sh").read_text())
         for forbidden in ("docker/login-action", "docker/setup-buildx-action", "docker run", "docker pull", "docker push",
                           "--insecure", "--cache-from", "BUILDKIT_INLINE_CACHE", "continue-on-error", "secrets:"):
-            self.assertNotIn(forbidden, SERVICE)
+            self.assertNotIn(forbidden, TEXT)
         for ref in re.findall(r"uses: (\S+)", SERVICE):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
                 self.assertEqual(ref, "Rubio-Enterprises/.github/actions/repository-image@main")
@@ -85,35 +84,16 @@ class WorkflowShape(unittest.TestCase):
     def test_service_steps_run_in_the_order_that_keeps_credentials_scoped(self):
         names = ["Check out the caller", "Set up Node", "Install the Dev Container CLI", "Prepare central generic build inputs",
                  "Install the Build Service client tools", "Connect to the Build Service", "Fetch the verified Standards Package",
-                 "Install checksum-pinned Trivy", "Build, audit and verify the image pair on the Build Service",
-                 "Scan the staged dev artifact for secrets", "Copy the verified image pair to GHCR",
-                 "Publish single-platform indices and aliases", "Remove the job's certificate, credentials and build inputs"]
+                 "Install checksum-pinned Trivy", "Build, audit and verify the image pair",
+                 "Scan the dev artifact for secrets", "Push the verified image pair",
+                 "Publish single-platform indices and cache aliases", "Remove the job's certificate, credentials and build inputs"]
         positions = [SERVICE.index(f"- name: {name}") for name in names]
         self.assertEqual(positions, sorted(positions))
-        # Only the copy step sees the GHCR token, and only through its environment
-        self.assertEqual(SERVICE.count("github.token"), 2)  # the package fetch and the copy
-        copy = SERVICE.split("- name: Copy the verified image pair to GHCR", 1)[1].split("- name:", 1)[0]
-        self.assertIn("REGISTRY_TOKEN: ${{ github.token }}", copy)
+        # Only the push step sees the GHCR token for GHCR, and only through its environment
+        self.assertEqual(SERVICE.count("github.token"), 2)  # the package fetch and the push
+        push = SERVICE.split("- name: Push the verified image pair", 1)[1].split("- name:", 1)[0]
+        self.assertIn("REGISTRY_TOKEN: ${{ github.token }}", push)
         self.assertIn("if: always()", SERVICE.split("- name: Remove the job's certificate", 1)[1])
-        for name in ("Scan the staged dev artifact for secrets", "Copy the verified image pair to GHCR",
-                     "Publish single-platform indices and aliases", "Connect to the Build Service"):
-            self.assertNotIn("${{", script(name, SERVICE))
-
-    def test_scan_is_layer_aware_against_the_staging_registry_with_verified_tls(self):
-        scan = script("Scan the staged dev artifact for secrets", SERVICE)
-        self.assertIn("--image-src remote --scanners secret --image-config-scanners secret", scan)
-        self.assertIn('ref="$(< "$CONTEXT/dev.ref")"', scan)
-        self.assertNotIn("ci.ref", scan)
-        self.assertIn("--config '' --ignorefile ''", scan)
-        self.assertIn('cp "$ASSETS/trivy-secret.yaml"', scan)
-        self.assertIn('if [[ "$status" != 0 ]]; then exit "$status"; fi', scan)
-
-    def test_prune_follows_either_build_and_the_machine_path_is_unchanged(self):
-        prune = TEXT.split("\n  prune:\n", 1)[1]
-        self.assertIn("needs: [prepare, build, build-service]", prune)
-        self.assertIn("!cancelled() && (needs.build.result == 'success' || needs.build-service.result == 'success')", prune)
-        self.assertIn("- name: Build, audit and verify the image pair\n", TEXT)
-        self.assertIn('bash "$ASSETS/build.sh"', TEXT)
 
     def test_action_documents_the_new_operation(self):
         self.assertIn("resolve, inspect, release, prepare, pack, key, alias or tools", (ASSETS / "action.yml").read_text())
@@ -512,6 +492,15 @@ esac
             (self.fixtures / f"{name}.json").write_text(good)
             (self.root / "docker-calls").unlink(missing_ok=True)
 
+    def test_the_image_input_key_is_labelled_and_verified_only_when_one_is_given(self):
+        result = self.build(INPUT_KEY="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("org.rubio-enterprises.image", self.calls("docker-calls")[1])
+        (self.root / "docker-calls").unlink()
+        result = self.build(INPUT_KEY="sha256:" + "f" * 64)  # the built image records a different key
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not record its image input key", result.stderr)
+
     def test_each_step_needs_its_inputs(self):
         for name in ("STAGING", "STAGING_TAG", "BUILDX_BUILDER", "ASSETS"):
             env = {key: value for key, value in self.env.items() if key != name}
@@ -726,10 +715,10 @@ esac
         self.env["DIGEST"] = self.digest
 
     def run_step(self, name, **overrides):
-        return subprocess.run(["bash", "-e", "-c", script(name, SERVICE)], env={**self.env, **overrides}, capture_output=True, text=True)
+        return subprocess.run(["bash", "-e", "-c", script(name)], env={**self.env, **overrides}, capture_output=True, text=True)
 
     def test_copy_uses_the_job_token_through_stdin_in_the_publish_config_only(self):
-        result = self.run_step("Copy the verified image pair to GHCR")
+        result = self.run_step("Push the verified image pair")
         self.assertEqual(result.returncode, 0, result.stderr)
         publish = f"{self.root}/build-service/docker-publish"
         calls = self.calls("crane-calls")
@@ -743,7 +732,7 @@ esac
 
     def test_a_failed_copy_or_a_digest_that_differs_from_the_verified_artifact_fails(self):
         for overrides in ({"COPY_STATUS": "2"}, {"PUBLISHED_DIGEST": "sha256:" + "c" * 64}):
-            result = self.run_step("Copy the verified image pair to GHCR", **overrides)
+            result = self.run_step("Push the verified image pair", **overrides)
             self.assertNotEqual(result.returncode, 0, overrides)
 
     def test_indices_are_published_with_the_publish_config_and_no_builder(self):
@@ -752,7 +741,7 @@ if [[ "$*" == *'inspect --raw'* ]]; then printf '%s\\n' "$INDEX_JSON"; fi
 ''')
         index = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
                  "manifests": [{"platform": {"os": "linux", "architecture": "amd64"}}]}
-        result = self.run_step("Publish single-platform indices and aliases", INDEX_JSON=json.dumps(index))
+        result = self.run_step("Publish single-platform indices and cache aliases", INDEX_JSON=json.dumps(index))
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls("docker-calls")
         self.assertEqual(len(calls), 8)
@@ -763,7 +752,7 @@ if [[ "$*" == *'inspect --raw'* ]]; then printf '%s\\n' "$INDEX_JSON"; fi
         self.assertTrue(calls[1].endswith(f"create --prefer-index=false --tag {image}:main-amd64 {image}:sha-{sha}-amd64"))
         for bad in (dict(index, manifests=[]), dict(index, manifests=index["manifests"] * 2),
                     dict(index, manifests=[{"platform": {"os": "linux", "architecture": "arm64"}}])):
-            result = self.run_step("Publish single-platform indices and aliases", INDEX_JSON=json.dumps(bad))
+            result = self.run_step("Publish single-platform indices and cache aliases", INDEX_JSON=json.dumps(bad))
             self.assertNotEqual(result.returncode, 0, bad)
 
     def test_cleanup_removes_keys_credentials_and_the_build_context(self):

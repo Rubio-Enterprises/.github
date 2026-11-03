@@ -102,7 +102,7 @@ particularly in private repositories or for API/CLI-created issues.
 | Workflow | Purpose |
 | --- | --- |
 | [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness for a suite that needs its own job; runs `mise run setup`, then an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `ci-platform = macos` callers run on `RUNNERS.macos` |
-| [`repository-image.yml`](./.github/workflows/repository-image.yml) | Builds amd64-only Dev Container/CI image pairs and publishes one-entry indices; Apple Silicon uses a local build config. See [its contract](./docs/reusable-workflows/repository-image.md) |
+| [`repository-image.yml`](./.github/workflows/repository-image.yml) | Builds amd64-only Dev Container/CI image pairs on the Build Service and publishes one-entry indices; Apple Silicon uses a local build config. See [its contract](./docs/reusable-workflows/repository-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-range gitleaks scan runs in the package's `check:pr`) |
 | [`standards.yml`](./.github/workflows/standards.yml) | Injected, not called: the Standards Check. Installs the repository's Standards Release and runs `mise run check` and `mise run check:pr`; routed by the `ci-platform`/`ci-size` properties; see [its contract](./docs/standards-check.md) |
 | [`release-please.yml`](./.github/workflows/release-please.yml) | release-please with the `rubio-release-please` App token, a root `uv.lock` refresh and auto-merge on the release PR; called by the starter `standards.yml` when `release-please-config.json` exists; see [its contract](./docs/reusable-workflows/release-please.md) |
@@ -131,6 +131,7 @@ route has its own hosted fallback for public callers:
 | `small` | `linux-x64-small` | `ubuntu-slim` |
 | `medium` | `linux-x64-medium` | `ubuntu-latest` |
 | `docker`, `kvm` | `linux-x64-large` | `ubuntu-latest` |
+| `image` | `linux-x64-image` | self-only `linux-x64-image` |
 | `arm` | `linux-arm64` | `ubuntu-24.04-arm` |
 | `vrt` | `linux-x64-medium` | self-only `linux-x64-medium` |
 | `macos` | `macos-arm64` | `macos-26` |
@@ -138,7 +139,7 @@ route has its own hosted fallback for public callers:
 The `e2e.yml` reusable uses `arm`, including the `ubuntu-24.04-arm` fallback
 when the private map is unavailable. A caller whose `ci-platform` property is
 `macos` runs on `macos` instead (hosted `macos-26` fallback), because an Apple suite needs Xcode
-and the iOS Simulator. The map has exactly seven active keys; `light`, `heavy`
+and the iOS Simulator. The map has exactly eight active keys; `light`, `heavy`
 and `e2e` are retired, and non-macOS E2E workflows use `arm` instead
 ([standards ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md)).
 

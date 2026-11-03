@@ -70,12 +70,11 @@ class RepositoryImageCaches(unittest.TestCase):
             for sample in CONFIG_SAMPLES:
                 self.assertFalse(any(fnmatch.fnmatchcase(sample, pattern) for pattern in patterns), sample)
 
-    def test_dev_checks_both_uids_and_ci_checks_only_its_fixed_uid(self):
-        build = (ASSETS / "build.sh").read_text()
-        self.assertIn('uids=(1000)', build)
-        self.assertIn('if [[ "$artifact" == "$IMAGE" ]]; then uids+=(1001); fi', build)
-        self.assertIn('for uid in "${uids[@]}"; do', build)
-        self.assertRegex(build, r'-s -- "\$uid" <\s*"\$ASSETS/cache-smoke.sh"')
+    def test_dev_checks_both_uids_and_the_ci_cache_check_is_off_the_per_build_path(self):
+        smoke = (ASSETS / "smoke.Dockerfile").read_text()
+        self.assertEqual(re.findall(r"^FROM \S+ AS (dev-\d+)$", smoke, re.MULTILINE), ["dev-1000", "dev-1001"])
+        self.assertEqual(re.findall(r"cache-smoke\.sh (\d+) &&", smoke), ["1000", "1001"])
+        self.assertNotIn("FROM ${CI_IMAGE} AS ci", smoke)
         smoke = (ASSETS / "cache-smoke.sh").read_text()
         self.assertIn('chown -R "$uid:$uid" /home/vscode', smoke)
         self.assertEqual(smoke.count("runuser -u vscode"), 2)
