@@ -1,0 +1,217 @@
+name: app image (reusable)
+"on":
+  workflow_call:
+    inputs:
+      image-name:
+        description: GHCR image without a tag; defaults to ghcr.io/<owner>/<repo>
+        type: string
+        default: ""
+      context:
+        description: Build context directory, relative to the repository root
+        type: string
+        default: .
+      file:
+        description: Dockerfile relative to the repository root; defaults to <context>/Dockerfile
+        type: string
+        default: ""
+      target:
+        description: Dockerfile stage to build
+        type: string
+        default: ""
+      build-args:
+        description: Build arguments, one NAME=value per line
+        type: string
+        default: ""
+      labels:
+        description: Extra OCI labels for docker/metadata-action, one key=value per line
+        type: string
+        default: ""
+      tags:
+        description: docker/metadata-action tag rules. Required when publish is true
+        type: string
+        default: ""
+      flavor:
+        description: docker/metadata-action flavor rules
+        type: string
+        default: ""
+      publish:
+        description: Push the final tags to GHCR, with provenance and an SBOM unless attestations is false
+        type: boolean
+        default: false
+      candidate:
+        description: >-
+          Push the image to GHCR under a temporary candidate tag so a later job on another runner can pull it by digest.
+          Built without attestations; stale candidates are pruned on later runs. Exclusive with publish
+        type: boolean
+        default: false
+      attestations:
+        description: Add provenance (mode=max) and an SBOM to a publish build
+        type: boolean
+        default: true
+      standards-install:
+        description: >-
+          Run mise run standards:install before the build, for a Dockerfile that copies a file from .standards/. The caller
+          job's packages permission covers the registry read
+        type: boolean
+        default: false
+      ref:
+        description: Ref to check out; defaults to the event's ref
+        type: string
+        default: ""
+      submodules:
+        description: Check out submodules (false, true or recursive)
+        type: string
+        default: "false"
+      timeout-minutes:
+        description: Job timeout, queue time excluded
+        type: number
+        default: 45
+    outputs:
+      digest:
+        description: Digest of the built image (the index digest when it carries attestations)
+        value: ${{ jobs.build.outputs.digest }}
+      image:
+        description: Pullable reference, image@digest. Empty for a build check, which stays in the staging registry
+        value: ${{ jobs.build.outputs.image }}
+      version:
+        description: docker/metadata-action's version for this run
+        value: ${{ jobs.build.outputs.version }}
+      tags:
+        description: The final tags, one per line (publish only)
+        value: ${{ jobs.build.outputs.tags }}
+permissions: {}
+jobs:
+  build:
+    name: Build on the Build Service (amd64)
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    # The image Scale Set's own label is the fallback: the daemon is reachable only from there, so hosted runners cannot build
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').image || fromJSON('["linux-x64-image"]') }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ steps.publish.outputs.image }}
+      version: ${{ steps.meta.outputs.version }}
+      tags: ${{ inputs.publish && steps.meta.outputs.tags || '' }}
+    steps:
+      - name: Resolve the image and the build mode
+        id: resolve
+        shell: bash
+        env:
+          IMAGE_INPUT: ${{ inputs.image-name }}
+          PUBLISH: ${{ inputs.publish }}
+          CANDIDATE: ${{ inputs.candidate }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISH" == true && "$CANDIDATE" == true ]]; then
+            echo "::error::publish and candidate are exclusive: a candidate is what a run job pulls before anything is published"
+            exit 1
+          fi
+          if [[ "$PUBLISH" == true && -z "${TAGS//[[:space:]]/}" ]]; then
+            echo "::error::publish needs the tags input"
+            exit 1
+          fi
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="${IMAGE_INPUT:-ghcr.io/${GITHUB_REPOSITORY,,}}"
+          image="${image,,}"
+          prefix="ghcr.io/$owner/"
+          package="${image#"$prefix"}"
+          if [[ "$image" != "$prefix"* || ! "$package" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]]; then
+            echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
+            exit 1
+          fi
+          mode=check
+          if [[ "$PUBLISH" == true ]]; then mode=publish; fi
+          if [[ "$CANDIDATE" == true ]]; then mode=candidate; fi
+          printf 'image=%s\nmode=%s\n' "$image" "$mode" >> "$GITHUB_OUTPUT"
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      # The repository's own tasks run before the job holds a certificate or a registry credential
+      - name: Set up uv for mise
+        if: inputs.standards-install
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.17"
+      - name: Set up mise
+        if: inputs.standards-install
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.10.19"
+          install: false
+          # A publishing workflow restores no cache another run could have poisoned
+          cache: false
+      - name: Install the Standards Package into .standards
+        if: inputs.standards-install
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: mise install node && mise run standards:install
+      - name: Install the Build Service client tools
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        with:
+          operation: tools
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ steps.resolve.outputs.image }}
+          flavor: ${{ inputs.flavor }}
+          tags: ${{ inputs.tags }}
+          labels: ${{ inputs.labels }}
+      - name: Connect to the Build Service
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        with:
+          operation: connect
+      - name: Build the image on the Build Service
+        id: build
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          MODE: ${{ steps.resolve.outputs.mode }}
+          BUILD_CONTEXT: ${{ inputs.context }}
+          BUILD_FILE: ${{ inputs.file }}
+          BUILD_TARGET: ${{ inputs.target }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+          BUILD_LABELS: ${{ steps.meta.outputs.labels }}
+          ATTESTATIONS: ${{ inputs.attestations }}
+        with:
+          operation: build
+      - name: Copy the verified image to GHCR
+        id: publish
+        if: steps.resolve.outputs.mode != 'check'
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          MODE: ${{ steps.resolve.outputs.mode }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: publish
+      - name: Prune stale candidate images
+        if: steps.resolve.outputs.mode == 'candidate'
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          operation: prune
+      - name: Remove the job's certificate, credentials and build inputs
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/app-image"
