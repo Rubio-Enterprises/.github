@@ -95,12 +95,12 @@ jobs:
           persist-credentials: false
       - name: Read the Standards Release selector
         id: standards
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         with:
           operation: inspect
       - name: Resolve the Standards Release
         id: release
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         env:
           STANDARDS_RELEASE: ${{ steps.standards.outputs.release }}
           NODE_AUTH_TOKEN: ${{ github.token }}
@@ -111,7 +111,7 @@ jobs:
           operation: release
       - name: Resolve and validate the public base pair
         id: bases
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         with:
           operation: resolve
           base: ${{ inputs.base }}
@@ -119,7 +119,7 @@ jobs:
       # A manual run always rebuilds; pushes alias the published pair when its inputs match
       - name: Compare image inputs with the published pair
         id: key
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           STANDARDS_VERSION: ${{ steps.release.outputs.version }}
@@ -169,7 +169,7 @@ jobs:
         run: npm install --prefix "$RUNNER_TEMP/devcontainer-cli" --ignore-scripts --no-audit --no-fund @devcontainers/cli@0.89.0
       - name: Prepare central generic build inputs
         id: inputs
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         env:
           DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
           STANDARDS_VERSION: ${{ needs.prepare.outputs.version }}
@@ -179,7 +179,7 @@ jobs:
           config: ${{ inputs.config }}
           base: ${{ needs.prepare.outputs.base }}
       - name: Install the Build Service client tools
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         with:
           operation: tools
       - name: Connect to the Build Service
@@ -188,7 +188,7 @@ jobs:
           ASSETS: ${{ steps.inputs.outputs.assets }}
         run: bash "$ASSETS/connect.sh"
       - name: Fetch the verified Standards Package
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         env:
           CONTEXT: ${{ steps.inputs.outputs.context }}
           NODE_AUTH_TOKEN: ${{ github.token }}
@@ -359,7 +359,7 @@ jobs:
           password: ${{ github.token }}
       - name: Prepare central generic build inputs
         id: inputs
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         env:
           DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
           STANDARDS_VERSION: ${{ needs.prepare.outputs.version }}
@@ -369,7 +369,7 @@ jobs:
           config: ${{ inputs.config }}
           base: ${{ needs.prepare.outputs.base }}
       - name: Fetch the verified Standards Package
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         env:
           CONTEXT: ${{ steps.inputs.outputs.context }}
           NODE_AUTH_TOKEN: ${{ github.token }}
@@ -503,7 +503,7 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - name: Point the commit tags at the published pair
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         env:
           IMAGE: ${{ needs.prepare.outputs.image }}
           DEV_INDEX: ${{ needs.prepare.outputs.dev-index }}

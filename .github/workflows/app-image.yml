@@ -269,7 +269,7 @@ jobs:
           name: ${{ needs.prepare.outputs.artifact }}
           path: .standards
       - name: Install the Build Service client tools
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         with:
           operation: tools
       - name: Compute image tags and labels
@@ -408,7 +408,7 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - name: Install the registry client tools
-        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
         with:
           operation: tools
       - name: Compute image tags

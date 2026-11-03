@@ -147,7 +147,7 @@ resolves to another digest afterwards fails the job.
 
 ## How a job gets the image to GHCR
 
-1. `connect` (the `repository-image` action's `connect.sh`, reused so there is one
+1. `connect` (the `dev-container-image` action's `connect.sh`, reused so there is one
    implementation) trades the job's OIDC token for a one-hour client certificate and configures
    the remote buildx builder.
 2. `build` runs `docker buildx build` into the staging registry beside the builder. The builder
@@ -193,7 +193,8 @@ Repository files are data to the job that holds the credentials, never code.
 
 - Any path from the caller must stay inside the checkout, symlinks resolved.
 - `--secret` and SSH mounts are not offered. No repository's image build used one.
-- The first BuildKit restart-retry (`code = Unavailable`) is the only retry.
+- The first BuildKit restart-retry (`code = Unavailable`) is the only retry. It is `retry_unavailable` in
+  `actions/build-service/retry.sh`, shared with `dev-container-image`.
 - Under `pipeline`, `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
   script refuse any other package, so one repository cannot publish into another's. GHCR separately
   refuses a push to an existing package the repository has no access to.
@@ -207,7 +208,7 @@ and the weekly rebuild of the builder:
 - **Not "pulls with no credentials".** The build's Docker config holds the shared staging registry
   credential, and BuildKit hands it to a build that asks (`FROM`, a `# syntax=` frontend, a
   `COPY --from`). A Dockerfile can therefore `FROM` another repository's staged image
-  (`<staging>/rubio-enterprises/<repo>/<package>:run-…`) and read it. Staged images are disposable
+  (`<staging>/rubio-enterprises/<repo>/run-<run>-<attempt>/<package>:run-…`) and read it. Staged images are disposable
   and the registry is emptied daily. Base images from public registries need no credential. The
   GHCR token and the client key never reach the daemon.
 - **Cache mounts are daemon-wide.** `RUN --mount=type=cache` shares a cache by `id`, and the

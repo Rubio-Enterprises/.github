@@ -1,8 +1,8 @@
-# Repository image builder
+# Dev Container Image builder
 
 `repository-image.yml` is the generic builder for ADR-0036. It builds repositories
 wired to the Standards Package (v2); Copier-era and unwired repositories fail
-preparation with an instruction to adopt the package. Repository images are built and published for **linux/amd64 only**. Public `base` and
+preparation with an instruction to adopt the package. Dev Container Images are built and published for **linux/amd64 only**. Public `base` and
 `base-ci` images remain multi-architecture for local arm64 builds. Every image builds on the
 shared Build Service (mac-dev-playbook ADR 0057 and 0058), described under
 [Build Service](#build-service); the Machine Pool image path and pull-request validation are gone.
@@ -33,7 +33,7 @@ There is no repository Dockerfile, build command input, baseline Feature,
 container environment override or local Feature. The public base already owns
 baseline. The pinned Dev Container CLI (0.89.0) parses JSONC and applies extra
 Features **before** tool/dependency setup. Its feature metadata stays on the
-Repository Image. A neighboring `devcontainer-lock.json` is used when present.
+Dev Container Image. A neighboring `devcontainer-lock.json` is used when present.
 
 The reusable defaults to these floating public indices, resolves them once per
 run, and shares immutable references across its native amd64 jobs. Resolution
@@ -189,12 +189,12 @@ Default names match the inventory contract:
 
 | Artifact | Package |
 | --- | --- |
-| Repository Image | `ghcr.io/<owner>/<repo>/devcontainer` |
+| Dev Container Image | `ghcr.io/<owner>/<repo>/devcontainer` |
 | CI Image | `ghcr.io/<owner>/<repo>/devcontainer-ci` |
 
 `image-name` optionally changes the first untagged GHCR name within the caller's
 owner; the second is that name plus `-ci`. The source label points at the caller.
-Private source may be baked into private repository images; provisioned standards
+Private source may be baked into private Dev Container Images; provisioned standards
 may not. A tracked source file remains repository source even when its complete
 contents match a bundle file, such as the rendered `treefmt.toml` bridge.
 The workflow never changes GHCR visibility, package links or access grants.
@@ -222,7 +222,7 @@ The staging copy is the verified artifact; nothing is rebuilt or reserialized on
 
 **Cross-repository mounts.** `crane copy` mounts layers only between packages of one registry, and this copy starts at the
 staging registry, so GHCR would receive every layer again over the home uplink, including layers it already holds. Before
-each copy, `actions/repository-image/ghcr/mount-layers.mjs` mounts them: the dev image's base layers from
+each copy, `actions/dev-container-image/ghcr/mount-layers.mjs` mounts them: the dev image's base layers from
 `devcontainers/base`; the CI image's base-ci layers from `devcontainers/base-ci`, and its repository layers from the dev
 package, which is why the dev image is copied first. A layer the target already holds is left alone; one no source holds
 (new content) is not asked about. crane then finds each mounted blob and sends nothing for it. The script sends the job's
@@ -315,7 +315,7 @@ client, certificate or staging registry. It keeps the same recipe, input key, la
 GHCR push and one-entry indices. It runs the dev image's cache smoke checks for uid 1000 and 1001 with Docker, and
 leaves the CI image's runtime and cache checks to the release that publishes the base pair (as the Build Service
 path does). `public/build.sh` sits in a subdirectory on purpose: the image input key hashes every file directly in
-`actions/repository-image/`, so a file there would rebuild every private repository's image, and a change under
+`actions/dev-container-image/`, so a file there would rebuild every private repository's image, and a change under
 `public/` changes no key, so it does not rebuild public repositories either. `ghcr/mount-layers.mjs` sits in a
 subdirectory for the same reason.
 
@@ -387,14 +387,31 @@ stops image builds until it is fixed.
   `Rubio-Enterprises/devcontainers`, against `base-ci` plus a reference repository layer. This
   workflow reuses this action's `cache-smoke.sh` for that check, so keep it compatible.
 
-**Staging.** Builds push `features`, `dev` and `ci` to `<registry>/<owner>/<repo>/…:run-<run>-<attempt>`.
-The registry is disposable; nothing prunes it from here.
+**Staging.** Builds push `features`, `dev` and `ci` to `<registry>/<owner>/<repo>/run-<run>-<attempt>/<name>:run-<run>-<attempt>`:
+every run and every attempt has its own staging repository. The registry ages a digest from its first push to a
+repository, not from the tag's push, and the Features image is deterministic, so a shared repository would let a later
+run's identical Features image inherit the first push's age and be expired while the job still reads it. The new path
+costs no cache: BuildKit keys its cache on content, not on the output name. The registry is disposable and expires its own
+content; nothing prunes it from here.
 
 **Features image.** The Dev Container CLI builds Features with `--push --omit-syntax-directive` and
 `BUILDX_NO_DEFAULT_ATTESTATIONS=1`. Without attestations the pushed tag is one manifest, so `crane
 digest` is the image digest and the recipe's `BASE` is stable. Without a reachable Docker engine the
 CLI otherwise writes a syntax directive that makes the daemon fetch the `docker/dockerfile:1.4`
 frontend from Docker Hub on every build.
+
+**Layer compression.** The recipe build exports with `compression=zstd,compression-level=9,oci-mediatypes=true`, so the
+layers it creates are zstd. Level 9 is BuildKit's "better" encoder (the same output as 6 to 8); on two real images the
+repository layers came out 87 % of their gzip size, against 93 % at the default level 3, for about 4 seconds more CPU per
+image. Never `force-compression`: the base's and the Features image's layers keep their published gzip digests, which is what
+lets the copy mount them (see Cross-repository mounts). The result is a mix, gzip below and zstd above. Consumers need
+Docker Engine 23.0 or later, or containerd 1.5 or later; the pools' and the Mac's dockerd (29.2.1) and Ubuntu 24.04's
+`docker.io` (24.0.7 in the release pocket, 29.1.3 in updates) qualify. Verified against zstd layers: dockerd 29.2.1
+(overlay2) and the hosted runner's 29.4.2, crane 0.22, Trivy (secret scan), skopeo, zot 2.1.23 and GHCR. The audit reads
+zstd blobs by streaming them through Node's `zlib` (Python's `tarfile` cannot before 3.14). The CI image is the dev image
+rebased onto base-ci, whose manifest uses Docker media types, so the CI manifest is a Docker v2 manifest with an OCI zstd
+layer descriptor; Docker 29.2.1 and 29.4.2 pull and run it. The hosted public-repository job builds with the local daemon
+and stays gzip.
 
 **Operating notes.**
 
@@ -408,9 +425,12 @@ frontend from Docker Hub on every build.
 - The called workflow is part of the certificate's claims (`job_workflow_ref`). A caller on a branch
   does not change it. A new central image workflow needs the Private CA template's workflow list
   updated, and a branch canary of this workflow needs its ref allowed, with the
-  `Rubio-Enterprises/.github/actions/repository-image@main` references pointing at the same branch.
-- Any change to a file in `actions/repository-image/` changes every repository's image input key, so
+  `Rubio-Enterprises/.github/actions/dev-container-image@main` references pointing at the same branch.
+- Any change to a file in `actions/dev-container-image/` changes every repository's image input key, so
   each repository rebuilds once at its next push.
+  Files outside that directory are not part of the key. `actions/build-service/retry.sh`
+  (`retry_unavailable`, shared with the app image client) is one: it decides whether a build is
+  retried, not what is in the image, so editing it rebuilds nothing.
 - If the daemon is down, image builds fail and are re-run after the fix; nothing waits on them in
   real time.
 

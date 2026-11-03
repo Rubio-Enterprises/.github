@@ -6,30 +6,9 @@ fail() {
   exit 1
 }
 
-# The daemon's restart fails its in-flight clients with Unavailable and its cache survives, so one retry is enough;
-# a daemon that stays down fails the second attempt. repository-image/build-service.sh holds the same function.
-retry_unavailable() {
-  local log attempt status
-  log="$(mktemp "$RUNNER_TEMP/build-service-attempt.XXXXXX")"
-  for attempt in 1 2; do
-    set +e
-    "$@" 2>&1 | tee "$log"
-    status="${PIPESTATUS[0]}"
-    set -e
-    if [[ "$status" -eq 0 ]]; then
-      rm -f "$log"
-      return 0
-    fi
-    if [[ "$attempt" -eq 1 ]] && grep -q 'code = Unavailable' "$log"; then
-      echo '::warning::The Build Service closed the connection; retrying once'
-      sleep "${BUILD_SERVICE_RETRY_DELAY:-20}"
-      continue
-    fi
-    break
-  done
-  rm -f "$log"
-  return "$status"
-}
+# retry_unavailable, shared with dev-container-image/build-service.sh
+# shellcheck source=../build-service/retry.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../build-service/retry.sh"
 
 # Sets PACKAGE to the GHCR package name behind an image reference, ghcr.io/<owner>/<package>, or fails. It sets a variable
 # instead of printing because a failure inside a command substitution would lose its annotation.

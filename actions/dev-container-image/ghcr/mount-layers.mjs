@@ -8,7 +8,7 @@
 //
 // A manifest file is a single-platform image manifest. The first source holding a layer wins. A source on another
 // registry is ignored. Needs GITHUB_ACTOR and REGISTRY_TOKEN, and sends them only to the registry's own token service.
-// This lives in a subdirectory on purpose: the image input key hashes only the files directly in actions/repository-image/.
+// This lives in a subdirectory on purpose: the image input key hashes only the files directly in actions/dev-container-image/.
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 

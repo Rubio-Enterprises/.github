@@ -118,7 +118,7 @@ release for this repository. Recover regressions through reviewed reverts.
   | `small` | `linux-x64-small` | `ubuntu-slim` | small work without Docker |
   | `medium` | `linux-x64-medium` | `ubuntu-latest` | multi-GiB work without Docker |
   | `docker` | `linux-x64-large` | `ubuntu-latest` | x64 Docker/Compose/builds |
-  | `image` | `linux-x64-image` | `linux-x64-image` (self-only) | Build Service client jobs (repository images) |
+  | `image` | `linux-x64-image` | `linux-x64-image` (self-only) | Build Service client jobs (Dev Container Images) |
   | `kvm` | `linux-x64-large` | `ubuntu-latest` | nested x86 virtualization |
   | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
   | `vrt` | `linux-x64-medium` | `linux-x64-medium` (self-only) | pinned visual rendering |

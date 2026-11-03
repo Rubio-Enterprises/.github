@@ -18,7 +18,7 @@ DIGEST = "sha256:" + "a" * 64
 OTHER = "sha256:" + "b" * 64
 WRAPPED = "sha256:" + "c" * 64  # the index buildx wraps a bare image manifest in
 IMAGE = "ghcr.io/rubio-enterprises/example"
-STAGING = "stage.example.invalid:5000/rubio-enterprises/repo"
+STAGING = "stage.example.invalid:5000/rubio-enterprises/repo/run-123-2"
 TOKEN = "ghs_secret_token_value"
 
 
@@ -55,7 +55,7 @@ class WorkflowShape(unittest.TestCase):
     def test_third_party_actions_are_pinned_and_first_party_ones_follow_main(self):
         for ref in re.findall(r"uses: (\S+)", TEXT):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
-                self.assertIn(ref, ("Rubio-Enterprises/.github/actions/repository-image@main", "Rubio-Enterprises/.github/actions/app-image@main"))
+                self.assertIn(ref, ("Rubio-Enterprises/.github/actions/dev-container-image@main", "Rubio-Enterprises/.github/actions/app-image@main"))
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
@@ -117,7 +117,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(set(re.findall(r"- name: (.*)\n", before_connect)), allowed)
         self.assertEqual(sorted(re.findall(r"uses: (\S+)", before_connect)), sorted([
             "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
-            "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", "Rubio-Enterprises/.github/actions/repository-image@main",
+            "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", "Rubio-Enterprises/.github/actions/dev-container-image@main",
             "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302"]))
         # No step but the trusted central ones writes to the files later steps inherit from
         for name, step in re.findall(r"- name: (.*)\n((?:        .*\n|      #.*\n|\n)*)", BUILD):
@@ -165,11 +165,11 @@ class WorkflowShape(unittest.TestCase):
 
     def test_the_action_dispatches_only_known_operations_and_reuses_the_connect_script(self):
         action = (ACTION / "action.yml").read_text()
-        self.assertIn('exec bash "$GITHUB_ACTION_PATH/../repository-image/connect.sh"', action)
+        self.assertIn('exec bash "$GITHUB_ACTION_PATH/../dev-container-image/connect.sh"', action)
         self.assertIn("build | structure | publish | promote | prune | smoke | pull | changes)", action)
         self.assertIn("OPERATION: ${{ inputs.operation }}", action)
         self.assertNotIn("${{", action.split("run: |", 1)[1])
-        self.assertTrue((ROOT / "actions/repository-image/connect.sh").is_file())
+        self.assertTrue((ROOT / "actions/dev-container-image/connect.sh").is_file())
 
 
 def run_block(step_name: str) -> str:
@@ -495,8 +495,10 @@ for tag in "${tags[@]}"; do printf '%s\\n' "$published" > "$RUNNER_TEMP/publishe
 
     def test_without_prefer_index_false_a_bare_image_manifest_would_fail_the_digest_check(self):
         # publish.sh as it was before the flag: the stub wraps the image as buildx 0.38 does, and the digest check catches it
-        broken = self.root / "broken"
-        broken.mkdir()
+        broken = self.root / "broken/app-image"
+        broken.mkdir(parents=True)
+        (self.root / "broken/build-service").mkdir()
+        (self.root / "broken/build-service/retry.sh").write_text((ROOT / "actions/build-service/retry.sh").read_text())
         for name in ("publish.sh", "lib.sh"):
             (broken / name).write_text((ACTION / name).read_text().replace("--prefer-index=false ", ""))
         self.assertNotIn("--prefer-index", (broken / "lib.sh").read_text().split("imagetools create", 1)[1].splitlines()[0])

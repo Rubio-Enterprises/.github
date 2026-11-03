@@ -102,7 +102,7 @@ class Shape(unittest.TestCase):
     def test_third_party_actions_are_pinned_and_first_party_ones_follow_main(self):
         for ref in re.findall(r"uses: (\S+)", PIPELINE):
             if ref.startswith("Rubio-Enterprises/.github/"):
-                self.assertRegex(ref, r"^Rubio-Enterprises/\.github/(actions/(app-image|repository-image)|\.github/workflows/app-image\.yml)@main$")
+                self.assertRegex(ref, r"^Rubio-Enterprises/\.github/(actions/(app-image|dev-container-image)|\.github/workflows/app-image\.yml)@main$")
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
