@@ -137,6 +137,21 @@ class WorkflowShape(unittest.TestCase):
         meta = steps("Compute image tags and labels")
         self.assertIn("context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}", meta)
 
+    def test_the_action_declares_every_output_the_workflow_reads_from_it(self):
+        # A composite action's inner steps keep their outputs to themselves unless the action maps them: without this the build
+        # job's `digest` and `image` outputs, and every caller's `needs.<job>.outputs.image`, are empty (found by the first canary run)
+        action = (ACTION / "action.yml").read_text()
+        self.assertRegex(action, r"\n    - id: run\n      shell: bash\n")
+        declared = dict(re.findall(r"\n  (\w+):\n    description: .*\n    value: \$\{\{ steps\.run\.outputs\.(\w+) \}\}", action))
+        self.assertEqual(declared, {"digest": "digest", "image": "image"})
+        used = set()
+        for step_id in re.findall(r"- name: .*\n        id: (\w+)\n(?:        .*\n)*?        uses: Rubio-Enterprises/\.github/actions/app-image@main", TEXT):
+            used.update(re.findall(rf"steps\.{step_id}\.outputs\.([\w-]+)", TEXT))
+        self.assertEqual(used, {"digest", "image"})
+        self.assertLessEqual(used, set(declared))
+        for output, source in (("digest", "steps.build.outputs.digest"), ("image", "steps.publish.outputs.image")):
+            self.assertIn(f"{output}: ${{{{ {source} }}}}", BUILD)
+
     def test_the_action_dispatches_only_known_operations_and_reuses_the_connect_script(self):
         action = (ACTION / "action.yml").read_text()
         self.assertIn('exec bash "$GITHUB_ACTION_PATH/../repository-image/connect.sh"', action)
