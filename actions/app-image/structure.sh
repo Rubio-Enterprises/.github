@@ -74,8 +74,10 @@ for label in org.opencontainers.image.source org.opencontainers.image.revision; 
 done
 
 # Trivy runs outside the checkout, so a trivy.yaml, .trivyignore or trivy-secret.yaml the repository carries cannot change the
-# scan. The matches stay out of the log: only the rule, the file and the lines are printed.
+# scan; the secret policy is this action's own file (it skips package caches and logs, which record third-party download URLs).
+# The matches stay out of the log: only the rule, the file and the lines are printed.
 cache="$state/trivy-cache"
+cp "$(dirname "${BASH_SOURCE[0]}")/trivy-secret.yaml" "$state/trivy-secret.yaml"
 scan() {
   local output="$1"
   shift
@@ -83,7 +85,7 @@ scan() {
     --cache-dir "$cache" --quiet --disable-telemetry --skip-version-check --timeout 15m --format json --output "$output" "$@" "$ref")
 }
 secrets="$state/secrets.json"
-scan "$secrets" --scanners secret --image-config-scanners secret > /dev/null || fail 'The secret scan did not complete'
+scan "$secrets" --scanners secret --image-config-scanners secret --secret-config "$state/trivy-secret.yaml" > /dev/null || fail 'The secret scan did not complete'
 found="$(jq --raw-output '[.Results[]? | .Target as $t | .Secrets[]? | "\($t):\(.StartLine)-\(.EndLine): \(.RuleID) (\(.Severity))"] | .[]' "$secrets")"
 if [[ -n "$found" ]]; then
   while IFS= read -r line; do problem "Secret in the image: $line"; done <<< "$found"
