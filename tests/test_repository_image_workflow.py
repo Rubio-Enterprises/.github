@@ -439,7 +439,8 @@ class Fixtures(unittest.TestCase):
         binary.chmod(0o755)
         self.env.update(IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer", CI_IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer-ci",
                         ASSETS=str(ASSETS), CONTEXT=str(self.root), ARCH="amd64", GITHUB_SHA="a" * 40, GITHUB_ACTOR="octocat",
-                        REGISTRY_TOKEN="ghs_secret", PATH=str(self.root) + os.pathsep + os.environ["PATH"])
+                        REGISTRY_TOKEN="ghs_secret", BASE="ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "1" * 64,
+                        BASE_CI="ghcr.io/rubio-enterprises/devcontainers/base-ci@sha256:" + "2" * 64, PATH=str(self.root) + os.pathsep + os.environ["PATH"])
         digest = "sha256:" + "b" * 64
         for name in ["dev", "ci"]:
             (self.root / f"{name}.ref").write_text(f"stage.example.invalid:5000/repo/{name}@{digest}\n")
@@ -450,6 +451,7 @@ case "$1" in
   auth) cat > /dev/null ;;
 esac
 ''')
+        self.stub("node", "exit 0\n")  # the mount script is covered in test_repository_image_mounts.py
         source = script("Scan the dev artifact for secrets") + script("Push the verified image pair")
         for dev in (1, 2, 0):
             (self.root / "pushed").unlink(missing_ok=True)

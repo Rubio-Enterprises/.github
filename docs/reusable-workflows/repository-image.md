@@ -219,6 +219,17 @@ a second time; this does not claim to scan the runner base's additional layers.
 After verification, audit, smoke tests and the scan pass, crane copies both exact manifests
 from staging to GHCR with the job's own token and verifies destination digest equality.
 The staging copy is the verified artifact; nothing is rebuilt or reserialized on the way.
+
+**Cross-repository mounts.** `crane copy` mounts layers only between packages of one registry, and this copy starts at the
+staging registry, so GHCR would receive every layer again over the home uplink, including layers it already holds. Before
+each copy, `actions/repository-image/ghcr/mount-layers.mjs` mounts them: the dev image's base layers from
+`devcontainers/base`; the CI image's base-ci layers from `devcontainers/base-ci`, and its repository layers from the dev
+package, which is why the dev image is copied first. A layer the target already holds is left alone; one no source holds
+(new content) is not asked about. crane then finds each mounted blob and sends nothing for it. The script sends the job's
+token only to the registry's own token service and masks the bearer token it gets back. A refused mount, an unreachable
+registry or an unreadable manifest only means the copy uploads those layers, so mounting can never fail a publication. The
+log line `<image>: N layers mounted (…), M already present (…), K to upload (…)` gives the saving.
+The hosted public-repository job does not mount: its uplink is not the bottleneck.
 The cleanup step deletes the job's certificate, credentials and build inputs on success,
 failure or cancellation.
 
@@ -305,7 +316,8 @@ GHCR push and one-entry indices. It runs the dev image's cache smoke checks for 
 leaves the CI image's runtime and cache checks to the release that publishes the base pair (as the Build Service
 path does). `public/build.sh` sits in a subdirectory on purpose: the image input key hashes every file directly in
 `actions/repository-image/`, so a file there would rebuild every private repository's image, and a change under
-`public/` changes no key, so it does not rebuild public repositories either.
+`public/` changes no key, so it does not rebuild public repositories either. `ghcr/mount-layers.mjs` sits in a
+subdirectory for the same reason.
 
 The `build` job runs on the image Scale Set (`RUNNERS.image`, falling back to the label
 `linux-x64-image`). It has **no hosted fallback**: the daemon is reachable only from that pool. It is a
@@ -321,7 +333,7 @@ thin client with no Docker daemon, no root and no socket.
 | Image audit | Job, on the layers above the public base only |
 | Cache smoke checks of the dev image | Build Service, as `--network=none` build stages (`smoke.Dockerfile`) |
 | Trivy secret scan | Job, `--image-src remote` against the staging registry |
-| Copy to GHCR, one-entry indices, aliases | Job, with its own `GITHUB_TOKEN` |
+| Mount existing layers, copy to GHCR, one-entry indices, aliases | Job, with its own `GITHUB_TOKEN` |
 | Prune untagged versions | `prune`, small route |
 
 **Coordinates come from the image runner**, so this public workflow names no internal host:

@@ -245,7 +245,10 @@ jobs:
       - name: Push the verified image pair
         shell: bash
         env:
+          ASSETS: ${{ steps.inputs.outputs.assets }}
           CONTEXT: ${{ steps.inputs.outputs.context }}
+          BASE: ${{ needs.prepare.outputs.base }}
+          BASE_CI: ${{ needs.prepare.outputs.base-ci }}
           IMAGE: ${{ needs.prepare.outputs.image }}
           CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
           REGISTRY_TOKEN: ${{ github.token }}
@@ -256,7 +259,14 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" | crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           for artifact in "$IMAGE" "$CI_IMAGE"; do
             name=dev
-            if [[ "$artifact" == "$CI_IMAGE" ]]; then name=ci; fi
+            # Layers GHCR already holds are mounted, so only the repository's new layers cross the uplink. The dev image
+            # is copied first, which makes its layers a mount source for the CI image.
+            sources=("$BASE=$CONTEXT/verify/base.json")
+            if [[ "$artifact" == "$CI_IMAGE" ]]; then
+              name=ci
+              sources=("$BASE_CI=$CONTEXT/verify/base-ci.json" "$IMAGE=$CONTEXT/verify/dev.json")
+            fi
+            node "$ASSETS/ghcr/mount-layers.mjs" "$artifact" "$CONTEXT/verify/$name.json" "${sources[@]}"
             ref="$(< "$CONTEXT/$name.ref")"
             target="$artifact:sha-$GITHUB_SHA-$ARCH"
             crane copy "$ref" "$target"
