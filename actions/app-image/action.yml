@@ -1,0 +1,20 @@
+name: App image Build Service client
+description: Connects an image job to the Build Service, builds one app image there, copies it to GHCR and prunes stale candidates
+inputs:
+  operation:
+    description: connect, build, publish or prune
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+      run: |
+        set -euo pipefail
+        case "$OPERATION" in
+          # The certificate exchange and builder setup are the repository-image action's; they have one implementation.
+          connect) exec bash "$GITHUB_ACTION_PATH/../repository-image/connect.sh" ;;
+          build | publish | prune) exec bash "$GITHUB_ACTION_PATH/$OPERATION.sh" ;;
+          *) echo "::error::Unknown app image operation"; exit 1 ;;
+        esac
