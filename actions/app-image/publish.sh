@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Copies the image build.sh staged to GHCR under its final tags, or under the temporary candidate tag, and checks that
-# every tag resolves to the staged digest. crane copies by digest, so attestations and every child manifest come across
-# unchanged. This is the only step that sees the GHCR token, and it reaches it through its environment.
+# every tag resolves to the staged digest. imagetools copies by digest, so attestations and every child manifest come
+# across unchanged. crane copy would also push a sha256-<digest> referrers tag for each attestation (GHCR has no referrers
+# API), cluttering the package's tag list and version feeds. This is the only step that sees the GHCR token, and it reaches
+# it through its environment.
 #
 # Environment:
 #   IMAGE           untagged GHCR image, ghcr.io/<owner>/<package>
@@ -37,11 +39,14 @@ publish)
 *) fail 'MODE must be candidate or publish' ;;
 esac
 
-# connect.sh's publish config holds the staging credential; the GHCR login joins it here
+# connect.sh's publish config holds the staging credential; the GHCR login joins it here. The remote builder is not needed.
 export DOCKER_CONFIG="$RUNNER_TEMP/build-service/docker-publish"
+unset BUILDX_BUILDER
 printf '%s' "$REGISTRY_TOKEN" | crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+tag_flags=()
+for target in "${targets[@]}"; do tag_flags+=(--tag "$target"); done
+docker buildx imagetools create "${tag_flags[@]}" "$staging@$digest"
 for target in "${targets[@]}"; do
-  crane copy "$staging@$digest" "$target"
   [[ "$(crane digest "$target")" == "$digest" ]] || fail "Published manifest of $target differs from the staged image"
   printf 'Published verified digest: %s -> %s\n' "$digest" "$target"
 done

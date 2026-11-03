@@ -274,37 +274,41 @@ case "$1" in
   digest) printf '%s\\n' "${PUBLISHED_DIGEST:-''' + DIGEST + '''}" ;;
 esac
 ''')
+        # imagetools is the copy; the builder must not be selected for it
+        self.stub("docker", '''printf '%s|%s|%s\\n' "${DOCKER_CONFIG:-}" "${BUILDX_BUILDER-unset}" "$*" >> "$RUNNER_TEMP/docker-calls"
+exit "${IMAGETOOLS_STATUS:-0}"
+''')
 
     def publish(self, **overrides):
         return self.run_script("publish.sh", **overrides)
 
-    def test_copies_the_staged_digest_to_every_final_tag_and_verifies_each(self):
-        result = self.publish()
+    def test_copies_the_staged_digest_to_every_final_tag_with_one_imagetools_call_and_verifies_each(self):
+        result = self.publish(BUILDX_BUILDER="build-service")
         self.assertEqual(result.returncode, 0, result.stderr)
         config = f"{self.root}/runner/build-service/docker-publish"
         staged = f"{STAGING}/example:run-123-2-publish@{DIGEST}"
-        calls = self.calls("crane-calls")
-        self.assertEqual(calls[0], f"{config}|auth login ghcr.io --username octocat --password-stdin")
+        self.assertEqual(self.calls("crane-calls")[0], f"{config}|auth login ghcr.io --username octocat --password-stdin")
+        self.assertEqual(self.calls("docker-calls"), [
+            f"{config}|unset|buildx imagetools create --tag {IMAGE}:1.2.3 --tag {IMAGE}:1.2 --tag {IMAGE}:sha-abc1234 {staged}"])
         for tag in ("1.2.3", "1.2", "sha-abc1234"):
-            self.assertIn(f"{config}|copy {staged} {IMAGE}:{tag}", calls)
-            self.assertIn(f"{config}|digest {IMAGE}:{tag}", calls)
+            self.assertIn(f"{config}|digest {IMAGE}:{tag}", self.calls("crane-calls"))
+        self.assertFalse([call for call in self.calls("crane-calls") if "|copy" in call])  # crane copy adds referrers tags
         self.assertEqual((self.temp / "crane-stdin").read_text(), TOKEN)
         self.assertEqual(self.outputs(), {"digest": DIGEST, "image": f"{IMAGE}@{DIGEST}"})
-        summary = self.summary.read_text()
-        self.assertIn(f"{IMAGE}:1.2.3@{DIGEST}", summary)
+        self.assertIn(f"{IMAGE}:1.2.3@{DIGEST}", self.summary.read_text())
 
     def test_the_token_never_appears_in_a_command_line_or_the_output(self):
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn(TOKEN, "\n".join(self.calls("crane-calls")))
+        self.assertNotIn(TOKEN, "\n".join(self.calls("crane-calls") + self.calls("docker-calls")))
         self.assertNotIn(TOKEN, result.stdout + result.stderr + self.output.read_text() + self.summary.read_text())
 
     def test_a_candidate_gets_one_temporary_tag_and_no_other(self):
         result = self.publish(MODE="candidate", TAGS="")
         self.assertEqual(result.returncode, 0, result.stderr)
-        copies = [call for call in self.calls("crane-calls") if "|copy " in call]
+        copies = self.calls("docker-calls")
         self.assertEqual(len(copies), 1)
-        self.assertTrue(copies[0].endswith(f" {IMAGE}:candidate-123-2"))
+        self.assertIn(f"imagetools create --tag {IMAGE}:candidate-123-2 {STAGING}/example:run-123-2-publish@{DIGEST}", copies[0])
         self.assertEqual(self.outputs()["image"], f"{IMAGE}@{DIGEST}")
 
     def test_tags_outside_the_image_or_malformed_publish_nothing(self):
@@ -317,11 +321,18 @@ esac
                 result = self.publish(TAGS=tags)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.calls("crane-calls"), [])
+                self.assertEqual(self.calls("docker-calls"), [])
 
     def test_a_tag_that_does_not_resolve_to_the_staged_digest_fails(self):
         result = self.publish(PUBLISHED_DIGEST=OTHER)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("differs from the staged image", result.stdout)
+        self.assertEqual(self.output.read_text(), "")
+
+    def test_a_failed_copy_fails_the_step_before_any_verification(self):
+        result = self.publish(IMAGETOOLS_STATUS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse([call for call in self.calls("crane-calls") if "|digest" in call])
         self.assertEqual(self.output.read_text(), "")
 
     def test_nothing_is_published_when_the_build_did_not_stage_anything(self):
