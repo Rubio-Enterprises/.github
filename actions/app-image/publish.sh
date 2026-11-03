@@ -13,6 +13,8 @@
 #                   the same amd64 layers, so a cache eviction between the test and this build cannot ship an untested image.
 #                   Unset or `none` skips the check; set but empty fails, because it means a caller wired the input to an output
 #                   that did not resolve
+#   APP_IMAGE_POLICY  true (the pipeline) refuses latest, an image outside <repo>, and an existing tag that would move
+#   MOVING_TAGS     publish only, optional: tags allowed to move to another image, one per line; every other existing tag is refused
 #   REGISTRY_TOKEN  the job's GITHUB_TOKEN
 set -euo pipefail
 : "${IMAGE:?}" "${MODE:?}" "${RUNNER_TEMP:?}" "${GITHUB_OUTPUT:?}" "${GITHUB_ACTOR:?}" "${REGISTRY_TOKEN:?}" "${GITHUB_REPOSITORY_OWNER:?}"
@@ -26,22 +28,9 @@ digest="$(< "$state/digest")"
 staging="$(< "$state/staging.ref")"
 [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'no staged image: the build step did not run'
 
-targets=()
 case "$MODE" in
-candidate) targets+=("$IMAGE:$(candidate_tag "$digest")") ;;
-publish)
-  while IFS= read -r line; do
-    line="${line%$'\r'}"
-    if [[ -z "$line" ]]; then continue; fi
-    # A reference that names another repository or a digest would publish somewhere the workflow did not intend
-    [[ "$line" == "$IMAGE":* ]] || fail "tag $line is not a tag of $IMAGE"
-    [[ "${line#"$IMAGE":}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || fail "tag $line is not a valid tag"
-    # prune.sh deletes candidate tags, so a final tag must never look like one
-    [[ "${line#"$IMAGE":}" != candidate-* ]] || fail "tag $line is reserved for candidate images"
-    targets+=("$line")
-  done <<< "${TAGS:-}"
-  [[ "${#targets[@]}" -gt 0 ]] || fail 'publishing needs at least one tag: pass the tags input'
-  ;;
+candidate) TARGETS=("$IMAGE:$(candidate_tag "$digest")") ;;
+publish) collect_tags ;;
 *) fail 'MODE must be candidate or publish' ;;
 esac
 verified="${VERIFIED_IMAGE-none}"
@@ -66,28 +55,11 @@ if [[ "$verified" != none ]]; then
   echo "The staged image has the tested image's layers"
 fi
 
-tag_flags=()
-for target in "${targets[@]}"; do tag_flags+=(--tag "$target"); done
-# --prefer-index=false copies a bare image manifest as itself. The default wraps one in a new index, whose digest the check below
-# would never match; an index (attestations) is copied byte for byte either way.
-docker buildx imagetools create --prefer-index=false "${tag_flags[@]}" "$staging@$digest"
-for target in "${targets[@]}"; do
-  [[ "$(crane digest "$target")" == "$digest" ]] || fail "Published manifest of $target differs from the staged image"
-  printf 'Published verified digest: %s -> %s\n' "$digest" "$target"
-done
+if [[ "$MODE" == publish ]]; then refuse_moved_tags "$digest"; fi
+copy_tags "$staging@$digest" "$digest"
 
 {
   printf 'digest=%s\n' "$digest"
   printf 'image=%s@%s\n' "$IMAGE" "$digest"
 } >> "$GITHUB_OUTPUT"
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  {
-    echo '## Published image'
-    echo
-    echo "Digest: \`$digest\`"
-    echo
-    echo '```text'
-    for target in "${targets[@]}"; do echo "$target@$digest"; done
-    echo '```'
-  } >> "$GITHUB_STEP_SUMMARY"
-fi
+summarize_tags "$digest"

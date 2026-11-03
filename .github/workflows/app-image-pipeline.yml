@@ -1,0 +1,414 @@
+name: app image pipeline (reusable)
+# One App Image, built once, tested, then promoted. Docs: docs/reusable-workflows/app-image-pipeline.md. Pull requests run every
+# step but the promotion. A publishing run builds one candidate, checks its structure (T1), starts it (T2), runs the repository's
+# `mise run test:image` against it (T3), and retags that exact digest. Nothing is rebuilt at release.
+"on":
+  workflow_call:
+    inputs:
+      image-name:
+        description: GHCR image without a tag; defaults to ghcr.io/<owner>/<repo>. It must be that name or start with <repo>/
+        type: string
+        default: ""
+      arch:
+        description: amd64 builds on the Build Service; arm64 builds natively on the arm pool
+        type: string
+        default: amd64
+      context:
+        description: Build context directory, relative to the repository root
+        type: string
+        default: .
+      file:
+        description: Dockerfile relative to the repository root; defaults to <context>/Dockerfile
+        type: string
+        default: ""
+      target:
+        description: Dockerfile stage to build
+        type: string
+        default: ""
+      build-args:
+        description: Build arguments, one NAME=value per line
+        type: string
+        default: ""
+      labels:
+        description: Extra OCI labels for docker/metadata-action, one key=value per line
+        type: string
+        default: ""
+      tags:
+        description: docker/metadata-action tag rules for the final tags. Required when publish is true
+        type: string
+        default: ""
+      flavor:
+        description: docker/metadata-action flavor rules
+        type: string
+        default: ""
+      publish:
+        description: >-
+          Promote the tested candidate to the final tags, with provenance and an SBOM. Pass false on a pull request: the same
+          steps run, and nothing is published
+        type: boolean
+        default: false
+      moving-tags:
+        description: >-
+          Tags that may move to another image, one exact tag per line (for example a branch channel such as main). Every other
+          existing tag is never overwritten, and latest is never published
+        type: string
+        default: ""
+      smoke-command:
+        description: >-
+          For a command-line tool: arguments for the image's entrypoint that must exit 0 (for example --version). Leave empty for
+          a server, which must declare a HEALTHCHECK and become healthy
+        type: string
+        default: ""
+      smoke-env:
+        description: NAME=value lines (no secrets) a server needs to start for the smoke test
+        type: string
+        default: ""
+      smoke-timeout-seconds:
+        description: Seconds a server has to become healthy in the smoke test
+        type: number
+        default: 120
+      block-vulnerabilities:
+        description: Fail the build on a fixable CRITICAL vulnerability. By default the vulnerability report never fails it
+        type: boolean
+        default: false
+      ignore-paths:
+        description: >-
+          A pull request whose every changed file matches one of these shell patterns, one per line, skips the image jobs (* also
+          matches a slash). Pushes, tags and dispatches always run
+        type: string
+        default: |
+          *.md
+          docs/*
+          LICENSE
+      standards-install:
+        description: >-
+          For a Dockerfile that copies a file from .standards/ (amd64 only): a separate job with no OIDC token runs
+          mise run standards:install and hands .standards/ to the build as an artifact
+        type: boolean
+        default: false
+      ref:
+        description: Ref to check out; defaults to the event's ref
+        type: string
+        default: ""
+      submodules:
+        description: Check out submodules (false, true or recursive)
+        type: string
+        default: "false"
+      timeout-minutes:
+        description: Build job timeout, queue time excluded
+        type: number
+        default: 45
+      test-timeout-minutes:
+        description: Timeout of the smoke and test jobs, queue time excluded
+        type: number
+        default: 30
+    outputs:
+      image:
+        description: The published image@digest of a publishing run, otherwise the tested candidate's. Empty when the image jobs were skipped
+        value: ${{ jobs.promote.outputs.image || jobs.build.outputs.image || jobs.build-arm64.outputs.image }}
+      digest:
+        description: Digest of that image
+        value: ${{ jobs.promote.outputs.digest || jobs.build.outputs.digest || jobs.build-arm64.outputs.digest }}
+      version:
+        description: docker/metadata-action's version for this run
+        value: ${{ jobs.promote.outputs.version || jobs.build.outputs.version || jobs.build-arm64.outputs.version }}
+      tags:
+        description: The final tags, one per line (publishing runs only)
+        value: ${{ jobs.promote.outputs.tags }}
+permissions: {}
+jobs:
+  # A pull request that changes only documentation skips the image jobs. Every other event runs them
+  changes:
+    name: Image inputs changed
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.changes.outputs.run }}
+    steps:
+      - name: Check the inputs
+        shell: bash
+        env:
+          ARCH: ${{ inputs.arch }}
+          PUBLISH: ${{ inputs.publish }}
+          TAGS: ${{ inputs.tags }}
+          STANDARDS_INSTALL: ${{ inputs.standards-install }}
+        run: |
+          set -euo pipefail
+          if [[ "$ARCH" != amd64 && "$ARCH" != arm64 ]]; then
+            echo "::error::arch must be amd64 or arm64"
+            exit 1
+          fi
+          if [[ "$PUBLISH" == true && -z "${TAGS//[[:space:]]/}" ]]; then
+            echo "::error::publish needs the tags input"
+            exit 1
+          fi
+          if [[ "$ARCH" == arm64 && "$STANDARDS_INSTALL" == true ]]; then
+            echo "::error::standards-install is not available for an arm64 build"
+            exit 1
+          fi
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Decide whether the image jobs run
+        id: changes
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IGNORE_PATHS: ${{ inputs.ignore-paths }}
+        with:
+          operation: changes
+
+  # The amd64 candidate: built on the Build Service, structure-checked there before it reaches GHCR, then pushed under a
+  # candidate tag. The called workflow holds the certificate; its job_workflow_ref is app-image.yml on main
+  build:
+    name: Build
+    needs: changes
+    if: ${{ needs.changes.outputs.run == 'true' && inputs.arch == 'amd64' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: Rubio-Enterprises/.github/.github/workflows/app-image.yml@main
+    with:
+      image-name: ${{ inputs.image-name }}
+      pipeline: true
+      candidate: true
+      attestations: ${{ inputs.publish }}
+      server: ${{ inputs.smoke-command == '' }}
+      block-vulnerabilities: ${{ inputs.block-vulnerabilities }}
+      context: ${{ inputs.context }}
+      file: ${{ inputs.file }}
+      target: ${{ inputs.target }}
+      build-args: ${{ inputs.build-args }}
+      labels: ${{ inputs.labels }}
+      tags: ${{ inputs.tags }}
+      flavor: ${{ inputs.flavor }}
+      standards-install: ${{ inputs.standards-install }}
+      ref: ${{ inputs.ref }}
+      submodules: ${{ inputs.submodules }}
+      timeout-minutes: ${{ inputs.timeout-minutes }}
+
+  # The arm64 candidate: the Build Service is amd64, so the image builds natively on the arm pool, with no emulation. Only
+  # the Dockerfile's own steps run in the daemon; no repository task runs in this job
+  build-arm64:
+    name: Build (arm64)
+    needs: changes
+    if: ${{ needs.changes.outputs.run == 'true' && inputs.arch == 'arm64' }}
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ steps.resolve.outputs.image }}@${{ steps.build.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Resolve the image and its candidate tag
+        id: resolve
+        shell: bash
+        env:
+          IMAGE_INPUT: ${{ inputs.image-name }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="${IMAGE_INPUT:-ghcr.io/${GITHUB_REPOSITORY,,}}"
+          image="${image,,}"
+          prefix="ghcr.io/$owner/"
+          package="${image#"$prefix"}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          repo="${repo,,}"
+          if [[ "$image" != "$prefix"* || ! "$package" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]] ||
+            [[ "$package" != "$repo" && "$package" != "$repo/"* ]]; then
+            echo "::error::image-name must be $prefix$repo or $prefix$repo/<name>: an image belongs to the repository that builds it"
+            exit 1
+          fi
+          # prune deletes only tags of this shape: candidate-<run>-<attempt>-<12 hex digits>
+          printf 'image=%s\ntag=candidate-%s-%s-%s\n' "$image" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')" >> "$GITHUB_OUTPUT"
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}
+          images: ${{ steps.resolve.outputs.image }}
+          # App Images publish no latest tag; metadata-action would add one to every semver release
+          flavor: |
+            latest=false
+            ${{ inputs.flavor }}
+          tags: ${{ inputs.tags }}
+          labels: ${{ inputs.labels }}
+      - name: Build and push the candidate
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file != '' && inputs.file || format('{0}/Dockerfile', inputs.context) }}
+          target: ${{ inputs.target }}
+          build-args: ${{ inputs.build-args }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.resolve.outputs.image }}:${{ steps.resolve.outputs.tag }}
+          provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.publish }}
+      - name: Prune stale candidate images
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          GH_TOKEN: ${{ github.token }}
+          APP_IMAGE_POLICY: "true"
+        with:
+          operation: prune
+
+  # T1 for an image built on arm64: the same checks as the Build Service's build job, read from GHCR on an x64 runner that
+  # holds no repository code. The amd64 path runs them before the image reaches GHCR
+  structure-arm64:
+    name: Structure (arm64)
+    needs: build-arm64
+    permissions:
+      contents: read
+      packages: read
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 15
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install the registry client tools
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        with:
+          operation: tools
+      - name: Check the image's structure
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          REF: ${{ needs.build-arm64.outputs.image }}
+          PLATFORM: linux/arm64
+          SERVER: ${{ inputs.smoke-command == '' }}
+          BLOCK_VULNERABILITIES: ${{ inputs.block-vulnerabilities }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: structure
+      - name: Remove the job's credentials and working files
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/app-image"
+
+  # T2: the candidate starts, and as a non-root user does what its kind does. The job has a Docker daemon, no checkout and no
+  # repository code
+  smoke:
+    name: Smoke
+    needs: [changes, build, build-arm64, structure-arm64]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.run == 'true' }}
+    permissions:
+      packages: read
+    runs-on: ${{ inputs.arch == 'arm64' && (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) || (fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]')) }}
+    timeout-minutes: ${{ inputs.test-timeout-minutes }}
+    steps:
+      - name: Start the candidate
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          IMAGE: ${{ needs.build.outputs.image || needs.build-arm64.outputs.image }}
+          SMOKE_COMMAND: ${{ inputs.smoke-command }}
+          SMOKE_ENV: ${{ inputs.smoke-env }}
+          SMOKE_TIMEOUT: ${{ inputs.smoke-timeout-seconds }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: smoke
+
+  # T3: the repository's own functional test of the candidate. The repository's code runs here, so the job holds only read
+  # access: it cannot publish, build on the Build Service or mint a certificate
+  test:
+    name: Test
+    needs: [changes, build, build-arm64, structure-arm64]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.run == 'true' }}
+    permissions:
+      contents: read
+      packages: read
+    runs-on: ${{ inputs.arch == 'arm64' && (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) || (fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]')) }}
+    timeout-minutes: ${{ inputs.test-timeout-minutes }}
+    steps:
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
+          persist-credentials: false
+      # mise's pipx backend needs uv on PATH on a cold runner
+      - name: Set up uv for mise
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.17"
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.10.19"
+          install: false
+          # A run that may publish restores no cache another run could have poisoned
+          cache: false
+      # The pull comes first and leaves no registry credential behind for the repository's tasks
+      - name: Pull the candidate
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          IMAGE: ${{ needs.build.outputs.image || needs.build-arm64.outputs.image }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: pull
+      - name: Install the standards package, the tools and the dependencies
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          MISE_GITHUB_TOKEN: ${{ github.token }}
+        run: mise run setup
+      - name: Run the repository's image test
+        shell: bash
+        env:
+          IMAGE: ${{ needs.build.outputs.image || needs.build-arm64.outputs.image }}
+        run: |
+          set -euo pipefail
+          if ! mise tasks info test:image > /dev/null 2>&1; then
+            echo "::error::This repository publishes an App Image but defines no test:image task. Define one in mise.toml: it receives the candidate as IMAGE (image@digest) and fails when the image does not do its job"
+            exit 1
+          fi
+          IMAGE_NAME="${IMAGE%@*}" mise run test:image
+
+  # Promotion: the tested digest gets its final tags. It runs only after every tier passed, and holds only the GHCR token
+  promote:
+    name: Promote
+    needs: [changes, build, build-arm64, structure-arm64, smoke, test]
+    if: ${{ inputs.publish && !cancelled() && !failure() && needs.changes.outputs.run == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: Rubio-Enterprises/.github/.github/workflows/app-image.yml@main
+    with:
+      image-name: ${{ inputs.image-name }}
+      promote: true
+      candidate-image: ${{ needs.build.outputs.image || needs.build-arm64.outputs.image }}
+      tags: ${{ inputs.tags }}
+      flavor: ${{ inputs.flavor }}
+      moving-tags: ${{ inputs.moving-tags }}
+      ref: ${{ inputs.ref }}

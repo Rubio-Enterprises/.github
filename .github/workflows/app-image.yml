@@ -40,14 +40,45 @@ name: app image (reusable)
         default: false
       candidate:
         description: >-
-          Push the image to GHCR under a temporary candidate tag so a later job on another runner can pull it by digest.
-          Built without attestations; stale candidates are pruned on later runs. Exclusive with publish
+          Push the image to GHCR under a temporary candidate tag so a later job on another runner can pull it by digest, and
+          test exactly those bytes. Stale candidates are pruned on later runs. Exclusive with publish and promote
         type: boolean
         default: false
+      promote:
+        description: >-
+          Publish a tested candidate by retagging it: no build, no builder, no certificate. Needs candidate-image and tags.
+          Exclusive with publish and candidate
+        type: boolean
+        default: false
+      candidate-image:
+        description: Promote only. The tested candidate, image@digest, from the candidate build's `image` output
+        type: string
+        default: ""
       attestations:
-        description: Add provenance (mode=max) and an SBOM to a publish build
+        description: Add provenance (mode=max) and an SBOM to a candidate or publish build
         type: boolean
         default: true
+      pipeline:
+        description: >-
+          Set by app-image-pipeline.yml only. Turns on the App Image policy for this call: the image must be <repo> or
+          <repo>/<name>, latest is never published, an existing tag is never overwritten, and tier 1 (structure) runs and fails
+          the build. A direct caller keeps the earlier behaviour until it moves onto the pipeline
+        type: boolean
+        default: false
+      moving-tags:
+        description: >-
+          Publish and promote only, under the pipeline policy. Tags that may move to another image, one exact tag per line (for example a branch channel).
+          Every other existing tag is never overwritten, and latest is never published
+        type: string
+        default: ""
+      server:
+        description: Pipeline only. The image is a long-running server, so its configuration must declare a HEALTHCHECK
+        type: boolean
+        default: false
+      block-vulnerabilities:
+        description: Pipeline only. Fail the build on a fixable CRITICAL vulnerability. By default the vulnerability report never fails it
+        type: boolean
+        default: false
       verified-image:
         description: >-
           Publish only: the candidate image@digest a job tested, from this workflow's `image` output. The workflow fails
@@ -79,23 +110,23 @@ name: app image (reusable)
     outputs:
       digest:
         description: Digest of the built image (the index digest when it carries attestations)
-        value: ${{ jobs.build.outputs.digest }}
+        value: ${{ jobs.build.outputs.digest || jobs.promote.outputs.digest }}
       image:
         description: Pullable reference, image@digest. Empty for a build check, which stays in the staging registry
-        value: ${{ jobs.build.outputs.image }}
+        value: ${{ jobs.build.outputs.image || jobs.promote.outputs.image }}
       version:
         description: docker/metadata-action's version for this run
-        value: ${{ jobs.build.outputs.version }}
+        value: ${{ jobs.build.outputs.version || jobs.promote.outputs.version }}
       tags:
-        description: The final tags, one per line (publish only)
-        value: ${{ jobs.build.outputs.tags }}
+        description: The final tags, one per line (publish and promote only)
+        value: ${{ jobs.build.outputs.tags || jobs.promote.outputs.tags }}
 permissions: {}
 jobs:
   # The only job that runs repository tasks. It has no OIDC token and cannot write packages, and it runs on the small pool,
   # which cannot reach the Build Service: what it produces reaches the build as data, never as code
   prepare:
     name: Prepare the Standards Package
-    if: inputs.standards-install
+    if: inputs.standards-install && !inputs.promote
     permissions:
       contents: read
       packages: read
@@ -147,7 +178,7 @@ jobs:
   build:
     name: Build on the Build Service (amd64)
     needs: prepare
-    if: ${{ !cancelled() && !failure() }}
+    if: ${{ !cancelled() && !failure() && !inputs.promote }}
     permissions:
       contents: read
       packages: write
@@ -172,6 +203,7 @@ jobs:
           CANDIDATE: ${{ inputs.candidate }}
           TAGS: ${{ inputs.tags }}
           VERIFIED: ${{ inputs.verified-image }}
+          POLICY: ${{ inputs.pipeline }}
         run: |
           set -euo pipefail
           if [[ "$PUBLISH" == true && "$CANDIDATE" == true ]]; then
@@ -189,6 +221,13 @@ jobs:
           package="${image#"$prefix"}"
           if [[ "$image" != "$prefix"* || ! "$package" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]]; then
             echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
+            exit 1
+          fi
+          # The pipeline's policy: a repository's main image is <repo>; its others are <repo>/<name>
+          repo="${GITHUB_REPOSITORY#*/}"
+          repo="${repo,,}"
+          if [[ "$POLICY" == true && "$package" != "$repo" && "$package" != "$repo/"* ]]; then
+            echo "::error::image-name must be $prefix$repo or $prefix$repo/<name>: an image belongs to the repository that builds it"
             exit 1
           fi
           # An omitted input is `none`; a passed value that resolves empty is an unwired output, never "skip the check"
@@ -240,7 +279,10 @@ jobs:
           # A ref other than the event's is what gets built, so its tags and labels come from the checkout, not the event
           context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}
           images: ${{ steps.resolve.outputs.image }}
-          flavor: ${{ inputs.flavor }}
+          # Under the pipeline, App Images publish no latest tag; metadata-action would add one to every semver release
+          flavor: |
+            ${{ inputs.pipeline && 'latest=false' || '' }}
+            ${{ inputs.flavor }}
           tags: ${{ inputs.tags }}
           labels: ${{ inputs.labels }}
       - name: Connect to the Build Service
@@ -259,8 +301,19 @@ jobs:
           BUILD_ARGS: ${{ inputs.build-args }}
           BUILD_LABELS: ${{ steps.meta.outputs.labels }}
           ATTESTATIONS: ${{ inputs.attestations }}
+          APP_IMAGE_POLICY: ${{ inputs.pipeline }}
         with:
           operation: build
+      # The pipeline's tier 1. Before anything reaches GHCR: an image that is root, leaks a secret or lacks a HEALTHCHECK it needs
+      # is never pushed. It reads the staged image with the staging credential only
+      - name: Check the image's structure
+        if: inputs.pipeline
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          SERVER: ${{ inputs.server }}
+          BLOCK_VULNERABILITIES: ${{ inputs.block-vulnerabilities }}
+        with:
+          operation: structure
       - name: Copy the verified image to GHCR
         id: publish
         if: steps.resolve.outputs.mode != 'check'
@@ -269,6 +322,8 @@ jobs:
           IMAGE: ${{ steps.resolve.outputs.image }}
           MODE: ${{ steps.resolve.outputs.mode }}
           TAGS: ${{ steps.meta.outputs.tags }}
+          MOVING_TAGS: ${{ inputs.moving-tags }}
+          APP_IMAGE_POLICY: ${{ inputs.pipeline }}
           VERIFIED_IMAGE: ${{ inputs.verified-image }}
           REGISTRY_TOKEN: ${{ github.token }}
         with:
@@ -279,9 +334,106 @@ jobs:
         env:
           IMAGE: ${{ steps.resolve.outputs.image }}
           GH_TOKEN: ${{ github.token }}
+          APP_IMAGE_POLICY: ${{ inputs.pipeline }}
         with:
           operation: prune
       - name: Remove the job's certificate, credentials and build inputs
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/app-image"
+
+  # Gives a tested candidate its final tags. There is no builder and no certificate here: the job holds only the GHCR token,
+  # and nothing from the repository runs in it
+  promote:
+    name: Promote the tested image
+    if: inputs.promote
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 10
+    outputs:
+      digest: ${{ steps.promote.outputs.digest }}
+      image: ${{ steps.promote.outputs.image }}
+      version: ${{ steps.meta.outputs.version }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Resolve the image
+        id: resolve
+        shell: bash
+        env:
+          IMAGE_INPUT: ${{ inputs.image-name }}
+          PUBLISH: ${{ inputs.publish }}
+          CANDIDATE: ${{ inputs.candidate }}
+          TAGS: ${{ inputs.tags }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate-image }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISH" == true || "$CANDIDATE" == true ]]; then
+            echo "::error::promote is exclusive with publish and candidate: it only retags a tested image"
+            exit 1
+          fi
+          if [[ -z "${TAGS//[[:space:]]/}" ]]; then
+            echo "::error::promote needs the tags input"
+            exit 1
+          fi
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="${IMAGE_INPUT:-ghcr.io/${GITHUB_REPOSITORY,,}}"
+          image="${image,,}"
+          prefix="ghcr.io/$owner/"
+          package="${image#"$prefix"}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          repo="${repo,,}"
+          if [[ "$image" != "$prefix"* || ! "$package" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]] ||
+            [[ "$package" != "$repo" && "$package" != "$repo/"* ]]; then
+            echo "::error::image-name must be $prefix$repo or $prefix$repo/<name>: an image belongs to the repository that builds it"
+            exit 1
+          fi
+          digest="${CANDIDATE_IMAGE#"$image@sha256:"}"
+          if [[ "${CANDIDATE_IMAGE,,}" != "$image@sha256:"* || ! "${digest,,}" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::candidate-image must be this image's tested candidate, image@sha256:<digest>: the output it reads did not resolve"
+            exit 1
+          fi
+          printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
+      # The checkout is needed only to compute tags for a ref other than the event's, and it is data, never code
+      - name: Check out the caller
+        if: inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install the registry client tools
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        with:
+          operation: tools
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}
+          images: ${{ steps.resolve.outputs.image }}
+          # App Images publish no latest tag; metadata-action would add one to every semver release
+          flavor: |
+            latest=false
+            ${{ inputs.flavor }}
+          tags: ${{ inputs.tags }}
+      - name: Give the tested image its final tags
+        id: promote
+        uses: Rubio-Enterprises/.github/actions/app-image@main
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate-image }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          MOVING_TAGS: ${{ inputs.moving-tags }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: promote
+      - name: Remove the job's credentials and working files
         if: always()
         shell: bash
         run: rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/app-image"

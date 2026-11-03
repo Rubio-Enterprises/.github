@@ -11,7 +11,7 @@
 #   BUILD_TARGET   optional stage
 #   BUILD_ARGS     optional lines of NAME=value
 #   BUILD_LABELS   optional lines of key=value
-#   ATTESTATIONS   true adds provenance=max and an SBOM to a publish build; every other mode builds without attestations
+#   ATTESTATIONS   true adds provenance=max and an SBOM to a candidate or publish build; a check never carries attestations
 set -euo pipefail
 : "${IMAGE:?}" "${MODE:?}" "${RUNNER_TEMP:?}" "${GITHUB_WORKSPACE:?}" "${GITHUB_OUTPUT:?}" "${GITHUB_REPOSITORY_OWNER:?}"
 : "${GITHUB_RUN_ID:?}" "${GITHUB_RUN_ATTEMPT:?}" "${STAGING:?}" "${STAGING_TAG:?}" "${BUILDX_BUILDER:?}"
@@ -61,9 +61,9 @@ while IFS= read -r line; do
   args+=(--label "$line")
 done <<< "${BUILD_LABELS:-}"
 
-# Only a publish build carries attestations: a candidate or a check stays one manifest, so deleting its tag later deletes
-# the whole image and not a tagged index's untagged children.
-if [[ "$MODE" == publish && "${ATTESTATIONS:-true}" == true ]]; then
+# A candidate carries the attestations its promotion will publish, so the tested digest is the published digest. It is an index:
+# prune.sh deletes its untagged child versions along with it. A check stays one manifest and is never copied to GHCR.
+if [[ "$MODE" != check && "${ATTESTATIONS:-true}" == true ]]; then
   args+=(--provenance=mode=max --sbom=true)
 else
   args+=(--provenance=false --sbom=false)

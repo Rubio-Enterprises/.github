@@ -5,7 +5,13 @@
 `docker-image.yml`/`docker-publish.yml` copies that built on a job-local Docker daemon, and
 it serves private repositories only: public repositories cannot use self-hosted runners and
 stay GitHub-hosted. [`repository-image.yml`](repository-image.md) builds the Dev Container
-pair and is separate.
+Image pair and is separate.
+
+**A repository that publishes an App Image calls [`app-image-pipeline.yml`](app-image-pipeline.md), not
+this workflow:** the pipeline chains this builder's `candidate` and `promote` modes with the smoke and
+functional tiers (build once, test, promote). This page describes the builder. Its `publish` and
+`verified-image` inputs are the old test-then-rebuild path; they stay only until the last caller has moved
+to the pipeline, and then they are deleted.
 
 The job runs on the image Scale Set (`RUNNERS.image`, falling back to `linux-x64-image`, with
 no hosted fallback) with no Docker daemon and no root. It builds **linux/amd64 only**: the
@@ -38,12 +44,15 @@ for public repositories. Provenance and SBOM attestations come from BuildKit ins
 
 | Input | Meaning |
 | --- | --- |
-| `image-name` | Untagged GHCR image in the caller's owner namespace. Default `ghcr.io/<owner>/<repo>` |
+| `image-name` | Untagged GHCR image in the caller's owner namespace. Default `ghcr.io/<owner>/<repo>`. Under `pipeline` it must be that or `ghcr.io/<owner>/<repo>/<name>`: an image belongs to the repository that builds it |
 | `context`, `file`, `target` | Context directory, Dockerfile and stage, relative to the repository root. `file` defaults to `<context>/Dockerfile` |
 | `build-args`, `labels` | One `NAME=value` / `key=value` per line. `labels` are extra OCI labels merged by `docker/metadata-action` |
 | `tags`, `flavor` | `docker/metadata-action` rules. `tags` is required when `publish` is true |
 | `publish` | Push the final tags, with `provenance=mode=max` and an SBOM unless `attestations` is false |
-| `candidate` | Push one temporary tag for a later job to pull. Exclusive with `publish` |
+| `candidate` | Push one temporary tag (with attestations unless `attestations` is false) for a later job to pull and test. Exclusive with `publish` and `promote` |
+| `promote`, `candidate-image` | Give a tested candidate (`image@digest`, from the candidate build's `image` output) its final tags: no build, no builder, no certificate. Needs `tags`. Exclusive with `publish` and `candidate` |
+| `pipeline` | Set by `app-image-pipeline.yml` only: turns on the App Image policy for the call (below). A direct caller keeps its earlier behaviour until it moves onto the pipeline; the closing change then deletes the input and the direct modes, and the policy is always on |
+| `moving-tags`, `server`, `block-vulnerabilities` | Pipeline only. Tags that may move to another image, one exact tag per line; tier 1: a server's configuration must declare a `HEALTHCHECK`, and a fixable CRITICAL vulnerability fails the build (default: report only) |
 | `verified-image` | Publish only: the `image` output of the candidate a job tested. The publish fails unless its amd64 layers equal the candidate's. Omit it to publish without the check; a value that resolves empty (an output that is missing) fails the run, never skips the check |
 | `standards-install` | For a Dockerfile that copies a file out of `.standards/`: a separate job runs `mise run standards:install` and hands the directory over as an artifact (see "What runs where") |
 | `ref`, `submodules` | Passed to `actions/checkout`. A `ref` other than the event's also switches `docker/metadata-action` to `context: git`, so tags and labels describe what was built |
@@ -74,11 +83,14 @@ jobs:
           IMAGE: ${{ needs.image.outputs.image }}
 ```
 
-A candidate is tagged `candidate-<run>-<attempt>-<12 hex digits of its digest>` and built without
-attestations, so it is one manifest. The digest part keeps two candidates of one image in the same
-run from overwriting each other's tag, which would leave the first untagged and out of prune's
-reach. Each later candidate build deletes candidates older than 24 hours (`prune.sh`), touching
-only versions whose every tag looks like that, and pages through all of the package's versions.
+A candidate is tagged `candidate-<run>-<attempt>-<12 hex digits of its digest>`. Unless `attestations` is
+false it carries the provenance and SBOM its promotion will publish, so it is an index whose two children
+(the image, the attestations) are untagged versions of their own. The digest part keeps two candidates of
+one image in the same run from overwriting each other's tag, which would leave the first untagged and out
+of prune's reach. Each later candidate build deletes candidates older than 24 hours (`prune.sh`), touching
+only versions whose every tag looks like that, together with each one's untagged child versions (read from
+its index through `docker buildx imagetools inspect --raw`), and pages through all of the package's
+versions. A candidate that was promoted also carries final tags, so neither it nor its children are touched.
 The newest few therefore stay until the next run: that is the cost of not needing a cleanup job
 in every caller. **Deleting a package version with `GITHUB_TOKEN` needs the repository to hold
 the Admin role on the package** (Manage Actions access), not Write: with Write the push works and
@@ -110,6 +122,28 @@ The check cannot be skipped by accident. An omitted input defaults to `none`; on
 resolves empty (the job it reads was skipped, or the output was renamed) arrives as an empty string,
 which GitHub does not replace with the default, and the workflow fails with `verified-image was passed
 but is empty`. Pass `none` yourself only to publish without verification on purpose.
+
+## The pipeline policy, tier 1 and promotion
+
+`pipeline: true` (set only by `app-image-pipeline.yml`) turns on the App Image policy: the image name must be
+`<repo>` or `<repo>/<name>`, `latest` is never published (and `docker/metadata-action`'s automatic `latest` is
+off), an existing tag that points at another image is never overwritten unless `moving-tags` lists it, and
+**T1** runs and fails the build. Without it the workflow behaves as it did before the pipeline existed.
+Promotion always applies the policy.
+
+Between `build` and the copy, a pipeline call runs **T1** (`structure.sh`) against the staged image with the
+staging credential only, so an image that fails is never pushed to GHCR: a non-root `USER`, a `HEALTHCHECK`
+when `server` is true, the `org.opencontainers.image.source` and `revision` labels, a Trivy secret scan of
+layers and configuration (a finding fails; the match is never printed), and a vulnerability report of the
+fixable HIGH and CRITICAL findings (it fails only with `block-vulnerabilities`, and only on a fixable
+CRITICAL). Trivy is the checksum-pinned release `repository-image.yml` uses and runs outside the checkout, so a
+`trivy.yaml`, `.trivyignore` or `trivy-secret.yaml` in the repository changes nothing.
+
+`promote: true` runs a separate job on the small route with only `contents: read` and `packages: write`.
+It computes the tags, checks the candidate is a digest of this image that exists, refuses `latest`, a
+`candidate-` lookalike and any existing tag that points at another image (unless listed in `moving-tags`;
+re-running with the same digest passes), and copies the digest with `imagetools create`. A tag that
+resolves to another digest afterwards fails the job.
 
 ## How a job gets the image to GHCR
 
@@ -145,6 +179,9 @@ Repository files are data to the job that holds the credentials, never code.
   (the client tool installer skips a tool already on `PATH`), set `BASH_ENV` or the
   coordinates through `GITHUB_ENV`, or rewrite the downloaded action scripts. ADR 0058 rejected
   exactly that. `tests/test_app_image.py` pins this shape.
+- **`promote` job** (small pool, `contents: read`, `packages: write`, no OIDC token, no certificate): the
+  registry client tools and the central `promote` action; a checkout appears only for a `ref` other than the
+  event's, as data for `docker/metadata-action`.
 - **`prepare` job** (`standards-install` only; small pool, `contents: read`, `packages: read`, no
   OIDC token): runs the repository's `mise run standards:install` and uploads `.standards/` as a
   one-day artifact with a name unique to the call. The build downloads it into the workspace,
@@ -157,8 +194,9 @@ Repository files are data to the job that holds the credentials, never code.
 - Any path from the caller must stay inside the checkout, symlinks resolved.
 - `--secret` and SSH mounts are not offered. No repository's image build used one.
 - The first BuildKit restart-retry (`code = Unavailable`) is the only retry.
-- `image-name` may be any new package in the owner's namespace. GHCR itself refuses a push to an
-  existing package the repository has no access to.
+- Under `pipeline`, `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
+  script refuse any other package, so one repository cannot publish into another's. GHCR separately
+  refuses a push to an existing package the repository has no access to.
 
 ### What a build can reach on the shared builder
 
