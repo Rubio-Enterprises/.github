@@ -166,12 +166,38 @@ jobs:
           package-manager-cache: false
       - name: Install the Dev Container CLI
         shell: bash
-        run: npm install --prefix "$RUNNER_TEMP/devcontainer-cli" --ignore-scripts --no-audit --no-fund @devcontainers/cli@0.89.0
+        run: |
+          set -euo pipefail
+          cli="$RUNNER_TEMP/devcontainer-cli"
+          npm install --prefix "$cli" --ignore-scripts --no-audit --no-fund @devcontainers/cli@0.89.0
+          # The CLI hardcodes --build-arg BUILDKIT_INLINE_CACHE=1 on every buildx build. That writes the daemon's cache graph into
+          # the Features image's config, and on a daemon that serves many repositories the graph changes between two builds of the
+          # same layers. The config digest then changes, and so does the recipe's FROM and its whole cache. Nothing imports this
+          # image's cache (only the recipe's FROM on the same daemon uses the image), so a docker shim removes the argument.
+          cat > "$cli/docker-without-inline-cache" <<'SHIM'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          args=()
+          while (($#)); do
+            if [[ "$1" == --build-arg && "${2:-}" == BUILDKIT_INLINE_CACHE=1 ]]; then shift 2; continue; fi
+            args+=("$1")
+            shift
+          done
+          exec docker ${args[@]+"${args[@]}"}
+          SHIM
+          cat > "$cli/devcontainer" <<'WRAPPER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          if [[ "${1:-}" == build ]]; then exec "$here/node_modules/.bin/devcontainer" "$@" --docker-path "$here/docker-without-inline-cache"; fi
+          exec "$here/node_modules/.bin/devcontainer" "$@"
+          WRAPPER
+          chmod +x "$cli/docker-without-inline-cache" "$cli/devcontainer"
       - name: Prepare central generic build inputs
         id: inputs
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         env:
-          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/devcontainer
           STANDARDS_VERSION: ${{ needs.prepare.outputs.version }}
           STANDARDS_INTEGRITY: ${{ needs.prepare.outputs.integrity }}
         with:
@@ -217,7 +243,7 @@ jobs:
           CONTEXT: ${{ steps.inputs.outputs.context }}
           BASE: ${{ needs.prepare.outputs.base }}
           BASE_CI: ${{ needs.prepare.outputs.base-ci }}
-          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/devcontainer
           INPUT_KEY: ${{ needs.prepare.outputs.input-key }}
         run: bash "$ASSETS/build-service.sh"
       - name: Scan the dev artifact for secrets

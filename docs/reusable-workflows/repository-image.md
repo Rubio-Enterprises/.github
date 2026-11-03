@@ -380,9 +380,22 @@ The registry is disposable; nothing prunes it from here.
 
 **Features image.** The Dev Container CLI builds Features with `--push --omit-syntax-directive` and
 `BUILDX_NO_DEFAULT_ATTESTATIONS=1`. Without attestations the pushed tag is one manifest, so `crane
-digest` is the image digest and the recipe's `BASE` is stable. Without a reachable Docker engine the
-CLI otherwise writes a syntax directive that makes the daemon fetch the `docker/dockerfile:1.4`
-frontend from Docker Hub on every build.
+digest` is the image digest. Without a reachable Docker engine the CLI otherwise writes a syntax
+directive that makes the daemon fetch the `docker/dockerfile:1.4` frontend from Docker Hub on every
+build. The recipe's `FROM` is that digest, so its cache is only as stable as the digest is.
+
+The CLI also hardcodes `--build-arg BUILDKIT_INLINE_CACHE=1`, which writes the daemon's cache graph into
+the image config under `moby.buildkit.cache.v0`. That payload is the only part of a Features image's config
+that is not a function of its layers and the build inputs, and it depends on which cache records the daemon
+holds. One canary build of a repository with extra Features produced a different Features manifest from its
+successor with identical layers, `diff_ids` and history; the payload is the leading explanation, but the
+difference did not reproduce in later builds, so it is unproven. Nothing imports that cache: only the recipe's
+`FROM` on the same daemon reads the image. The `Install the Dev Container CLI` step therefore installs a
+`docker` shim and a `devcontainer` wrapper, and `build` runs with `--docker-path <shim>`; the shim removes that
+one argument and passes every other argument through. The hosted public-repository job keeps the plain CLI,
+because its daemon is new on every run.
+The change lives in the workflow, not in this action's files, so it does not change any image input
+key (the key covers the action's files and the CLI version only).
 
 **Operating notes.**
 
@@ -511,8 +524,10 @@ such as a leaked credential, run the caller's workflow manually, which always
 rebuilds.
 
 Add a package to `ALLOWED_INSTALL_SCRIPTS` only after reading its install script.
-Changing any file in this action changes every key, so the fleet rebuilds once,
-at each repository's next push.
+Changing any file directly in this action changes every key, so the fleet rebuilds once,
+at each repository's next push. The workflow file is not part of the key: a change there that alters
+image content needs the key changed by hand (touch a file in the action), and one that does not, such
+as the Features docker shim above, rebuilds nothing.
 
 ## Caller
 

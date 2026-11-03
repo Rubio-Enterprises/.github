@@ -75,8 +75,13 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn('BUILDX_NO_DEFAULT_ATTESTATIONS: "1"', SERVICE)
         self.assertIn("export BUILDX_NO_DEFAULT_ATTESTATIONS=1", (ASSETS / "build-service.sh").read_text())
         for forbidden in ("docker/login-action", "docker/setup-buildx-action", "docker run", "docker pull", "docker push",
-                          "--insecure", "--cache-from", "BUILDKIT_INLINE_CACHE", "continue-on-error", "secrets:"):
+                          "--insecure", "--cache-from", "continue-on-error", "secrets:"):
             self.assertNotIn(forbidden, PRIVATE_TEXT)
+        # The only mention of inline cache on the Build Service path is the shim that removes the CLI's own argument
+        install = script("Install the Dev Container CLI")
+        for line in PRIVATE_TEXT.splitlines():
+            if "BUILDKIT_INLINE_CACHE" in line:
+                self.assertIn(line.strip(), install)
         for ref in re.findall(r"uses: (\S+)", SERVICE):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
                 self.assertEqual(ref, "Rubio-Enterprises/.github/actions/repository-image@main")
@@ -508,6 +513,75 @@ esac
             env = {key: value for key, value in self.env.items() if key != name}
             result = subprocess.run(["bash", str(ASSETS / "build-service.sh")], env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, name)
+
+
+class FeaturesDockerShim(Workspace):
+    """The Dev Container CLI adds --build-arg BUILDKIT_INLINE_CACHE=1 to its buildx build; the Features image goes without it."""
+
+    def setUp(self):
+        super().setUp()
+        self.cli = self.root / "devcontainer-cli"
+        self.stub("npm", '''prefix="$3"
+mkdir -p "$prefix/node_modules/.bin"
+cat > "$prefix/node_modules/.bin/devcontainer" <<'REAL'
+#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$RUNNER_TEMP/cli-args"
+REAL
+chmod +x "$prefix/node_modules/.bin/devcontainer"
+''')
+        self.stub("docker", 'printf "%s\\n" "$@" > "$RUNNER_TEMP/docker-args"\nexit "${DOCKER_STATUS:-0}"\n')
+        result = subprocess.run(["bash", "-e", "-c", script("Install the Dev Container CLI")], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def run_cli(self, *args):
+        (self.root / "cli-args").unlink(missing_ok=True)
+        subprocess.run([str(self.cli / "devcontainer"), *args], env=self.env, check=True, capture_output=True, text=True)
+        return (self.root / "cli-args").read_text().splitlines()
+
+    def run_docker(self, *args, status="0"):
+        (self.root / "docker-args").unlink(missing_ok=True)
+        result = subprocess.run([str(self.cli / "docker-without-inline-cache"), *args], env={**self.env, "DOCKER_STATUS": status},
+                                capture_output=True, text=True)
+        docker = (self.root / "docker-args").read_text().splitlines() if (self.root / "docker-args").exists() else None
+        return result, docker
+
+    def test_the_shim_drops_only_the_inline_cache_build_arg_and_keeps_every_other_argument_intact(self):
+        original = ["buildx", "build", "--platform", "linux/amd64", "--push", "--build-arg", "BUILDKIT_INLINE_CACHE=1",
+                    "--build-context", "dev_containers_feature_content_source=/tmp/a b", "--build-arg", "_DEV_CONTAINERS_BASE_IMAGE=x@sha256:" + "a" * 64,
+                    "--label", "org.opencontainers.image.source=https://github.com/o/r", "--label", "spaced=two words", "-t", "host:5000/o/r/features:t", "/tmp/empty"]
+        result, docker = self.run_docker(*original)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = original[:5] + original[7:]
+        self.assertEqual(docker, expected)
+        self.assertNotIn("BUILDKIT_INLINE_CACHE", "\n".join(docker))
+
+    def test_other_inline_cache_forms_and_other_commands_pass_through_unchanged(self):
+        for args in (["buildx", "build", "--build-arg", "BUILDKIT_INLINE_CACHE=0", "."], ["buildx", "build", "--build-arg=BUILDKIT_INLINE_CACHE=1", "."],
+                     ["inspect", "image"], ["buildx", "version"], ["--build-arg"], ["ps"]):
+            result, docker = self.run_docker(*args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(docker, args)
+        result, docker = self.run_docker()  # the stub prints one empty line for no arguments
+        self.assertEqual((result.returncode, docker), (0, [""]))
+        for args in (["buildx", "build", "--build-arg", "BUILDKIT_INLINE_CACHE=1"],):
+            self.assertEqual(self.run_docker(*args)[1], ["buildx", "build"])
+
+    def test_docker_s_exit_status_is_the_clis_exit_status(self):
+        result, _ = self.run_docker("buildx", "build", "--build-arg", "BUILDKIT_INLINE_CACHE=1", status="7")
+        self.assertEqual(result.returncode, 7)
+
+    def test_the_wrapper_points_only_a_build_at_the_shim(self):
+        self.assertEqual(self.run_cli("build", "--workspace-folder", "w", "--push"),
+                         ["build", "--workspace-folder", "w", "--push", "--docker-path", f"{self.cli}/docker-without-inline-cache"])
+        # prepare reads the configuration with its own --docker-path; nothing is added
+        self.assertEqual(self.run_cli("read-configuration", "--docker-path", "true"), ["read-configuration", "--docker-path", "true"])
+        self.assertEqual(self.run_cli("--version"), ["--version"])
+
+    def test_both_cli_steps_use_the_wrapper_and_the_pinned_version_is_unchanged(self):
+        # The hosted public job keeps the plain CLI: its Docker daemon is fresh every run, so there is no cache to keep stable
+        self.assertEqual(PRIVATE_TEXT.count("DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/devcontainer\n"), 2)
+        self.assertNotIn("node_modules/.bin/devcontainer\n", PRIVATE_TEXT.replace("$here/node_modules/.bin/devcontainer", ""))
+        self.assertIn("@devcontainers/cli@0.89.0", script("Install the Dev Container CLI"))
 
 
 class SmokeStages(unittest.TestCase):
