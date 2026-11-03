@@ -182,7 +182,6 @@ jobs:
     uses: Rubio-Enterprises/.github/.github/workflows/app-image.yml@main
     with:
       image-name: ${{ inputs.image-name }}
-      pipeline: true
       candidate: true
       attestations: ${{ inputs.publish }}
       server: ${{ inputs.smoke-command == '' }}
@@ -281,7 +280,6 @@ jobs:
         env:
           IMAGE: ${{ steps.resolve.outputs.image }}
           GH_TOKEN: ${{ github.token }}
-          APP_IMAGE_POLICY: "true"
         with:
           operation: prune
 
