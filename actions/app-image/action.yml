@@ -1,17 +1,20 @@
-name: App image Build Service client
-description: Connects an image job to the Build Service, builds one app image there, copies it to GHCR and prunes stale candidates
+name: App image client
+description: Connects an image job to the Build Service and builds, checks, copies, promotes, prunes, smoke-tests and pulls app images
 inputs:
   operation:
-    description: connect, build, publish or prune
+    description: connect, build, structure, publish, promote, prune, smoke, pull or changes
     required: true
 # A composite action's inner steps write to their own step outputs: only what is declared here reaches the calling workflow
 outputs:
   digest:
-    description: build, publish. Digest of the built image (the index digest when it carries attestations)
+    description: build, publish, promote. Digest of the built or promoted image (the index digest when it carries attestations)
     value: ${{ steps.run.outputs.digest }}
   image:
-    description: publish. The GHCR image@digest the copy produced
+    description: publish, promote. The GHCR image@digest the copy produced
     value: ${{ steps.run.outputs.image }}
+  run:
+    description: changes. true when the image jobs should run
+    value: ${{ steps.run.outputs.run }}
 runs:
   using: composite
   steps:
@@ -24,6 +27,6 @@ runs:
         case "$OPERATION" in
           # The certificate exchange and builder setup are the repository-image action's; they have one implementation.
           connect) exec bash "$GITHUB_ACTION_PATH/../repository-image/connect.sh" ;;
-          build | publish | prune) exec bash "$GITHUB_ACTION_PATH/$OPERATION.sh" ;;
+          build | structure | publish | promote | prune | smoke | pull | changes) exec bash "$GITHUB_ACTION_PATH/$OPERATION.sh" ;;
           *) echo "::error::Unknown app image operation"; exit 1 ;;
         esac
