@@ -34,7 +34,7 @@ class StandardsRouteTests(unittest.TestCase):
         self.assertIn('MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}', setup)
 
     def test_all_project_checks_and_the_package_task_origin_guard_remain(self):
-        for command in ('run: mise run setup', 'run: mise run check\n', 'run: mise run check:pr'):
+        for command in ('run: mise run setup', 'run: mise run check\n', ' mise run check:pr\n'):
             self.assertIn(command, WORKFLOW)
         self.assertIn('for task in check check:pr; do', WORKFLOW)
         self.assertIn('fetch-depth: 0', WORKFLOW)

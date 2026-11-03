@@ -1,0 +1,103 @@
+# Writes, on the repository's default branch, the caches the injected `standards` job restores
+# (docs/standards-check.md). A cache saved by a pull_request run is scoped to that pull request's
+# merge ref, and the injected workflow runs only on pull_request and merge_group, so without this
+# no pull request could restore another's. A repository's starter standards.yml calls it on push
+# to main and on workflow_dispatch, events that may write the default branch's cache scope.
+# Caches are per repository: the injected workflow cannot warm them from here.
+#
+# Keys rotate with the ISO week and match the injected job's exactly; each run saves only the keys
+# this week's caches lack, so after the first push of a week it ends after three lookups.
+name: standards cache (reusable)
+
+"on":
+  workflow_call:
+
+permissions:
+  contents: read
+  packages: read # the internal @rubio-enterprises/standards package
+
+concurrency:
+  # This file's own name: in a workflow_call github.workflow is the caller's, whose group would
+  # deadlock with this job (see secret-scan.yml).
+  group: standards-cache-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The same route as the injected job: a cache is only restorable on the OS and with the
+  # compression it was saved with, and a CI Image runner has its own home directory.
+  route:
+    permissions:
+      contents: read
+    uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
+
+  warm:
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 15
+    env:
+      # renovate: datasource=github-releases depName=jdx/mise
+      MISE_VERSION: "2026.10.19"
+    steps:
+      - id: week
+        name: Name this week's cache keys
+        run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
+      - id: trivy
+        name: Look up this week's trivy vulnerability database
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/trivy/db
+          key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+          lookup-only: true
+      - id: npm
+        name: Look up this week's npm cache for the PR conventions
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/standards-npm
+          key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
+          lookup-only: true
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        if: >-
+          needs.route.outputs.ci-image != 'true'
+          && (steps.trivy.outputs.cache-hit != 'true' || steps.npm.outputs.cache-hit != 'true')
+        with:
+          version: ${{ env.MISE_VERSION }}
+          install: false
+          cache: false
+      # The latest Standards Release, not a repository's Release Pin: it supplies the trivy pin and
+      # the PR conventions' lockfile, and a pinned repository's few missing packages come from the
+      # registry at check time.
+      - name: Install the latest Standards Release
+        if: steps.trivy.outputs.cache-hit != 'true' || steps.npm.outputs.cache-hit != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # shellcheck disable=SC2016 # npm expands ${NODE_AUTH_TOKEN} itself; it stays out of argv
+          mise exec node@24 -- npm install --prefix "$RUNNER_TEMP/standards" --no-save --no-audit --no-fund \
+            --ignore-scripts --loglevel=error '--@rubio-enterprises:registry=https://npm.pkg.github.com' \
+            '--//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' @rubio-enterprises/standards@latest
+      - name: Download the trivy vulnerability database
+        if: steps.trivy.outputs.cache-hit != 'true'
+        run: |
+          pkg="$RUNNER_TEMP/standards/node_modules/@rubio-enterprises/standards"
+          trivy=$(sed -n 's/^"aqua:aquasecurity\/trivy" = "\(.*\)"$/\1/p' "$pkg/mise/standards.toml")
+          test -n "$trivy" || { echo "::error::no trivy pin in the package's mise/standards.toml"; exit 1; }
+          mise exec "aqua:aquasecurity/trivy@$trivy" -- trivy fs --download-db-only --no-progress --quiet \
+            --cache-dir "$HOME/.cache/trivy"
+      - name: Fill npm's cache with the PR conventions' dependencies
+        if: steps.npm.outputs.cache-hit != 'true'
+        run: |
+          pkg="$RUNNER_TEMP/standards/node_modules/@rubio-enterprises/standards"
+          mise exec node@24 -- npm ci --prefix "$pkg/pr-conventions" --ignore-scripts --no-audit --no-fund \
+            --loglevel=error --cache "$HOME/.cache/standards-npm"
+      - name: Save the trivy vulnerability database
+        if: steps.trivy.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/trivy/db
+          key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+      - name: Save the npm cache
+        if: steps.npm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/standards-npm
+          key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}

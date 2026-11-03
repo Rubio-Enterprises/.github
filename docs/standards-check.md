@@ -39,14 +39,19 @@ The repository itself must be onboarded: `npm init @rubio-enterprises/standards`
 2. Fails with `repository not onboarded` when `lefthook.yml` is missing.
 3. On plain runners, installs uv, then mise (`jdx/mise-action`, pinned `MISE_VERSION`, no tool
    install yet). CI Image runners use the image's tools and explicitly trust the checkout instead.
-4. Restores mise's data cache only on plain runners, and the trivy vulnerability database on both.
+4. Restores, without ever saving, two caches that [`standards-cache.yml`](../.github/workflows/standards-cache.yml)
+   writes on the default branch: the trivy vulnerability database and npm's cache for the PR
+   conventions (Danger). mise has no cache: `jdx/mise-action` saves one only after its own
+   install, which `setup` replaces.
 5. Runs `mise run setup` with `NODE_AUTH_TOKEN` set to the job token. The repository's `setup`
    installs the package into `.standards/`, the missing tools, the git hooks and every
    `setup:*` task (the repository's own dependencies).
 6. Fails unless `check` and `check:pr` resolve to the package's `mise/standards.toml`. A task of
    the same name in `mise.toml` or `.mise.local.toml` wins over the package's in mise, so a
    repository could otherwise replace the Checks silently.
-7. Runs `mise run check`: every Check on every tracked file, failing on any Fixer rewrite. On a
+7. When the restored trivy database is under 8 days old, sets `TRIVY_SKIP_DB_UPDATE=true`, so trivy
+   uses it instead of downloading the day's database (it replaces any database older than a day).
+   Then runs `mise run check`: every Check on every tracked file, failing on any Fixer rewrite. On a
    fork with an `upstream` branch, the task itself narrows to the pull request's files.
 8. Runs `mise run check:pr` even when `check` failed: gitleaks over the pull request's commits,
    the title, and the PR conventions (Danger; pull requests only, not merge groups).
@@ -72,11 +77,19 @@ the pull request). The job token cannot comment, so the PR-conventions step repo
   `standards` job also runs after router failure and fails before checkout, rather than allowing
   a skipped dependency to make the required context green. The failure-only job uses the ordinary
   small route and executes no project commands.
-- **Caches are scoped to the pull request.** The workflow never runs on the default branch, and a
-  cache saved by a `pull_request` run is visible only to later runs of the same pull request, so
-  the first run of every pull request is cold (about 16 s of tool installs plus a 6.6 s trivy
-  download, measured locally). Both keys rotate weekly. The mise key hashes only the repository's
-  own mise files, because the conf.d link into `.standards/` dangles until `setup`.
+- **Caches come from the default branch.** A cache saved by a `pull_request` run is scoped to
+  its merge ref (`refs/pull/N/merge`): only re-runs of that pull request can restore it. This
+  workflow runs only on `pull_request` and `merge_group`, and a ruleset cannot inject a
+  `schedule` into another repository (a schedule in this file would run in `.github` and fill
+  `.github`'s own caches; caches are per repository). So the repository's starter `standards.yml`
+  calls `standards-cache.yml` on push to `main` and on `workflow_dispatch`, which write
+  `standards-trivy-db-<OS>-<ISO week>` and `standards-npm-<OS>-<ISO week>` on the same route as
+  this job (an entry restores only on the OS and compression it was saved with). This job only
+  restores them, falling back to last week's entry; before the warmer has run in a repository it
+  downloads the database as before, but no longer spends up to 190 s compressing it for a save
+  nobody could read.
+- **The trivy database may be up to a week old.** A pull request then misses a CRITICAL advisory
+  published since the warmer's run. Local `check` runs and the next week's entry catch it.
 - **This repository is skipped.** `.github` is not onboarded; the job's `if` excludes it so its
   own pull requests are not failed by the missing `lefthook.yml`.
 - **Full history** costs little: cloning karakeep (94 MB, 3,322 commits) took 4.7 s against
