@@ -17,7 +17,9 @@ from pathlib import Path
 
 from test_repository_image_workflow import ASSETS, ROOT, TEXT, audit_module, config, manifest, script
 
-SERVICE = TEXT.split("\n  build:\n", 1)[1].split("\n\n  alias:\n", 1)[0]
+SERVICE = TEXT.split("\n  build:\n", 1)[1].split("\n\n  # Public repositories cannot use self-hosted runners", 1)[0]
+# The Build Service jobs and the shared jobs; the hosted public-repository job is covered in test_repository_image_public.py
+PRIVATE_TEXT = TEXT.split("\n  # Public repositories cannot use self-hosted runners", 1)[0] + "\n  alias:\n" + TEXT.split("\n  alias:\n", 1)[1]
 MODULE = (ASSETS / "image.mjs").as_uri()
 STAGING = "stage.example.invalid:5000/rubio-enterprises/repo"
 TAG = "run-123-1"
@@ -62,7 +64,7 @@ class Workspace(unittest.TestCase):
 class WorkflowShape(unittest.TestCase):
     def test_the_build_job_is_the_only_builder_and_the_only_one_with_an_identity_token(self):
         self.assertEqual(TEXT.count("id-token: write"), 1)
-        self.assertIn("needs: prepare\n    if: needs.prepare.outputs.skip != 'true'\n", SERVICE)
+        self.assertIn("needs: prepare\n    if: needs.prepare.outputs.skip != 'true' && needs.prepare.outputs.public != 'true'\n", SERVICE)
         self.assertIn("permissions:\n      contents: read\n      packages: write\n      id-token: write\n", SERVICE)
         self.assertNotIn("build-service", TEXT.split("\njobs:\n", 1)[0])  # no canary input
 
@@ -74,7 +76,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("export BUILDX_NO_DEFAULT_ATTESTATIONS=1", (ASSETS / "build-service.sh").read_text())
         for forbidden in ("docker/login-action", "docker/setup-buildx-action", "docker run", "docker pull", "docker push",
                           "--insecure", "--cache-from", "BUILDKIT_INLINE_CACHE", "continue-on-error", "secrets:"):
-            self.assertNotIn(forbidden, TEXT)
+            self.assertNotIn(forbidden, PRIVATE_TEXT)
         for ref in re.findall(r"uses: (\S+)", SERVICE):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
                 self.assertEqual(ref, "Rubio-Enterprises/.github/actions/repository-image@main")

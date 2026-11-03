@@ -286,12 +286,26 @@ tagged history or index children; it runs after a build, not after an alias.
 
 ## Build Service
 
-Every image builds on the shared Build Service, as mac-dev-playbook ADR 0057 and 0058 decide: one
+Every **private** repository's image builds on the shared Build Service, as mac-dev-playbook ADR 0057 and 0058 decide: one
 rootless BuildKit daemon with a password-protected staging registry on the Container Pool host.
 **The caller's `repository-image` job must grant `id-token: write`**, which the starter
 `standards.yml` does from Standards Release 3.0.0. GitHub rejects a called workflow whose job asks
 for more permission than its caller grants, even when the job is skipped, so a caller without the
 grant fails at startup, and with it the caller's `standards` check.
+
+**Public repositories do not use it.** GitHub does not run a public repository's job on a self-hosted runner, and a
+public repository cannot read the private `RUNNERS` variable, so no route can reach the image Scale Set from there.
+`prepare` sets `public` from `github.event.repository.private`, and only an explicit `false` selects the hosted path;
+an event without the field stays on the Build Service. A public repository's image builds in `build-public` on a
+GitHub-hosted runner (`ubuntu-latest`) with its own Docker daemon, a job-local registry and `public/build.sh`, the
+build every repository used before the Build Service. The two build jobs are mutually exclusive, and `prune` follows
+whichever ran. `build-public` asks for `contents: read` and `packages: write` only: **no `id-token`**, no Build Service
+client, certificate or staging registry. It keeps the same recipe, input key, labels, verification, audit, secret scan,
+GHCR push and one-entry indices. It runs the dev image's cache smoke checks for uid 1000 and 1001 with Docker, and
+leaves the CI image's runtime and cache checks to the release that publishes the base pair (as the Build Service
+path does). `public/build.sh` sits in a subdirectory on purpose: the image input key hashes every file directly in
+`actions/repository-image/`, so a file there would rebuild every private repository's image, and a change under
+`public/` changes no key, so it does not rebuild public repositories either.
 
 The `build` job runs on the image Scale Set (`RUNNERS.image`, falling back to the label
 `linux-x64-image`). It has **no hosted fallback**: the daemon is reachable only from that pool. It is a
