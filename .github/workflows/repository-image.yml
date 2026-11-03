@@ -39,6 +39,7 @@ jobs:
       integrity: ${{ steps.release.outputs.integrity }}
       image: ${{ steps.image.outputs.image }}
       package: ${{ steps.image.outputs.package }}
+      public: ${{ steps.image.outputs.public }}
       ci-image: ${{ steps.image.outputs.image }}-ci
       ci-package: ${{ steps.image.outputs.package }}-ci
       base: ${{ steps.bases.outputs.base }}
@@ -57,6 +58,7 @@ jobs:
           IMAGE_INPUT: ${{ inputs.image-name }}
           CONFIG: ${{ inputs.config }}
           ON_DEFAULT_BRANCH: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -euo pipefail
           case "$CONFIG" in
@@ -77,7 +79,11 @@ jobs:
             echo "::error::a run outside the default branch must name a scratch image-name, not the repository's own image"
             exit 1
           fi
-          printf 'image=%s\npackage=%s\n' "$image" "$package" >> "$GITHUB_OUTPUT"
+          # Public repositories cannot use self-hosted runners, so they build on a hosted runner; only an explicit false
+          # selects that path, so an event without the field stays on the Build Service
+          public=false
+          if [[ "${PRIVATE:-}" == false ]]; then public=true; fi
+          printf 'image=%s\npackage=%s\npublic=%s\n' "$image" "$package" "$public" >> "$GITHUB_OUTPUT"
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -137,7 +143,7 @@ jobs:
   build:
     name: Build and publish (amd64)
     needs: prepare
-    if: needs.prepare.outputs.skip != 'true'
+    if: needs.prepare.outputs.skip != 'true' && needs.prepare.outputs.public != 'true'
     permissions:
       contents: read
       packages: write
@@ -296,6 +302,182 @@ jobs:
           rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/standards-registry-cache" "$RUNNER_TEMP/trivy-cache"
           if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
 
+  # Public repositories cannot use self-hosted runners, so the Build Service is out of reach: they keep the local-Docker build on
+  # a GitHub-hosted runner. This job takes no OIDC token and never touches the Build Service.
+  build-public:
+    name: Build and publish (amd64, hosted)
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true' && needs.prepare.outputs.public == 'true'
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest # hosted by design: a public repository's job cannot run on the org's self-hosted pools
+    timeout-minutes: 120
+    # Keep pruning from deleting untagged attestation manifests referenced by an index
+    env:
+      ARCH: amd64
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+    steps:
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify native Docker architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(docker info --format '{{.Architecture}}')"
+          case "$ARCH:$actual" in
+            amd64:x86_64|amd64:amd64) ;;
+            *) echo "::error::Docker architecture does not match linux/$ARCH"; exit 1 ;;
+          esac
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install the Dev Container CLI
+        shell: bash
+        run: npm install --prefix "$RUNNER_TEMP/devcontainer-cli" --ignore-scripts --no-audit --no-fund @devcontainers/cli@0.89.0
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Prepare central generic build inputs
+        id: inputs
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          STANDARDS_VERSION: ${{ needs.prepare.outputs.version }}
+          STANDARDS_INTEGRITY: ${{ needs.prepare.outputs.integrity }}
+        with:
+          operation: prepare
+          config: ${{ inputs.config }}
+          base: ${{ needs.prepare.outputs.base }}
+      - name: Fetch the verified Standards Package
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          npm_config_cache: ${{ runner.temp }}/standards-registry-cache
+          npm_config_userconfig: ${{ runner.temp }}/standards-registry-user.npmrc
+          npm_config_globalconfig: ${{ runner.temp }}/standards-registry-global.npmrc
+        with:
+          operation: pack
+      - name: Install checksum-pinned Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=0.76.1
+          checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-64bit.tar.gz"
+          printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/trivy" trivy
+      - name: Build, audit and verify the image pair with local Docker
+        shell: bash
+        env:
+          ASSETS: ${{ steps.inputs.outputs.assets }}
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          BASE: ${{ needs.prepare.outputs.base }}
+          BASE_CI: ${{ needs.prepare.outputs.base-ci }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          DEVCONTAINER: ${{ runner.temp }}/devcontainer-cli/node_modules/.bin/devcontainer
+          INPUT_KEY: ${{ needs.prepare.outputs.input-key }}
+        run: bash "$ASSETS/public/build.sh"
+      - name: Scan the dev artifact for secrets against the job-local registry
+        shell: bash
+        env:
+          ASSETS: ${{ steps.inputs.outputs.assets }}
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf "$RUNNER_TEMP/trivy-cache"' EXIT
+          cp "$ASSETS/trivy-secret.yaml" "$RUNNER_TEMP/trivy-secret.yaml"
+          # shellcheck disable=SC2016
+          template='{{ range . }}{{ $target := .Target }}{{ range .Secrets }}{{ printf "%s:%d-%d: %s (%s)\n" $target .StartLine .EndLine .RuleID .Severity }}{{ end }}{{ end }}'
+          ref="$(< "$CONTEXT/dev.ref")"
+          SECONDS=0
+          status=0
+          "$RUNNER_TEMP/trivy/trivy" image \
+            --image-src remote --insecure --scanners secret --image-config-scanners secret \
+            --exit-code 1 --config '' --ignorefile '' --secret-config "$RUNNER_TEMP/trivy-secret.yaml" \
+            --cache-dir "$RUNNER_TEMP/trivy-cache" --disable-telemetry --skip-version-check \
+            --timeout 15m --format template --template "$template" \
+            "$ref" || status=$?
+          printf 'Secret scan (%s, %s): %s seconds (exit %s)\n' "$ref" "$ARCH" "$SECONDS" "$status"
+          if [[ "$status" != 0 ]]; then exit "$status"; fi
+      - name: Push the verified image pair to GHCR
+        shell: bash
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+        run: |
+          set -euo pipefail
+          crane_image=gcr.io/go-containerregistry/crane@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
+          crane() {
+            docker run --rm --network host --user "$(id -u):$(id -g)" --env DOCKER_CONFIG=/auth \
+              --mount "type=bind,src=${DOCKER_CONFIG:-$HOME/.docker},dst=/auth,readonly" \
+              "$crane_image" "$@"
+          }
+          for artifact in "$IMAGE" "$CI_IMAGE"; do
+            name=dev
+            if [[ "$artifact" == "$CI_IMAGE" ]]; then name=ci; fi
+            ref="$(< "$CONTEXT/$name.ref")"
+            target="$artifact:sha-$GITHUB_SHA-$ARCH"
+            crane copy "$ref" "$target"
+            if [[ "$(crane digest "$target")" != "${ref##*@}" ]]; then
+              echo '::error::Published manifest differs from the verified artifact'
+              exit 1
+            fi
+            printf 'Published verified digest: %s -> %s\n' "$ref" "$target"
+          done
+      - name: Publish single-platform indices and cache aliases (hosted)
+        shell: bash
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+        run: |
+          set -euo pipefail
+          for artifact in "$IMAGE" "$CI_IMAGE"; do
+            # A bare manifest permits implicit emulation on arm64; an index fails platform selection.
+            docker buildx imagetools create --prefer-index=true \
+              --tag "$artifact:main" --tag "$artifact:sha-$GITHUB_SHA" \
+              "$artifact:sha-$GITHUB_SHA-amd64"
+            docker buildx imagetools create --prefer-index=false \
+              --tag "$artifact:main-amd64" "$artifact:sha-$GITHUB_SHA-amd64"
+            for tag in main "sha-$GITHUB_SHA"; do
+              docker buildx imagetools inspect --raw "$artifact:$tag" | jq -e '
+                .schemaVersion == 2 and
+                (.mediaType == "application/vnd.oci.image.index.v1+json" or
+                 .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json") and
+                (.manifests | length) == 1 and
+                .manifests[0].platform.os == "linux" and
+                .manifests[0].platform.architecture == "amd64"
+              ' > /dev/null
+            done
+          done
+      - name: Clean job-local artifacts
+        if: always()
+        shell: bash
+        env:
+          CONTEXT: ${{ steps.inputs.outputs.context }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          CI_IMAGE: ${{ needs.prepare.outputs.ci-image }}
+        run: |
+          rm -rf "$RUNNER_TEMP/standards-registry-cache"
+          docker rm -f "repository-image-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" 2>/dev/null || true
+          docker image rm "$IMAGE:sha-$GITHUB_SHA-$ARCH" "$CI_IMAGE:sha-$GITHUB_SHA-$ARCH" 2>/dev/null || true
+          if [[ "$CONTEXT" == "$RUNNER_TEMP"/repository-image-* ]]; then rm -rf "$CONTEXT"; fi
+
   alias:
     name: Alias the unchanged image pair
     needs: prepare
@@ -324,7 +506,8 @@ jobs:
 
   prune:
     name: Prune untagged versions
-    needs: [prepare, build]
+    needs: [prepare, build, build-public]
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-public.result == 'success') }}
     permissions:
       packages: write
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}

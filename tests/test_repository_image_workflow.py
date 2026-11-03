@@ -112,7 +112,7 @@ class Contracts(unittest.TestCase):
         self.assertIn('if [[ "$status" != 0 ]]; then exit "$status"; fi', scan)
         self.assertNotIn(".Match", scan)
         self.assertNotIn(".Content", scan)
-        self.assertEqual(TEXT.count('needs: [prepare, build]'), 1)
+        self.assertEqual(TEXT.count('needs: [prepare, build, build-public]'), 1)
         self.assertNotIn('merge]', TEXT)
         self.assertIn('delete-only-untagged-versions: "true"', TEXT)
         self.assertIn('min-versions-to-keep: 5', TEXT)
@@ -133,12 +133,12 @@ class Contracts(unittest.TestCase):
         self.assertNotIn("secrets:", TEXT)
 
     def test_build_job_publishes_indices_after_its_verified_push(self):
-        steps = TEXT.split("\n  build:\n", 1)[1].split("\n  alias:\n", 1)[0]
+        steps = TEXT.split("\n  build:\n", 1)[1].split("\n  build-public:\n", 1)[0]
         publish = steps.index("- name: Publish single-platform indices and cache aliases")
         self.assertLess(steps.index("- name: Push the verified image pair"), publish)
         self.assertLess(steps.index("- name: Scan the dev artifact for secrets"), steps.index("- name: Push the verified image pair"))
         self.assertLess(publish, steps.index("- name: Remove the job's certificate, credentials and build inputs"))
-        self.assertIn("needs: [prepare, build]", TEXT.split("\n  prune:\n", 1)[1])
+        self.assertIn("needs: [prepare, build, build-public]", TEXT.split("\n  prune:\n", 1)[1])
 
     def test_legacy_reusable_is_retired(self):
         self.assertFalse((ROOT / ".github/workflows/devcontainer-image.yml").exists())
