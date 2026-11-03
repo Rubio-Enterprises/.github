@@ -72,7 +72,8 @@ fi
 state="$(state_dir)"
 staging="$STAGING/$package:$STAGING_TAG-$MODE"
 metadata="$state/build-metadata.json"
-rm -f "$metadata"
+# A failed build must leave nothing for publish.sh to find: it would copy the previous build's image
+rm -f "$metadata" "$state/digest" "$state/staging.ref"
 # The daemon's own cache replaces --cache-from and --cache-to: the daemon holds no registry or Actions credential
 retry_unavailable docker buildx build "${args[@]}" --metadata-file "$metadata" \
   --output "type=image,name=$staging,push=true" "$context_path"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deletes stale candidate images from a GHCR package: versions whose every tag is a candidate tag and that are older than
-# the time to live. A candidate is a single manifest (build.sh builds it without attestations), so deleting its version
+# the time to live. The token can delete a version only when the repository holds the Admin role on the package (Manage
+# Actions access); with Write it can push but every delete is refused, which only warns. A candidate is a single manifest (build.sh builds it without attestations), so deleting its version
 # removes the whole image. Versions that also carry a real tag are never touched. Failure only warns: a leftover
 # candidate costs a little storage, and a failed prune must not fail a build that already succeeded.
 #
@@ -31,7 +32,9 @@ github() {
 }
 
 stale=()
-for page in 1 2 3; do
+# Newest versions come first, but every page is read until a short one so a busy package cannot hide stale candidates
+max_pages=100
+for ((page = 1; page <= max_pages; page++)); do
   status="$(github --output "$state/versions.json" --write-out '%{http_code}' \
     "$api/orgs/$owner/packages/container/$encoded/versions?per_page=100&page=$page")" || status=000
   if [[ "$status" != 200 ]]; then
@@ -42,9 +45,10 @@ for page in 1 2 3; do
     if [[ -n "$id" ]]; then stale+=("$id"); fi
   done < <(jq --raw-output --argjson cutoff "$cutoff" '.[] |
     select((.metadata.container.tags | length) > 0 and
-           all(.metadata.container.tags[]; test("^candidate-[0-9]+-[0-9]+$")) and
+           all(.metadata.container.tags[]; test("^candidate-[0-9]+-[0-9]+-[a-f0-9]{12}$")) and
            ((.created_at | fromdateiso8601) < $cutoff)) | .id' "$state/versions.json")
   if [[ "$(jq length "$state/versions.json")" -lt 100 ]]; then break; fi
+  if [[ "$page" -eq "$max_pages" ]]; then echo "::warning::Stopped after $max_pages pages of $package versions; older candidates stay until the next run"; fi
 done
 
 for id in ${stale[@]+"${stale[@]}"}; do
@@ -53,7 +57,7 @@ for id in ${stale[@]+"${stale[@]}"}; do
   if [[ "$status" == 204 ]]; then
     echo "Deleted stale candidate version $id of $package"
   else
-    echo "::warning::Could not delete candidate version $id of $package (HTTP $status)"
+    echo "::warning::Could not delete candidate version $id of $package (HTTP $status). Deleting needs the Admin role for this repository in the package's Manage Actions access"
   fi
 done
 echo "Pruned ${#stale[@]} stale candidate version(s) of $package"

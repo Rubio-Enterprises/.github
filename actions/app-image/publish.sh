@@ -9,6 +9,8 @@
 #   IMAGE           untagged GHCR image, ghcr.io/<owner>/<package>
 #   MODE            candidate or publish
 #   TAGS            publish only: full image:tag references, one per line
+#   VERIFIED_IMAGE  publish only, optional: the candidate image@digest a job tested. The copy fails unless the staged image has
+#                   the same amd64 layers, so a cache eviction between the test and this build cannot ship an untested image
 #   REGISTRY_TOKEN  the job's GITHUB_TOKEN
 set -euo pipefail
 : "${IMAGE:?}" "${MODE:?}" "${RUNNER_TEMP:?}" "${GITHUB_OUTPUT:?}" "${GITHUB_ACTOR:?}" "${REGISTRY_TOKEN:?}" "${GITHUB_REPOSITORY_OWNER:?}"
@@ -24,7 +26,7 @@ staging="$(< "$state/staging.ref")"
 
 targets=()
 case "$MODE" in
-candidate) targets+=("$IMAGE:$(candidate_tag)") ;;
+candidate) targets+=("$IMAGE:$(candidate_tag "$digest")") ;;
 publish)
   while IFS= read -r line; do
     line="${line%$'\r'}"
@@ -32,20 +34,39 @@ publish)
     # A reference that names another repository or a digest would publish somewhere the workflow did not intend
     [[ "$line" == "$IMAGE":* ]] || fail "tag $line is not a tag of $IMAGE"
     [[ "${line#"$IMAGE":}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || fail "tag $line is not a valid tag"
+    # prune.sh deletes candidate tags, so a final tag must never look like one
+    [[ "${line#"$IMAGE":}" != candidate-* ]] || fail "tag $line is reserved for candidate images"
     targets+=("$line")
   done <<< "${TAGS:-}"
   [[ "${#targets[@]}" -gt 0 ]] || fail 'publishing needs at least one tag: pass the tags input'
   ;;
 *) fail 'MODE must be candidate or publish' ;;
 esac
+if [[ -n "${VERIFIED_IMAGE:-}" && "$MODE" != publish ]]; then fail 'verified-image only applies to a publish'; fi
 
 # connect.sh's publish config holds the staging credential; the GHCR login joins it here. The remote builder is not needed.
 export DOCKER_CONFIG="$RUNNER_TEMP/build-service/docker-publish"
 unset BUILDX_BUILDER
 printf '%s' "$REGISTRY_TOKEN" | crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+# A publish after a tested candidate rebuilds from the builder's cache. If a cache entry was evicted or pruned in between (any
+# client may prune, ADR 0058), the layers could differ from the ones that were tested, so compare them. The config (labels,
+# created) legitimately differs, and a bare image manifest and an index's amd64 manifest both resolve through --platform.
+if [[ -n "${VERIFIED_IMAGE:-}" ]]; then
+  [[ "$VERIFIED_IMAGE" == "$IMAGE@sha256:"* ]] || fail "verified-image is not a digest of $IMAGE"
+  layers() { crane manifest --platform linux/amd64 "$1" | jq --compact-output --exit-status '[.layers[].digest]'; }
+  tested="$(layers "$VERIFIED_IMAGE")" || fail "Could not read the tested image $VERIFIED_IMAGE"
+  built="$(layers "$staging@$digest")" || fail 'Could not read the staged image'
+  [[ "$built" == "$tested" ]] ||
+    fail "The image built for publishing has different layers from the tested image $VERIFIED_IMAGE: the builder's cache changed in between. Nothing was published; re-run the workflow"
+  echo "The staged image has the tested image's layers"
+fi
+
 tag_flags=()
 for target in "${targets[@]}"; do tag_flags+=(--tag "$target"); done
-docker buildx imagetools create "${tag_flags[@]}" "$staging@$digest"
+# --prefer-index=false copies a bare image manifest as itself. The default wraps one in a new index, whose digest the check below
+# would never match; an index (attestations) is copied byte for byte either way.
+docker buildx imagetools create --prefer-index=false "${tag_flags[@]}" "$staging@$digest"
 for target in "${targets[@]}"; do
   [[ "$(crane digest "$target")" == "$digest" ]] || fail "Published manifest of $target differs from the staged image"
   printf 'Published verified digest: %s -> %s\n' "$digest" "$target"

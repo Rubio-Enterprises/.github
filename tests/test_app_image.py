@@ -16,6 +16,7 @@ WORKFLOW = ROOT / ".github/workflows/app-image.yml"
 TEXT = WORKFLOW.read_text()
 DIGEST = "sha256:" + "a" * 64
 OTHER = "sha256:" + "b" * 64
+WRAPPED = "sha256:" + "c" * 64  # the index buildx wraps a bare image manifest in
 IMAGE = "ghcr.io/rubio-enterprises/example"
 STAGING = "stage.example.invalid:5000/rubio-enterprises/repo"
 TOKEN = "ghs_secret_token_value"
@@ -26,6 +27,10 @@ def steps(name: str) -> str:
     return TEXT.split(f"- name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
 
 
+PREPARE = TEXT.split("\n  prepare:\n", 1)[1].split("\n  build:\n", 1)[0]
+BUILD = TEXT.split("\n  build:\n", 1)[1]
+
+
 class WorkflowShape(unittest.TestCase):
     def test_job_is_a_client_on_the_image_route_with_the_permissions_the_callers_must_grant(self):
         self.assertIn("permissions: {}", TEXT)
@@ -33,7 +38,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(TEXT.count("id-token: write"), 1)
         self.assertNotIn("attestations: write", TEXT)
         self.assertIn("runs-on: ${{ fromJSON(vars.RUNNERS || '{}').image || fromJSON('[\"linux-x64-image\"]') }}", TEXT)
-        self.assertNotIn("ubuntu", TEXT)
+        self.assertNotIn("ubuntu", BUILD)  # the build has no hosted fallback; only the prepare job's small route has one
         self.assertIn("timeout-minutes: ${{ inputs.timeout-minutes }}", TEXT)
         self.assertIn('BUILDX_NO_DEFAULT_ATTESTATIONS: "1"', TEXT)
         for forbidden in ("docker/login-action", "docker/setup-buildx-action", "docker/build-push-action", "docker/setup-qemu-action",
@@ -49,15 +54,15 @@ class WorkflowShape(unittest.TestCase):
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
     def test_steps_run_in_the_order_that_keeps_credentials_scoped(self):
-        names = ["Resolve the image and the build mode", "Check out the caller", "Set up Node", "Install the Standards Package into .standards",
-                 "Install the Build Service client tools", "Compute image tags and labels", "Connect to the Build Service",
+        names = ["Resolve the image and the build mode", "Check out the caller", "Set up Node",
+                 "Fetch the Standards Package prepared without credentials", "Install the Build Service client tools", "Compute image tags and labels", "Connect to the Build Service",
                  "Build the image on the Build Service", "Copy the verified image to GHCR", "Prune stale candidate images",
                  "Remove the job's certificate, credentials and build inputs"]
-        positions = [TEXT.index(f"- name: {name}\n") for name in names]
+        positions = [BUILD.index(f"- name: {name}\n") for name in names]
         self.assertEqual(positions, sorted(positions))
-        # Repository tasks run before the certificate exists; only the copy step sees the GHCR token and only the prune the API token
-        self.assertLess(TEXT.index("- name: Install the Standards Package into .standards"), TEXT.index("- name: Connect to the Build Service"))
-        self.assertEqual(TEXT.count("github.token"), 3)  # standards install, copy, prune
+        # Only the copy step sees the GHCR token and only the prune the API token; the one other use is the prepare job's package read
+        self.assertEqual(TEXT.count("github.token"), 3)
+        self.assertEqual(BUILD.count("github.token"), 2)
         self.assertIn("REGISTRY_TOKEN: ${{ github.token }}", steps("Copy the verified image to GHCR"))
         self.assertNotIn("github.token", steps("Build the image on the Build Service"))
         self.assertIn("GH_TOKEN: ${{ github.token }}", steps("Prune stale candidate images"))
@@ -67,21 +72,70 @@ class WorkflowShape(unittest.TestCase):
 
     def test_caller_text_reaches_scripts_only_through_the_environment(self):
         for name in ("Resolve the image and the build mode", "Remove the job's certificate, credentials and build inputs",
-                     "Install the Standards Package into .standards"):
+                     "Install the Standards Package into .standards", "Name the artifact"):
             run = steps(name).split("run:", 1)[1]
             self.assertNotIn("${{", run)
 
-    def test_the_standards_install_is_opt_in_and_runs_mise(self):
-        for name in ("Set up uv for mise", "Set up mise", "Install the Standards Package into .standards"):
-            self.assertIn("if: inputs.standards-install", steps(name))
-        self.assertIn("mise install node && mise run standards:install", steps("Install the Standards Package into .standards"))
+    def test_the_standards_install_runs_in_its_own_job_without_the_oidc_token_or_package_write(self):
+        self.assertIn("    if: inputs.standards-install\n    permissions:\n      contents: read\n      packages: read\n", PREPARE)
+        self.assertIn("runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('[\"ubuntu-slim\"]') }}", PREPARE)
+        for forbidden in ("id-token", "packages: write", "contents: write", "Rubio-Enterprises/.github/actions", "connect", "BUILD_SERVICE"):
+            self.assertNotIn(forbidden, PREPARE)
+        self.assertIn("mise install node && mise run standards:install", PREPARE)
         self.assertIn("cache: false", steps("Set up mise"))
+        # The hand-over is an artifact named once per call, uploaded with its hidden directory
+        self.assertIn("artifact=standards-$(cat /proc/sys/kernel/random/uuid)", PREPARE)
+        upload = steps("Hand .standards over as an artifact")
+        for text in ("path: .standards", "include-hidden-files: true", "if-no-files-found: error", "retention-days: 1"):
+            self.assertIn(text, upload)
+        # The build only downloads it, and only when asked
+        download = steps("Fetch the Standards Package prepared without credentials")
+        self.assertIn("if: inputs.standards-install", download)
+        self.assertIn("name: ${{ needs.prepare.outputs.artifact }}\n          path: .standards", download)
+        self.assertIn("    needs: prepare\n    if: ${{ !cancelled() && !failure() }}\n", BUILD)
+
+    def test_repository_code_never_runs_in_the_job_that_holds_the_credentials(self):
+        # The job holds the OIDC token, the certificate, the staging password and the GHCR token, and its steps share PATH,
+        # GITHUB_ENV, GITHUB_PATH and BASH_ENV. A repository task there could mint its own token, shadow crane or jq, set
+        # BASH_ENV or rewrite the downloaded action scripts. Repository files may only reach it as data.
+        for forbidden in ("mise", "setup-uv", "standards:install", "npm ", "pnpm", "npx", "uv ", "make ", "python", "node ", "./",
+                          "GITHUB_WORKSPACE", "$PWD", "hashFiles", "source ", "eval "):
+            self.assertNotIn(forbidden, BUILD, forbidden)
+        for run in re.findall(r"\n        run: (.*)", BUILD) + re.findall(r"\n        run: \|\n((?:          .*\n)+)", BUILD):
+            self.assertNotIn("workspace", run.lower())
+        # Everything before the connect step is: our validation, checkout, setup-node, an artifact download and two central actions
+        before_connect = BUILD.split("- name: Connect to the Build Service", 1)[0]
+        allowed = {"Resolve the image and the build mode", "Check out the caller", "Set up Node",
+                   "Fetch the Standards Package prepared without credentials", "Install the Build Service client tools",
+                   "Compute image tags and labels"}
+        self.assertEqual(set(re.findall(r"- name: (.*)\n", before_connect)), allowed)
+        self.assertEqual(sorted(re.findall(r"uses: (\S+)", before_connect)), sorted([
+            "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
+            "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", "Rubio-Enterprises/.github/actions/repository-image@main",
+            "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302"]))
+        # No step but the trusted central ones writes to the files later steps inherit from
+        for name, step in re.findall(r"- name: (.*)\n((?:        .*\n|      #.*\n|\n)*)", BUILD):
+            if "GITHUB_ENV" in step or "GITHUB_PATH" in step:
+                self.fail(f"{name} writes the environment later steps inherit")
+        # The caller's checkout stays a build context: the only files the build executes come from the central action directory
+        self.assertEqual(BUILD.count("Rubio-Enterprises/.github/actions/"), 5)  # tools, connect, build, publish, prune
 
     def test_publish_and_candidate_are_exclusive_and_publish_needs_tags(self):
         resolve = steps("Resolve the image and the build mode")
         self.assertIn('"$PUBLISH" == true && "$CANDIDATE" == true', resolve)
         self.assertIn("publish needs the tags input", resolve)
         self.assertIn("tags: ${{ inputs.publish && steps.meta.outputs.tags || '' }}", TEXT)
+
+    def test_a_verified_image_is_a_publish_only_candidate_of_the_same_image(self):
+        resolve = steps("Resolve the image and the build mode")
+        self.assertIn("VERIFIED: ${{ inputs.verified-image }}", resolve)
+        self.assertIn("verified-image only applies to a publish", resolve)
+        self.assertIn('"${VERIFIED,,}" != "$image@sha256:"*', resolve)
+        self.assertIn("VERIFIED_IMAGE: ${{ inputs.verified-image }}", steps("Copy the verified image to GHCR"))
+
+    def test_tags_and_labels_follow_a_ref_other_than_the_events(self):
+        meta = steps("Compute image tags and labels")
+        self.assertIn("context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}", meta)
 
     def test_the_action_dispatches_only_known_operations_and_reuses_the_connect_script(self):
         action = (ACTION / "action.yml").read_text()
@@ -237,6 +291,16 @@ if [[ "$1" = digest ]]; then printf '%s\\n' "${STAGED_DIGEST:-''' + DIGEST + '''
         self.assertIn("staged image differs", result.stdout)
         self.assertEqual(self.output.read_text(), "")
 
+    def test_a_failed_build_leaves_no_staged_image_for_publish_to_pick_up(self):
+        state = self.temp / "app-image"
+        state.mkdir()
+        (state / "digest").write_text(DIGEST + "\n")
+        (state / "staging.ref").write_text("earlier-build\n")
+        result = self.build(DOCKER_FAILURES="2", DOCKER_ERROR="ERROR: failed to solve")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((state / "digest").exists())
+        self.assertFalse((state / "staging.ref").exists())
+
     def test_a_build_without_a_digest_fails(self):
         result = self.build(BUILT_DIGEST="not-a-digest")
         self.assertNotEqual(result.returncode, 0)
@@ -259,24 +323,47 @@ if [[ "$1" = digest ]]; then printf '%s\\n' "${STAGED_DIGEST:-''' + DIGEST + '''
         self.assertEqual(len(self.calls("docker-calls")), 2)
 
 
+def layers_manifest(*digests: str) -> str:
+    return json.dumps({"schemaVersion": 2, "layers": [{"digest": digest, "size": 1} for digest in digests]})
+
+
 class Publish(Workspace):
     def setUp(self):
         super().setUp()
-        self.env.update(MODE="publish", REGISTRY_TOKEN=TOKEN,
+        self.env.update(MODE="publish", REGISTRY_TOKEN=TOKEN, STUB_DIGEST=DIGEST, STUB_WRAPPED=WRAPPED,
                         TAGS=f"{IMAGE}:1.2.3\n{IMAGE}:1.2\n{IMAGE}:sha-abc1234\n")
         state = self.root / "runner/app-image"
         state.mkdir()
         (state / "digest").write_text(DIGEST + "\n")
         (state / "staging.ref").write_text(f"{STAGING}/example:run-123-2-publish\n")
+        # crane resolves a tag to what the docker stub published under it; manifest reads the layers of the image it is given
         self.stub("crane", '''printf '%s|%s\\n' "${DOCKER_CONFIG:-}" "$*" >> "$RUNNER_TEMP/crane-calls"
 case "$1" in
   auth) cat > "$RUNNER_TEMP/crane-stdin" ;;
-  digest) printf '%s\\n' "${PUBLISHED_DIGEST:-''' + DIGEST + '''}" ;;
+  digest)
+    if [[ -n "${PUBLISHED_DIGEST:-}" ]]; then printf '%s\\n' "$PUBLISHED_DIGEST"; exit 0; fi
+    cat "$RUNNER_TEMP/published/${2//[^a-zA-Z0-9]/_}" ;;
+  manifest)
+    [[ "$2 $3" == "--platform linux/amd64" ]] || { echo "crane manifest needs --platform linux/amd64" >&2; exit 2; }
+    if [[ "$4" == ghcr.io/* ]]; then printf '%s' "${TESTED_MANIFEST:-}"; else printf '%s' "${STAGED_MANIFEST:-}"; fi
+    if [[ -n "${MANIFEST_STATUS:-}" ]]; then exit "$MANIFEST_STATUS"; fi ;;
 esac
 ''')
-        # imagetools is the copy; the builder must not be selected for it
+        # imagetools create copies the source under every --tag. Its default (--prefer-index=true) wraps a bare image manifest
+        # in a new index with a different digest (buildx 0.38.1, util/imagetools/create.go); an index is copied as it is.
         self.stub("docker", '''printf '%s|%s|%s\\n' "${DOCKER_CONFIG:-}" "${BUILDX_BUILDER-unset}" "$*" >> "$RUNNER_TEMP/docker-calls"
-exit "${IMAGETOOLS_STATUS:-0}"
+if [[ "${IMAGETOOLS_STATUS:-0}" != 0 ]]; then exit "$IMAGETOOLS_STATUS"; fi
+args=("$@"); prefer_index=true; tags=()
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[i]}" in
+    --prefer-index=false) prefer_index=false ;;
+    --tag) tags+=("${args[i + 1]}") ;;
+  esac
+done
+published="$STUB_DIGEST"
+if [[ "${SOURCE_KIND:-index}" == image && "$prefer_index" == true ]]; then published="$STUB_WRAPPED"; fi
+mkdir -p "$RUNNER_TEMP/published"
+for tag in "${tags[@]}"; do printf '%s\\n' "$published" > "$RUNNER_TEMP/published/${tag//[^a-zA-Z0-9]/_}"; done
 ''')
 
     def publish(self, **overrides):
@@ -289,7 +376,7 @@ exit "${IMAGETOOLS_STATUS:-0}"
         staged = f"{STAGING}/example:run-123-2-publish@{DIGEST}"
         self.assertEqual(self.calls("crane-calls")[0], f"{config}|auth login ghcr.io --username octocat --password-stdin")
         self.assertEqual(self.calls("docker-calls"), [
-            f"{config}|unset|buildx imagetools create --tag {IMAGE}:1.2.3 --tag {IMAGE}:1.2 --tag {IMAGE}:sha-abc1234 {staged}"])
+            f"{config}|unset|buildx imagetools create --prefer-index=false --tag {IMAGE}:1.2.3 --tag {IMAGE}:1.2 --tag {IMAGE}:sha-abc1234 {staged}"])
         for tag in ("1.2.3", "1.2", "sha-abc1234"):
             self.assertIn(f"{config}|digest {IMAGE}:{tag}", self.calls("crane-calls"))
         self.assertFalse([call for call in self.calls("crane-calls") if "|copy" in call])  # crane copy adds referrers tags
@@ -297,24 +384,63 @@ exit "${IMAGETOOLS_STATUS:-0}"
         self.assertEqual(self.outputs(), {"digest": DIGEST, "image": f"{IMAGE}@{DIGEST}"})
         self.assertIn(f"{IMAGE}:1.2.3@{DIGEST}", self.summary.read_text())
 
+    def test_a_bare_image_manifest_is_copied_as_itself_not_wrapped_in_a_new_index(self):
+        # A candidate, and a publish with attestations off, stage one image manifest
+        for mode, tags in (("candidate", ""), ("publish", f"{IMAGE}:1.0.0")):
+            with self.subTest(mode):
+                shutil.rmtree(self.temp / "published", ignore_errors=True)
+                result = self.publish(MODE=mode, TAGS=tags, SOURCE_KIND="image")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.outputs()["image"], f"{IMAGE}@{DIGEST}")
+
+    def test_without_prefer_index_false_a_bare_image_manifest_would_fail_the_digest_check(self):
+        # publish.sh as it was before the flag: the stub wraps the image as buildx 0.38 does, and the digest check catches it
+        broken = self.root / "broken"
+        broken.mkdir()
+        for name in ("publish.sh", "lib.sh"):
+            (broken / name).write_text((ACTION / name).read_text().replace("--prefer-index=false ", ""))
+        self.assertNotIn("--prefer-index", (broken / "publish.sh").read_text().split("imagetools create", 1)[1].splitlines()[0])
+        env = {**self.env, "MODE": "candidate", "TAGS": "", "SOURCE_KIND": "image"}
+        result = subprocess.run(["bash", str(broken / "publish.sh")], env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("differs from the staged image", result.stdout)
+
+    def test_an_index_with_attestations_is_copied_byte_for_byte(self):
+        result = self.publish(SOURCE_KIND="index")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--prefer-index=false", self.calls("docker-calls")[0])
+
     def test_the_token_never_appears_in_a_command_line_or_the_output(self):
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(TOKEN, "\n".join(self.calls("crane-calls") + self.calls("docker-calls")))
         self.assertNotIn(TOKEN, result.stdout + result.stderr + self.output.read_text() + self.summary.read_text())
 
-    def test_a_candidate_gets_one_temporary_tag_and_no_other(self):
-        result = self.publish(MODE="candidate", TAGS="")
+    def test_a_candidate_gets_one_temporary_tag_named_for_the_run_and_the_image(self):
+        result = self.publish(MODE="candidate", TAGS="", SOURCE_KIND="image")
         self.assertEqual(result.returncode, 0, result.stderr)
         copies = self.calls("docker-calls")
         self.assertEqual(len(copies), 1)
-        self.assertIn(f"imagetools create --tag {IMAGE}:candidate-123-2 {STAGING}/example:run-123-2-publish@{DIGEST}", copies[0])
+        self.assertIn(f"imagetools create --prefer-index=false --tag {IMAGE}:candidate-123-2-{DIGEST[7:19]} {STAGING}/example:run-123-2-publish@{DIGEST}", copies[0])
         self.assertEqual(self.outputs()["image"], f"{IMAGE}@{DIGEST}")
+
+    def test_two_candidates_of_one_image_in_a_run_do_not_share_a_tag(self):
+        first = self.publish(MODE="candidate", TAGS="", SOURCE_KIND="image")
+        (self.root / "runner/app-image/digest").write_text(OTHER + "\n")
+        self.output.write_text("")
+        second = self.publish(MODE="candidate", TAGS="", SOURCE_KIND="image", STUB_DIGEST=OTHER)
+        self.assertEqual((first.returncode, second.returncode), (0, 0), first.stdout + second.stdout)
+        tags = [re.search(r"--tag (\S+)", call).group(1) for call in self.calls("docker-calls")]
+        self.assertEqual(len(set(tags)), 2, tags)
+        for tag in tags:
+            self.assertRegex(tag, rf"^{re.escape(IMAGE)}:candidate-123-2-[a-f0-9]{{12}}$")
 
     def test_tags_outside_the_image_or_malformed_publish_nothing(self):
         for name, tags in [("other repository", f"{IMAGE}:ok\nghcr.io/rubio-enterprises/other:ok"),
                            ("a digest", f"{IMAGE}:ok\n{IMAGE}@{OTHER}"),
-                           ("a bad tag", f"{IMAGE}:-bad"), ("a space", f"{IMAGE}:a b"), ("none", "\n \n")]:
+                           ("a bad tag", f"{IMAGE}:-bad"), ("a space", f"{IMAGE}:a b"), ("none", "\n \n"),
+                           ("a candidate lookalike", f"{IMAGE}:1.0\n{IMAGE}:candidate-1-1-aaaaaaaaaaaa"),
+                           ("any candidate prefix", f"{IMAGE}:candidate-release")]:
             with self.subTest(name):
                 shutil.rmtree(self.root / "runner/build-service", ignore_errors=True)
                 (self.temp / "crane-calls").unlink(missing_ok=True)
@@ -341,6 +467,51 @@ exit "${IMAGETOOLS_STATUS:-0}"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no staged image", result.stdout)
         self.assertEqual(self.calls("crane-calls"), [])
+
+    def test_a_publish_of_the_tested_candidates_layers_goes_ahead(self):
+        layers = ["sha256:" + char * 64 for char in "123"]
+        result = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", TESTED_MANIFEST=layers_manifest(*layers),
+                              STAGED_MANIFEST=layers_manifest(*layers))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("The staged image has the tested image's layers", result.stdout)
+        manifests = [call for call in self.calls("crane-calls") if "|manifest" in call]
+        self.assertEqual(len(manifests), 2)
+        self.assertTrue(all("manifest --platform linux/amd64" in call for call in manifests))
+        self.assertTrue(self.calls("docker-calls"))
+
+    def test_a_publish_whose_layers_differ_from_the_tested_ones_publishes_nothing(self):
+        tested = ["sha256:" + char * 64 for char in "123"]
+        built = ["sha256:" + char * 64 for char in "124"]
+        result = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", TESTED_MANIFEST=layers_manifest(*tested),
+                              STAGED_MANIFEST=layers_manifest(*built))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("different layers from the tested image", result.stdout)
+        self.assertEqual(self.calls("docker-calls"), [])
+        self.assertEqual(self.output.read_text(), "")
+        # Layer order is part of the image
+        reordered = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", TESTED_MANIFEST=layers_manifest(*tested),
+                                 STAGED_MANIFEST=layers_manifest(*reversed(tested)))
+        self.assertNotEqual(reordered.returncode, 0)
+
+    def test_an_unreadable_tested_or_staged_image_fails_rather_than_skipping_the_check(self):
+        layers = layers_manifest("sha256:" + "1" * 64)
+        for name, overrides in [("registry error", {"MANIFEST_STATUS": "1"}), ("no layers", {"TESTED_MANIFEST": "{}", "STAGED_MANIFEST": "{}"})]:
+            with self.subTest(name):
+                env = {"TESTED_MANIFEST": layers, "STAGED_MANIFEST": layers, **overrides}
+                result = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", **env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.calls("docker-calls"), [])
+
+    def test_a_verified_image_must_be_a_digest_of_this_image_and_only_for_a_publish(self):
+        layers = layers_manifest("sha256:" + "1" * 64)
+        base = {"TESTED_MANIFEST": layers, "STAGED_MANIFEST": layers}
+        other_repository = self.publish(VERIFIED_IMAGE=f"ghcr.io/rubio-enterprises/other@{OTHER}", **base)
+        self.assertNotEqual(other_repository.returncode, 0)
+        self.assertIn("is not a digest of", other_repository.stdout)
+        candidate = self.publish(MODE="candidate", TAGS="", VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", **base)
+        self.assertNotEqual(candidate.returncode, 0)
+        self.assertIn("only applies to a publish", candidate.stdout)
+        self.assertEqual(self.calls("docker-calls"), [])
 
 
 class Prune(Workspace):
@@ -390,10 +561,13 @@ printf '200'
 
     def test_deletes_only_old_versions_whose_every_tag_is_a_candidate(self):
         self.pages_of([
-            self.version(1, ["candidate-10-1"], 30), self.version(2, ["candidate-11-1", "candidate-11-2"], 50),
-            self.version(3, ["candidate-12-1"], 2), self.version(4, ["candidate-9-1", "1.2.3"], 99),
-            self.version(5, ["latest"], 99), self.version(6, [], 99), self.version(7, ["candidate-x-1"], 99),
-            self.version(8, ["precandidate-1-1"], 99),
+            self.version(1, ["candidate-10-1-abcdef012345"], 30), self.version(2, ["candidate-11-1-abcdef012345", "candidate-11-2-abcdef012345"], 50),
+            self.version(3, ["candidate-12-1-abcdef012345"], 2), self.version(4, ["candidate-9-1-abcdef012345", "1.2.3"], 99),
+            self.version(5, ["latest"], 99), self.version(6, [], 99), self.version(7, ["candidate-x-1-abcdef012345"], 99),
+            self.version(8, ["precandidate-1-1-abcdef012345"], 99),
+            # Not the current shape: no digest part, or not twelve hex digits
+            self.version(9, ["candidate-10-1"], 99), self.version(10, ["candidate-10-1-abcdef01234"], 99),
+            self.version(11, ["candidate-10-1-ABCDEF012345"], 99), self.version(12, ["candidate-10-1-abcdef0123456"], 99),
         ])
         result = self.prune()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -401,7 +575,7 @@ printf '200'
         self.assertIn("Pruned 2 stale candidate version(s)", result.stdout)
 
     def test_addresses_the_org_package_with_an_encoded_name_and_keeps_the_token_off_the_command_line(self):
-        self.pages_of([self.version(1, ["candidate-10-1"], 30)])
+        self.pages_of([self.version(1, ["candidate-10-1-abcdef012345"], 30)])
         result = self.prune(IMAGE="ghcr.io/rubio-enterprises/org/pkg")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls("api-calls")[0],
@@ -412,22 +586,23 @@ printf '200'
         self.assertIn(f"Bearer {TOKEN}", (self.temp / "curl-stdin").read_text())
 
     def test_the_time_to_live_is_configurable_and_validated(self):
-        self.pages_of([self.version(1, ["candidate-10-1"], 2), self.version(2, ["candidate-11-1"], 30)])
+        self.pages_of([self.version(1, ["candidate-10-1-abcdef012345"], 2), self.version(2, ["candidate-11-1-abcdef012345"], 30)])
         self.assertEqual(self.prune(TTL_HOURS="1").returncode, 0)
         self.assertEqual(self.deleted(), ["1", "2"])
         for bad in ("0", "-1", "1h", ""):
             with self.subTest(bad):
                 self.assertNotEqual(self.prune(TTL_HOURS=bad if bad else "x").returncode, 0)
 
-    def test_pages_until_a_short_page_and_never_beyond_three(self):
+    def test_pages_until_a_short_page_however_many_there_are(self):
         full = [self.version(100 + n, ["latest"], 99) for n in range(100)]
-        self.pages_of(full, full, [self.version(300, ["candidate-1-1"], 99)] + full[:99], full)
+        stale = self.version(900, ["candidate-1-1-abcdef012345"], 99)
+        self.pages_of(full, full, full, full, [stale] + full[:49])
         self.assertEqual(self.prune().returncode, 0)
-        self.assertEqual([call.rsplit("page=", 1)[1] for call in self.calls("api-calls") if call.startswith("GET ")], ["1", "2", "3"])
-        self.assertEqual(self.deleted(), ["300"])
+        self.assertEqual([call.rsplit("page=", 1)[1] for call in self.calls("api-calls") if call.startswith("GET ")], ["1", "2", "3", "4", "5"])
+        self.assertEqual(self.deleted(), ["900"])
 
     def test_failures_only_warn(self):
-        self.pages_of([self.version(1, ["candidate-10-1"], 30)])
+        self.pages_of([self.version(1, ["candidate-10-1-abcdef012345"], 30)])
         listing = self.prune(LIST_STATUS="404")
         self.assertEqual(listing.returncode, 0)
         self.assertIn("::warning::Could not list", listing.stdout)
@@ -435,6 +610,7 @@ printf '200'
         deleting = self.prune(DELETE_STATUS="403")
         self.assertEqual(deleting.returncode, 0)
         self.assertIn("::warning::Could not delete candidate version 1", deleting.stdout)
+        self.assertIn("Admin role", deleting.stdout)
 
 
 if __name__ == "__main__":

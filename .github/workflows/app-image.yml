@@ -48,10 +48,18 @@ name: app image (reusable)
         description: Add provenance (mode=max) and an SBOM to a publish build
         type: boolean
         default: true
+      verified-image:
+        description: >-
+          Publish only: the candidate image@digest a job tested, from this workflow's `image` output. The workflow fails
+          unless the published image has the same amd64 layers, so a cache eviction between the test and the publish cannot
+          ship something that was not tested
+        type: string
+        default: ""
       standards-install:
         description: >-
-          Run mise run standards:install before the build, for a Dockerfile that copies a file from .standards/. The caller
-          job's packages permission covers the registry read
+          For a Dockerfile that copies a file from .standards/. A separate job with no OIDC token and read-only package
+          access runs mise run standards:install and hands .standards/ to the build as an artifact, so repository code
+          never runs in the job that holds the certificate and the registry credentials
         type: boolean
         default: false
       ref:
@@ -81,8 +89,63 @@ name: app image (reusable)
         value: ${{ jobs.build.outputs.tags }}
 permissions: {}
 jobs:
+  # The only job that runs repository tasks. It has no OIDC token and cannot write packages, and it runs on the small pool,
+  # which cannot reach the Build Service: what it produces reaches the build as data, never as code
+  prepare:
+    name: Prepare the Standards Package
+    if: inputs.standards-install
+    permissions:
+      contents: read
+      packages: read
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 10
+    outputs:
+      artifact: ${{ steps.name.outputs.artifact }}
+    steps:
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      # mise's pipx backend needs uv on PATH on a cold runner
+      - name: Set up uv for mise
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: "0.12.17"
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          # renovate: datasource=github-releases depName=jdx/mise
+          version: "2026.10.19"
+          install: false
+          # A publishing workflow restores no cache another run could have poisoned
+          cache: false
+      - name: Install the Standards Package into .standards
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: mise install node && mise run standards:install
+      # One name per call: a caller may call this workflow twice in a run, and an artifact name is unique within a run
+      - name: Name the artifact
+        id: name
+        shell: bash
+        run: echo "artifact=standards-$(cat /proc/sys/kernel/random/uuid)" >> "$GITHUB_OUTPUT"
+      - name: Hand .standards over as an artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: .standards
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  # Nothing in this job executes repository content: it holds the OIDC token, the certificate, the staging password and
+  # the GHCR token. Repository files reach it only as the build context and as artifact data.
   build:
     name: Build on the Build Service (amd64)
+    needs: prepare
+    if: ${{ !cancelled() && !failure() }}
     permissions:
       contents: read
       packages: write
@@ -106,6 +169,7 @@ jobs:
           PUBLISH: ${{ inputs.publish }}
           CANDIDATE: ${{ inputs.candidate }}
           TAGS: ${{ inputs.tags }}
+          VERIFIED: ${{ inputs.verified-image }}
         run: |
           set -euo pipefail
           if [[ "$PUBLISH" == true && "$CANDIDATE" == true ]]; then
@@ -125,6 +189,17 @@ jobs:
             echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
             exit 1
           fi
+          if [[ -n "$VERIFIED" ]]; then
+            if [[ "$PUBLISH" != true ]]; then
+              echo "::error::verified-image only applies to a publish"
+              exit 1
+            fi
+            digest="${VERIFIED#"$image@sha256:"}"
+            if [[ "${VERIFIED,,}" != "$image@sha256:"* || ! "${digest,,}" =~ ^[a-f0-9]{64}$ ]]; then
+              echo "::error::verified-image must be this image's candidate, image@sha256:<digest>"
+              exit 1
+            fi
+          fi
           mode=check
           if [[ "$PUBLISH" == true ]]; then mode=publish; fi
           if [[ "$CANDIDATE" == true ]]; then mode=candidate; fi
@@ -140,28 +215,13 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
-      # The repository's own tasks run before the job holds a certificate or a registry credential
-      - name: Set up uv for mise
+      # Data, not code: the prepare job's output lands where the Dockerfile expects it
+      - name: Fetch the Standards Package prepared without credentials
         if: inputs.standards-install
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
-      - name: Set up mise
-        if: inputs.standards-install
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-        with:
-          # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.10.19"
-          install: false
-          # A publishing workflow restores no cache another run could have poisoned
-          cache: false
-      - name: Install the Standards Package into .standards
-        if: inputs.standards-install
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
-        run: mise install node && mise run standards:install
+          name: ${{ needs.prepare.outputs.artifact }}
+          path: .standards
       - name: Install the Build Service client tools
         uses: Rubio-Enterprises/.github/actions/repository-image@main
         with:
@@ -170,6 +230,8 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
+          # A ref other than the event's is what gets built, so its tags and labels come from the checkout, not the event
+          context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}
           images: ${{ steps.resolve.outputs.image }}
           flavor: ${{ inputs.flavor }}
           tags: ${{ inputs.tags }}
@@ -200,6 +262,7 @@ jobs:
           IMAGE: ${{ steps.resolve.outputs.image }}
           MODE: ${{ steps.resolve.outputs.mode }}
           TAGS: ${{ steps.meta.outputs.tags }}
+          VERIFIED_IMAGE: ${{ inputs.verified-image }}
           REGISTRY_TOKEN: ${{ github.token }}
         with:
           operation: publish

@@ -49,7 +49,10 @@ state_dir() {
   printf '%s' "$dir"
 }
 
-# Candidate tags are the only ones prune deletes, so nothing else may look like one
+# Candidate tags are the only ones prune deletes, so nothing else may look like one (publish.sh refuses a final tag that does).
+# The digest discriminates two candidates of one image in a run, which would otherwise overwrite each other's tag and leave the
+# first untagged, where prune never looks.
 candidate_tag() {
-  printf 'candidate-%s-%s' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+  local digest="${1#sha256:}"
+  printf 'candidate-%s-%s-%s' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "${digest:0:12}"
 }
