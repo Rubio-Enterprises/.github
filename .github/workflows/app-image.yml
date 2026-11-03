@@ -52,9 +52,11 @@ name: app image (reusable)
         description: >-
           Publish only: the candidate image@digest a job tested, from this workflow's `image` output. The workflow fails
           unless the published image has the same amd64 layers, so a cache eviction between the test and the publish cannot
-          ship something that was not tested
+          ship something that was not tested. Omit the input to publish without that check. An input that is passed but
+          resolves empty (the output it reads is missing, for example because a job was skipped) fails the run instead of
+          silently skipping the check
         type: string
-        default: ""
+        default: none
       standards-install:
         description: >-
           For a Dockerfile that copies a file from .standards/. A separate job with no OIDC token and read-only package
@@ -189,7 +191,12 @@ jobs:
             echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
             exit 1
           fi
-          if [[ -n "$VERIFIED" ]]; then
+          # An omitted input is `none`; a passed value that resolves empty is an unwired output, never "skip the check"
+          if [[ "$VERIFIED" != none ]]; then
+            if [[ -z "$VERIFIED" ]]; then
+              echo "::error::verified-image was passed but is empty: the job output it reads did not resolve. Omit the input to publish without verification"
+              exit 1
+            fi
             if [[ "$PUBLISH" != true ]]; then
               echo "::error::verified-image only applies to a publish"
               exit 1

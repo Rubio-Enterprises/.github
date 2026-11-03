@@ -129,6 +129,11 @@ class WorkflowShape(unittest.TestCase):
     def test_a_verified_image_is_a_publish_only_candidate_of_the_same_image(self):
         resolve = steps("Resolve the image and the build mode")
         self.assertIn("VERIFIED: ${{ inputs.verified-image }}", resolve)
+        # The default is a sentinel, because a passed input that resolves empty stays "" (the default applies only when the input is
+        # omitted); that difference is what lets an unwired output fail instead of skipping the check
+        self.assertRegex(TEXT, r"      verified-image:\n        description: >-\n(?:          .*\n)+        type: string\n        default: none\n")
+        self.assertIn('if [[ "$VERIFIED" != none ]]; then', resolve)
+        self.assertIn("verified-image was passed but is empty", resolve)
         self.assertIn("verified-image only applies to a publish", resolve)
         self.assertIn('"${VERIFIED,,}" != "$image@sha256:"*', resolve)
         self.assertIn("VERIFIED_IMAGE: ${{ inputs.verified-image }}", steps("Copy the verified image to GHCR"))
@@ -159,6 +164,61 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("OPERATION: ${{ inputs.operation }}", action)
         self.assertNotIn("${{", action.split("run: |", 1)[1])
         self.assertTrue((ROOT / "actions/repository-image/connect.sh").is_file())
+
+
+def run_block(step_name: str) -> str:
+    """The shell of one `run: |` step, dedented."""
+    lines = steps(step_name).split("run: |\n", 1)[1].splitlines()
+    indent = len(lines[0]) - len(lines[0].lstrip())
+    return "\n".join(line[indent:] for line in lines) + "\n"
+
+
+class Resolve(unittest.TestCase):
+    """The workflow's own validation step, run as the runner would run it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.output = Path(self.tmp.name) / "output"
+        self.output.touch()
+        self.script = run_block("Resolve the image and the build mode")
+
+    def resolve(self, **overrides):
+        env = {**os.environ, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo",
+               "GITHUB_OUTPUT": str(self.output), "IMAGE_INPUT": "", "PUBLISH": "true", "CANDIDATE": "false",
+               "TAGS": "type=raw,value=1", "VERIFIED": "none", **overrides}
+        return subprocess.run(["bash", "-c", self.script], env=env, capture_output=True, text=True)
+
+    def test_an_omitted_verified_image_publishes_without_the_check(self):
+        result = self.resolve()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("mode=publish", self.output.read_text())
+
+    def test_a_verified_image_that_resolved_empty_fails_loudly_in_every_mode(self):
+        # A caller who wires the input to a job output that is missing (a skipped job, a renamed output) gets "" here,
+        # not the default, and must never silently lose the check
+        for name, overrides in [("publish", {}), ("candidate", {"PUBLISH": "false", "CANDIDATE": "true", "TAGS": ""}),
+                                ("check", {"PUBLISH": "false", "TAGS": ""})]:
+            with self.subTest(name):
+                result = self.resolve(VERIFIED="", **overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("verified-image was passed but is empty", result.stdout)
+                self.assertEqual(self.output.read_text(), "")
+
+    def test_a_real_candidate_of_this_image_passes_and_anything_else_is_refused(self):
+        image = "ghcr.io/rubio-enterprises/repo"
+        good = f"{image}@sha256:{'a' * 64}"
+        self.assertEqual(self.resolve(VERIFIED=good).returncode, 0)
+        for name, overrides, message in [
+            ("another image", {"VERIFIED": f"ghcr.io/rubio-enterprises/other@sha256:{'a' * 64}"}, "must be this image's candidate"),
+            ("a tag", {"VERIFIED": f"{image}:candidate-1-1-aaaaaaaaaaaa"}, "must be this image's candidate"),
+            ("a short digest", {"VERIFIED": f"{image}@sha256:abc"}, "must be this image's candidate"),
+            ("not a publish", {"VERIFIED": good, "PUBLISH": "false", "CANDIDATE": "true", "TAGS": ""}, "only applies to a publish"),
+        ]:
+            with self.subTest(name):
+                result = self.resolve(**overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stdout)
 
 
 class Workspace(unittest.TestCase):
@@ -507,6 +567,24 @@ for tag in "${tags[@]}"; do printf '%s\\n' "$published" > "$RUNNER_TEMP/publishe
         reordered = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", TESTED_MANIFEST=layers_manifest(*tested),
                                  STAGED_MANIFEST=layers_manifest(*reversed(tested)))
         self.assertNotEqual(reordered.returncode, 0)
+
+    def test_an_omitted_or_none_verified_image_skips_the_check_and_an_empty_one_fails_before_anything_is_copied(self):
+        for name, overrides in [("unset", {}), ("none", {"VERIFIED_IMAGE": "none"})]:
+            with self.subTest(name):
+                shutil.rmtree(self.temp / "published", ignore_errors=True)
+                (self.temp / "crane-calls").unlink(missing_ok=True)
+                (self.temp / "docker-calls").unlink(missing_ok=True)
+                result = self.publish(**overrides)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse([call for call in self.calls("crane-calls") if "|manifest" in call])
+        shutil.rmtree(self.temp / "published", ignore_errors=True)
+        (self.temp / "crane-calls").unlink(missing_ok=True)
+        (self.temp / "docker-calls").unlink(missing_ok=True)
+        empty = self.publish(VERIFIED_IMAGE="")
+        self.assertNotEqual(empty.returncode, 0)
+        self.assertIn("verified-image was passed but is empty", empty.stdout)
+        self.assertEqual(self.calls("docker-calls"), [])
+        self.assertEqual(self.calls("crane-calls"), [])
 
     def test_an_unreadable_tested_or_staged_image_fails_rather_than_skipping_the_check(self):
         layers = layers_manifest("sha256:" + "1" * 64)

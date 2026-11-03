@@ -10,7 +10,9 @@
 #   MODE            candidate or publish
 #   TAGS            publish only: full image:tag references, one per line
 #   VERIFIED_IMAGE  publish only, optional: the candidate image@digest a job tested. The copy fails unless the staged image has
-#                   the same amd64 layers, so a cache eviction between the test and this build cannot ship an untested image
+#                   the same amd64 layers, so a cache eviction between the test and this build cannot ship an untested image.
+#                   Unset or `none` skips the check; set but empty fails, because it means a caller wired the input to an output
+#                   that did not resolve
 #   REGISTRY_TOKEN  the job's GITHUB_TOKEN
 set -euo pipefail
 : "${IMAGE:?}" "${MODE:?}" "${RUNNER_TEMP:?}" "${GITHUB_OUTPUT:?}" "${GITHUB_ACTOR:?}" "${REGISTRY_TOKEN:?}" "${GITHUB_REPOSITORY_OWNER:?}"
@@ -42,7 +44,9 @@ publish)
   ;;
 *) fail 'MODE must be candidate or publish' ;;
 esac
-if [[ -n "${VERIFIED_IMAGE:-}" && "$MODE" != publish ]]; then fail 'verified-image only applies to a publish'; fi
+verified="${VERIFIED_IMAGE-none}"
+if [[ -z "$verified" ]]; then fail 'verified-image was passed but is empty: the job output it reads did not resolve. Omit the input to publish without verification'; fi
+if [[ "$verified" != none && "$MODE" != publish ]]; then fail 'verified-image only applies to a publish'; fi
 
 # connect.sh's publish config holds the staging credential; the GHCR login joins it here. The remote builder is not needed.
 export DOCKER_CONFIG="$RUNNER_TEMP/build-service/docker-publish"
@@ -52,13 +56,13 @@ printf '%s' "$REGISTRY_TOKEN" | crane auth login ghcr.io --username "$GITHUB_ACT
 # A publish after a tested candidate rebuilds from the builder's cache. If a cache entry was evicted or pruned in between (any
 # client may prune, ADR 0058), the layers could differ from the ones that were tested, so compare them. The config (labels,
 # created) legitimately differs, and a bare image manifest and an index's amd64 manifest both resolve through --platform.
-if [[ -n "${VERIFIED_IMAGE:-}" ]]; then
-  [[ "$VERIFIED_IMAGE" == "$IMAGE@sha256:"* ]] || fail "verified-image is not a digest of $IMAGE"
+if [[ "$verified" != none ]]; then
+  [[ "$verified" == "$IMAGE@sha256:"* ]] || fail "verified-image is not a digest of $IMAGE"
   layers() { crane manifest --platform linux/amd64 "$1" | jq --compact-output --exit-status '[.layers[].digest]'; }
-  tested="$(layers "$VERIFIED_IMAGE")" || fail "Could not read the tested image $VERIFIED_IMAGE"
+  tested="$(layers "$verified")" || fail "Could not read the tested image $verified"
   built="$(layers "$staging@$digest")" || fail 'Could not read the staged image'
   [[ "$built" == "$tested" ]] ||
-    fail "The image built for publishing has different layers from the tested image $VERIFIED_IMAGE: the builder's cache changed in between. Nothing was published; re-run the workflow"
+    fail "The image built for publishing has different layers from the tested image $verified: the builder's cache changed in between. Nothing was published; re-run the workflow"
   echo "The staged image has the tested image's layers"
 fi
 
