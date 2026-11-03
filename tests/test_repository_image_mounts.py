@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -42,6 +41,14 @@ class FakeRegistry(ThreadingHTTPServer):
         return f"127.0.0.1:{self.server_port}"
 
 
+def repository_of(path: str, marker: str) -> tuple[str, str] | None:
+    """Split /v2/<repository>/<marker><rest> without a backtracking pattern; the repository may contain slashes."""
+    if not path.startswith("/v2/") or f"/{marker}" not in path:
+        return None
+    repository, _, rest = path[len("/v2/"):].partition(f"/{marker}")
+    return (repository, rest) if repository else None
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -73,9 +80,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         if not self.authorized():
             return
-        match = re.fullmatch(r"/v2/(.+)/blobs/(sha256:[a-f0-9]{64})", self.path)
+        match = repository_of(self.path, "blobs/")
         self.server.requests.append(("HEAD", self.path))
-        self.respond(200 if match and match[2] in self.server.blobs.get(match[1], set()) else 404)
+        self.respond(200 if match and match[1] in self.server.blobs.get(match[0], set()) else 404)
 
     def do_POST(self):
         if not self.authorized():
@@ -83,11 +90,12 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         query = parse_qs(url.query)
         self.server.requests.append(("POST", self.path))
-        match = re.fullmatch(r"/v2/(.+)/blobs/uploads/", url.path)
+        match = repository_of(url.path, "blobs/uploads/")
+        match = match if match and not match[1] else None
         source = query.get("from", [""])[0]
         wanted = query.get("mount", [""])[0]
         if match and self.server.mount_status == 201 and wanted in self.server.blobs.get(source, set()):
-            self.server.blobs.setdefault(match[1], set()).add(wanted)
+            self.server.blobs.setdefault(match[0], set()).add(wanted)
             self.respond(201)
         else:
             self.respond(202)
