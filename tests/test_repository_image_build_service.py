@@ -706,7 +706,10 @@ class PublishSteps(Workspace):
         self.env.update(
             CONTEXT=str(self.root), ARCH="amd64", GITHUB_SHA="a" * 40, GITHUB_ACTOR="octocat", REGISTRY_TOKEN="ghs_secret",
             IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer", CI_IMAGE="ghcr.io/rubio-enterprises/repo/devcontainer-ci",
-            BUILDX_BUILDER="build-service", DOCKER_CONFIG=str(self.root / "build-config"))
+            BUILDX_BUILDER="build-service", DOCKER_CONFIG=str(self.root / "build-config"), ASSETS="/assets",
+            BASE="ghcr.io/rubio-enterprises/devcontainers/base@sha256:" + "1" * 64,
+            BASE_CI="ghcr.io/rubio-enterprises/devcontainers/base-ci@sha256:" + "2" * 64)
+        self.stub("node", """printf '%s\\n' "$*" >> "$RUNNER_TEMP/node-calls"\n""")  # the mount script has its own tests
         self.stub("crane", '''printf '%s|%s\\n' "$DOCKER_CONFIG" "$*" >> "$RUNNER_TEMP/crane-calls"
 case "$1" in
   auth) cat > "$RUNNER_TEMP/crane-stdin" ;;
@@ -731,6 +734,7 @@ esac
         for name, artifact in (("dev", self.env["IMAGE"]), ("ci", self.env["CI_IMAGE"])):
             self.assertIn(f"copy {STAGING}/{name}@{self.digest} {artifact}:sha-{'a' * 40}-amd64", "\n".join(calls))
         self.assertNotIn("build-config", "\n".join(calls))
+        self.assertNotIn("ghs_secret", "\n".join(self.calls("node-calls")))  # the mount script reads the token from its environment
 
     def test_a_failed_copy_or_a_digest_that_differs_from_the_verified_artifact_fails(self):
         for overrides in ({"COPY_STATUS": "2"}, {"PUBLISHED_DIGEST": "sha256:" + "c" * 64}):
