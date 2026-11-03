@@ -385,6 +385,9 @@ frontend from Docker Hub on every build.
   `Rubio-Enterprises/.github/actions/repository-image@main` references pointing at the same branch.
 - Any change to a file in `actions/repository-image/` changes every repository's image input key, so
   each repository rebuilds once at its next push.
+  Files outside that directory are not part of the key. `actions/build-service/retry.sh`
+  (`retry_unavailable`, shared with the app image client) is one: it decides whether a build is
+  retried, not what is in the image, so editing it rebuilds nothing.
 - If the daemon is down, image builds fail and are re-run after the fix; nothing waits on them in
   real time.
 

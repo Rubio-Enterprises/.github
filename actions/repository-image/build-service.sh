@@ -10,30 +10,8 @@ if [[ "$ARCH" != amd64 ]]; then
   exit 1
 fi
 
-# A restarting daemon fails its in-flight clients with Unavailable, and its cache survives the restart, so one retry
-# is enough. A daemon that stays down fails the second attempt.
-retry_unavailable() {
-  local log attempt status
-  log="$(mktemp "$RUNNER_TEMP/build-service-attempt.XXXXXX")"
-  for attempt in 1 2; do
-    set +e
-    "$@" 2>&1 | tee "$log"
-    status="${PIPESTATUS[0]}"
-    set -e
-    if [[ "$status" -eq 0 ]]; then
-      rm -f "$log"
-      return 0
-    fi
-    if [[ "$attempt" -eq 1 ]] && grep -q 'code = Unavailable' "$log"; then
-      echo '::warning::The Build Service closed the connection; retrying once'
-      sleep "${BUILD_SERVICE_RETRY_DELAY:-20}"
-      continue
-    fi
-    break
-  done
-  rm -f "$log"
-  return "$status"
-}
+# shellcheck source=../build-service/retry.sh
+source "$ASSETS/../build-service/retry.sh"
 
 # Both settings keep the Features image deterministic, so a repository with extra Features keeps its cache. Without
 # attestations the push is one manifest whose digest is the image's. Without a reachable Docker engine the CLI writes a

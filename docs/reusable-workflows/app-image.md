@@ -151,7 +151,8 @@ Repository files are data to the job that holds the credentials, never code.
 
 - Any path from the caller must stay inside the checkout, symlinks resolved.
 - `--secret` and SSH mounts are not offered. No repository's image build used one.
-- The first BuildKit restart-retry (`code = Unavailable`) is the only retry.
+- The first BuildKit restart-retry (`code = Unavailable`) is the only retry. It is `retry_unavailable` in
+  `actions/build-service/retry.sh`, shared with `repository-image`.
 - `image-name` may be any new package in the owner's namespace. GHCR itself refuses a push to an
   existing package the repository has no access to.
 
