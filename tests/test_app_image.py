@@ -495,8 +495,10 @@ for tag in "${tags[@]}"; do printf '%s\\n' "$published" > "$RUNNER_TEMP/publishe
 
     def test_without_prefer_index_false_a_bare_image_manifest_would_fail_the_digest_check(self):
         # publish.sh as it was before the flag: the stub wraps the image as buildx 0.38 does, and the digest check catches it
-        broken = self.root / "broken"
-        broken.mkdir()
+        broken = self.root / "broken/app-image"
+        broken.mkdir(parents=True)
+        (self.root / "broken/build-service").mkdir()
+        (self.root / "broken/build-service/retry.sh").write_text((ROOT / "actions/build-service/retry.sh").read_text())
         for name in ("publish.sh", "lib.sh"):
             (broken / name).write_text((ACTION / name).read_text().replace("--prefer-index=false ", ""))
         self.assertNotIn("--prefer-index", (broken / "lib.sh").read_text().split("imagetools create", 1)[1].splitlines()[0])
