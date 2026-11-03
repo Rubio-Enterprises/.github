@@ -32,7 +32,7 @@ class Shape(unittest.TestCase):
         self.assertIn("id-token: write", job("promote"))
         # Repository code runs only in the test job, and there it holds read access only
         self.assertEqual(re.search(r"permissions:\n((?:      .*\n)+)", job("test") + "\n").group(1), "      contents: read\n      packages: read\n")
-        self.assertEqual(re.search(r"permissions:\n((?:      .*\n)+)", job("smoke") + "\n").group(1), "      packages: read\n")
+        self.assertEqual(re.search(r"permissions:\n((?:      .*\n)+)", job("smoke") + "\n").group(1), "      contents: read\n      packages: read\n")
         self.assertNotIn("packages: write", job("test") + job("smoke") + job("changes") + job("structure-arm64"))
         # The arm64 build has no Build Service, so no certificate
         self.assertNotIn("id-token", job("build-arm64"))
@@ -50,6 +50,18 @@ class Shape(unittest.TestCase):
         self.assertLess(test.index("operation: pull"), test.index("mise run test:image"))
         self.assertIn('IMAGE_NAME="${IMAGE%@*}" mise run test:image', test)
         self.assertIn("defines no test:image task", test)
+
+    def test_the_smoke_job_checks_out_only_to_mount_listed_files_and_runs_nothing_from_it(self):
+        smoke = job("smoke")
+        checkout = smoke.split("- name: Start the candidate", 1)[0]
+        self.assertIn("if: ${{ inputs.smoke-files != '' }}", checkout)
+        self.assertIn("persist-credentials: false", checkout)
+        self.assertNotIn("submodules", checkout)
+        self.assertIn("SMOKE_FILES: ${{ inputs.smoke-files }}", smoke)
+        # still no repository code: no mise, no run steps, only the central action
+        self.assertNotIn("mise", smoke)
+        self.assertNotIn("run:", smoke)
+        self.assertEqual(smoke.count("uses: Rubio-Enterprises/.github/actions/app-image@main"), 1)
 
     def test_promotion_waits_for_every_tier_and_only_a_publishing_run_promotes(self):
         promote = job("promote")

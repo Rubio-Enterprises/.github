@@ -15,7 +15,7 @@ by digest, in the same package.
 | --- | --- | --- | --- | --- |
 | Build | `build` (the [builder](app-image.md), called with `pipeline: true`) | image Scale Set | OIDC token, GHCR write | One candidate on the Build Service (amd64). Attestations (SLSA provenance, SBOM) when the run will publish |
 | **T1** structure | inside `build` | image Scale Set | staging credential only | Non-root `USER`; a `HEALTHCHECK` when the image is a server; the `source` and `revision` labels; a secret scan of layers and configuration; a vulnerability report. It reads the staged image **before anything reaches GHCR**: a failing image is never pushed |
-| **T2** smoke | `smoke` | `docker` route (`linux-x64-large`) | `packages: read`, no checkout | A server starts and reports healthy, and no process runs as root. A command-line tool runs its `smoke-command` and exits 0 |
+| **T2** smoke | `smoke` | `docker` route (`linux-x64-large`) | `contents: read` and `packages: read`; a checkout only when `smoke-files` is set, and nothing from it runs | A server starts and reports healthy, and no process runs as root. A command-line tool runs its `smoke-command` and exits 0 |
 | **T3** functional | `test` | `docker` route | `contents: read`, `packages: read` | `mise run test:image`, with `IMAGE` set to the candidate (`image@digest`) |
 | Promote | `promote` (the builder's promote job) | small route | GHCR write, no OIDC token | `imagetools create` of the tested digest under the final tags |
 
@@ -69,12 +69,26 @@ even if the job is skipped. Inside the pipeline only `build` and `promote` ask f
 | `moving-tags` | Exact tags allowed to move (a branch channel such as `main`). Every other existing tag is **never overwritten**; `latest` is **never published** |
 | `smoke-command` | A command-line tool's arguments for its entrypoint (for example `--version`). Empty means a server, which must declare a `HEALTHCHECK` |
 | `smoke-env`, `smoke-timeout-seconds` | `NAME=value` lines (no secrets) a server needs to start, and how long it has to become healthy (default 120) |
+| `smoke-files` | Files a server reads at startup, one `<path in the repository>:<absolute path in the container>` per line (no secrets). Each is bind-mounted read-only into the smoke container |
 | `block-vulnerabilities` | Fail on a fixable CRITICAL |
 | `ignore-paths` | Shell patterns, one per line; a pull request whose every change matches skips the image jobs. Default `*.md`, `docs/*`, `LICENSE` (`*` also matches a slash) |
 | `arch` | `amd64` (default, the Build Service) or `arm64` (native build, below) |
 | `context`, `file`, `target`, `build-args` | The build. `build-args` may carry the version a release image bakes in: the candidate is built in the publishing run |
 | `standards-install` | amd64 only: see the [builder](app-image.md#what-runs-where) |
 | `ref`, `submodules`, `timeout-minutes`, `test-timeout-minutes` | As named |
+
+A server that refuses to start without a configuration file passes it as a smoke file, with a placeholder
+value rather than a credential (the file is read from the checkout, never from the image):
+
+```yaml
+      smoke-files: |
+        ci/config.json:/etc/app/config.json
+        ci/gateway-token:/etc/app/gateway-token
+```
+
+A listed file must be a regular file in the repository (no symlink, no path outside it); the smoke job checks
+the repository out with `persist-credentials: false` and runs nothing from it. The files are mounted for a
+command-line tool's `smoke-command` too.
 
 Outputs: `image` (the published `image@digest` of a publishing run, otherwise the tested candidate's),
 `digest`, `version`, `tags`.

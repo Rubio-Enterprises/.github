@@ -7,6 +7,8 @@
 #   IMAGE            the candidate, ghcr.io/<owner>/<package>@sha256:<digest>
 #   SMOKE_COMMAND    a command-line tool's arguments for the image's entrypoint, for example --version. Empty means a server
 #   SMOKE_ENV        optional NAME=value lines (no secrets) a server needs to start
+#   SMOKE_FILES      optional lines, <path in the repository>:<absolute path in the container>: each file is mounted read-only.
+#                    The files come from the checkout in GITHUB_WORKSPACE; nothing in it is run
 #   SMOKE_TIMEOUT    seconds a server has to become healthy (default 120)
 #   REGISTRY_TOKEN   the job's GITHUB_TOKEN with packages: read
 set -euo pipefail
@@ -24,6 +26,23 @@ while IFS= read -r line; do
   env_flags+=(--env "$line")
 done <<< "${SMOKE_ENV:-}"
 
+mount_flags=()
+if [[ "${SMOKE_FILES:-}" =~ [^[:space:]] ]]; then
+  workspace="$(realpath "${GITHUB_WORKSPACE:?smoke-files needs the checkout of the calling repository}")"
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    if [[ -z "$line" || "$line" == '#'* ]]; then continue; fi
+    [[ "$line" =~ ^([^:]+):(/[^:]+)$ ]] || fail 'smoke-files lines must be <path in the repository>:<absolute path in the container>'
+    source_path="${BASH_REMATCH[1]}"
+    target_path="${BASH_REMATCH[2]}"
+    [[ "$source_path" != /* && "/$source_path/" != */../* ]] || fail "smoke-files: $source_path must be a path inside the repository"
+    [[ -f "$workspace/$source_path" && ! -L "$workspace/$source_path" ]] || fail "smoke-files: $source_path is not a regular file in the repository"
+    resolved="$(realpath "$workspace/$source_path")"
+    [[ "$resolved" == "$workspace/"* ]] || fail "smoke-files: $source_path resolves outside the repository"
+    mount_flags+=(--volume "$resolved:${target_path}:ro")
+  done <<< "$SMOKE_FILES"
+fi
+
 pull_candidate "$IMAGE"
 container="app-image-smoke-$$"
 cleanup() { docker rm --force "$container" > /dev/null 2>&1 || true; }
@@ -34,13 +53,13 @@ if [[ -n "${SMOKE_COMMAND:-}" ]]; then
   read -r -a words <<< "$SMOKE_COMMAND"
   echo "Running the candidate with: ${words[*]}"
   status=0
-  timeout "$timeout" docker run --rm --name "$container" --pull never ${env_flags[@]+"${env_flags[@]}"} "$IMAGE" "${words[@]}" || status=$?
+  timeout "$timeout" docker run --rm --name "$container" --pull never ${env_flags[@]+"${env_flags[@]}"} ${mount_flags[@]+"${mount_flags[@]}"} "$IMAGE" "${words[@]}" || status=$?
   [[ "$status" == 0 ]] || fail "The image exited with status $status for: ${words[*]}"
   echo 'The command-line image ran and exited 0'
   exit 0
 fi
 
-docker run --detach --name "$container" --pull never ${env_flags[@]+"${env_flags[@]}"} "$IMAGE" > /dev/null
+docker run --detach --name "$container" --pull never ${env_flags[@]+"${env_flags[@]}"} ${mount_flags[@]+"${mount_flags[@]}"} "$IMAGE" > /dev/null
 deadline=$((SECONDS + timeout))
 health=starting
 while ((SECONDS < deadline)); do

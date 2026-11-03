@@ -63,6 +63,12 @@ name: app image pipeline (reusable)
         description: NAME=value lines (no secrets) a server needs to start for the smoke test
         type: string
         default: ""
+      smoke-files:
+        description: >-
+          Files a server reads at startup, one `<path in the repository>:<absolute path in the container>` per line (no secrets).
+          Each is bind-mounted read-only into the smoke container, for a server that refuses to start without its configuration
+        type: string
+        default: ""
       smoke-timeout-seconds:
         description: Seconds a server has to become healthy in the smoke test
         type: number
@@ -314,23 +320,31 @@ jobs:
         shell: bash
         run: rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/app-image"
 
-  # T2: the candidate starts, and as a non-root user does what its kind does. The job has a Docker daemon, no checkout and no
-  # repository code
+  # T2: the candidate starts, and as a non-root user does what its kind does. The job has a Docker daemon and no repository
+  # code: it checks the caller out only when smoke-files names files to mount, and runs nothing from the checkout
   smoke:
     name: Smoke
     needs: [changes, build, build-arm64, structure-arm64]
     if: ${{ !cancelled() && !failure() && needs.changes.outputs.run == 'true' }}
     permissions:
+      contents: read
       packages: read
     runs-on: ${{ inputs.arch == 'arm64' && (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) || (fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]')) }}
     timeout-minutes: ${{ inputs.test-timeout-minutes }}
     steps:
+      - name: Check out the files the smoke test mounts
+        if: ${{ inputs.smoke-files != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
       - name: Start the candidate
         uses: Rubio-Enterprises/.github/actions/app-image@main
         env:
           IMAGE: ${{ needs.build.outputs.image || needs.build-arm64.outputs.image }}
           SMOKE_COMMAND: ${{ inputs.smoke-command }}
           SMOKE_ENV: ${{ inputs.smoke-env }}
+          SMOKE_FILES: ${{ inputs.smoke-files }}
           SMOKE_TIMEOUT: ${{ inputs.smoke-timeout-seconds }}
           REGISTRY_TOKEN: ${{ github.token }}
         with:
