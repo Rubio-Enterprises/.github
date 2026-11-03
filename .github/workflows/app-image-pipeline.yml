@@ -249,7 +249,10 @@ jobs:
         with:
           context: ${{ inputs.ref != '' && inputs.ref != github.ref && inputs.ref != github.sha && 'git' || 'workflow' }}
           images: ${{ steps.resolve.outputs.image }}
-          flavor: ${{ inputs.flavor }}
+          # App Images publish no latest tag; metadata-action would add one to every semver release
+          flavor: |
+            latest=false
+            ${{ inputs.flavor }}
           tags: ${{ inputs.tags }}
           labels: ${{ inputs.labels }}
       - name: Build and push the candidate

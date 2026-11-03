@@ -130,6 +130,15 @@ class Shape(unittest.TestCase):
         self.assertIn('[[ "$package" != "$repo" && "$package" != "$repo/"* ]]', job("build-arm64"))
 
 
+class Tags(unittest.TestCase):
+    def test_every_metadata_step_turns_the_automatic_latest_tag_off(self):
+        # docker/metadata-action adds latest to every semver release by default; App Images publish none
+        self.assertEqual(PIPELINE.count("docker/metadata-action@"), 1)
+        self.assertEqual(APP_IMAGE.count("docker/metadata-action@"), 2)
+        self.assertEqual(PIPELINE.count("flavor: |\n            latest=false\n            ${{ inputs.flavor }}"), 1)
+        self.assertEqual(APP_IMAGE.count("flavor: |\n            latest=false\n            ${{ inputs.flavor }}"), 2)
+
+
 class Builder(unittest.TestCase):
     def test_the_promote_job_has_no_builder_certificate_or_repository_code(self):
         promote = APP_IMAGE.split("\n  promote:\n", 1)[1]
