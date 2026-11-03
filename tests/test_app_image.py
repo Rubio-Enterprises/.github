@@ -55,7 +55,7 @@ class WorkflowShape(unittest.TestCase):
     def test_third_party_actions_are_pinned_and_first_party_ones_follow_main(self):
         for ref in re.findall(r"uses: (\S+)", TEXT):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
-                self.assertIn(ref, ("Rubio-Enterprises/.github/actions/repository-image@main", "Rubio-Enterprises/.github/actions/app-image@main"))
+                self.assertIn(ref, ("Rubio-Enterprises/.github/actions/dev-container-image@main", "Rubio-Enterprises/.github/actions/app-image@main"))
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
@@ -117,7 +117,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(set(re.findall(r"- name: (.*)\n", before_connect)), allowed)
         self.assertEqual(sorted(re.findall(r"uses: (\S+)", before_connect)), sorted([
             "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
-            "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", "Rubio-Enterprises/.github/actions/repository-image@main",
+            "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", "Rubio-Enterprises/.github/actions/dev-container-image@main",
             "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302"]))
         # No step but the trusted central ones writes to the files later steps inherit from
         for name, step in re.findall(r"- name: (.*)\n((?:        .*\n|      #.*\n|\n)*)", BUILD):
@@ -165,11 +165,11 @@ class WorkflowShape(unittest.TestCase):
 
     def test_the_action_dispatches_only_known_operations_and_reuses_the_connect_script(self):
         action = (ACTION / "action.yml").read_text()
-        self.assertIn('exec bash "$GITHUB_ACTION_PATH/../repository-image/connect.sh"', action)
+        self.assertIn('exec bash "$GITHUB_ACTION_PATH/../dev-container-image/connect.sh"', action)
         self.assertIn("build | structure | publish | promote | prune | smoke | pull | changes)", action)
         self.assertIn("OPERATION: ${{ inputs.operation }}", action)
         self.assertNotIn("${{", action.split("run: |", 1)[1])
-        self.assertTrue((ROOT / "actions/repository-image/connect.sh").is_file())
+        self.assertTrue((ROOT / "actions/dev-container-image/connect.sh").is_file())
 
 
 def run_block(step_name: str) -> str:

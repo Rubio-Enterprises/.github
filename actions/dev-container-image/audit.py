@@ -1,8 +1,33 @@
 import hashlib
 import json
+import subprocess
 import sys
 import tarfile
 from pathlib import Path, PurePosixPath
+
+
+ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+# tarfile reads gzip, bzip2 and xz but not zstd before Python 3.14, and the job always has Node
+ZSTD_DECOMPRESS = "process.stdin.pipe(require('node:zlib').createZstdDecompress()).pipe(process.stdout)"
+
+
+def _streams(paths):
+    """Yield each layer blob as a readable byte stream, decompressing zstd blobs one at a time."""
+    for path in paths:
+        with path.open("rb") as blob:
+            zstd = blob.peek(len(ZSTD_MAGIC))[: len(ZSTD_MAGIC)] == ZSTD_MAGIC
+            if not zstd:
+                yield blob
+                continue
+        # A fresh descriptor: the child reads from the file's start, wherever buffering left this one
+        with path.open("rb") as raw:
+            process = subprocess.Popen(["node", "-e", ZSTD_DECOMPRESS], stdin=raw, stdout=subprocess.PIPE)
+        try:
+            yield process.stdout
+        finally:
+            process.kill()
+            process.wait()
+            process.stdout.close()
 
 
 def bundle_hashes(package_archive):
@@ -75,7 +100,8 @@ def audit(archive, package_archive, source=None):
     """Audit a saved image archive, or a directory of `config.json` and ordered `layer-*` blobs.
 
     The directory form holds only the layers above the public base image; the caller has already proven the base layers
-    byte-identical to the published base, so the audit skips them instead of downloading them.
+    byte-identical to the published base, so the audit skips them instead of downloading them. A layer blob may be
+    uncompressed or compressed with gzip, bzip2, xz or zstd.
     """
     archive = Path(archive)
     fingerprints = _fingerprints(package_archive, source)
@@ -83,12 +109,11 @@ def audit(archive, package_archive, source=None):
         layers = sorted(archive.glob("layer-*"))
         if not (archive / "config.json").is_file() or not layers:
             raise ValueError("Expected image config and at least one layer")
-        opened = [layer.open("rb") for layer in layers]
+        streams = _streams(layers)
         try:
-            _inspect((archive / "config.json").read_bytes(), opened, fingerprints)
+            _inspect((archive / "config.json").read_bytes(), streams, fingerprints)
         finally:
-            for layer in opened:
-                layer.close()
+            streams.close()
     else:
         with tarfile.open(archive) as saved:
             manifests = json.load(saved.extractfile("manifest.json"))

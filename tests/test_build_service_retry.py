@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RETRY = ROOT / "actions/build-service/retry.sh"
-CONSUMERS = [ROOT / "actions/repository-image/build-service.sh", ROOT / "actions/app-image/lib.sh"]
+CONSUMERS = [ROOT / "actions/dev-container-image/build-service.sh", ROOT / "actions/app-image/lib.sh"]
 
 
 class Structure(unittest.TestCase):

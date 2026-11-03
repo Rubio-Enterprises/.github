@@ -44,9 +44,13 @@ args=(--platform "linux/$ARCH" --file "$CONTEXT/package/Dockerfile" --target ci
   "${labels[@]}")
 build_context="$CONTEXT/build"
 retry_unavailable docker buildx build --check "${args[@]}" "$build_context"
-# The daemon's own cache replaces --cache-from and inline cache, which would also forward a GHCR credential to it
+# The daemon's own cache replaces --cache-from and inline cache, which would also forward a GHCR credential to it.
+# Layers this build creates are compressed with zstd, level 9 (BuildKit's "better" encoder, the same output as 6 to 8): 13 percent
+# smaller than gzip against 7 percent at the default level 3, for a few seconds of CPU per image. The uplink is the bottleneck.
+# Never force-compression: layers that arrive compressed (the base's and the Features image's) keep their published
+# digests, which is what lets the copy to GHCR mount them instead of uploading them.
 retry_unavailable docker buildx build --provenance=false --sbom=false "${args[@]}" \
-  --output "type=image,name=$STAGING/dev:$STAGING_TAG,push=true" "$build_context"
+  --output "type=image,name=$STAGING/dev:$STAGING_TAG,push=true,compression=zstd,compression-level=9,oci-mediatypes=true" "$build_context"
 
 crane mutate "$STAGING/dev:$STAGING_TAG" \
   --annotation "org.opencontainers.image.base.digest=${BASE##*@}" -t "$STAGING/dev:$STAGING_TAG"

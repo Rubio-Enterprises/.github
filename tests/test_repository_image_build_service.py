@@ -37,6 +37,13 @@ def layer(files: dict[str, bytes]) -> bytes:
     return gzip.compress(data.getvalue())
 
 
+def zstd_layer(files: dict[str, bytes]) -> bytes:
+    """A zstd layer blob, compressed by the Node that the build job itself runs."""
+    raw = gzip.decompress(layer(files))
+    source = "process.stdout.write(require('node:zlib').zstdCompressSync(require('node:fs').readFileSync(0)))"
+    return subprocess.run(["node", "-e", source], input=raw, capture_output=True, check=True).stdout
+
+
 class Workspace(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -79,7 +86,7 @@ class WorkflowShape(unittest.TestCase):
             self.assertNotIn(forbidden, PRIVATE_TEXT)
         for ref in re.findall(r"uses: (\S+)", SERVICE):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
-                self.assertEqual(ref, "Rubio-Enterprises/.github/actions/repository-image@main")
+                self.assertEqual(ref, "Rubio-Enterprises/.github/actions/dev-container-image@main")
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
@@ -408,7 +415,11 @@ esac
         self.assertTrue(docker[0].startswith("buildx build --check "))
         build = docker[1]
         self.assertIn(f"--build-arg BASE={STAGING}/features@{FEATURES}", build)
-        self.assertIn(f"--output type=image,name={STAGING}/dev:{TAG},push=true", build)
+        # New layers are zstd; layers that arrive compressed keep their digests so GHCR can mount them
+        self.assertIn(f"--output type=image,name={STAGING}/dev:{TAG},push=true,compression=zstd,compression-level=9,oci-mediatypes=true", build)
+        for forbidden in ("force-compression", "rewrite-timestamp"):
+            self.assertNotIn(forbidden, build)
+            self.assertNotIn(forbidden, (ASSETS / "build-service.sh").read_text().replace("Never force-compression", ""))
         self.assertIn("--provenance=false --sbom=false", build)
         self.assertIn("--target ci", build)
         self.assertIn(f"--secret id=standards_package,src={self.context}/package/standards.tgz", build)
@@ -675,6 +686,25 @@ class DirectoryAudit(Workspace):
                 audit_module.audit(self.image([layer({"repo/source": b"safe"}), layer(files)]), package)
         with self.assertRaisesRegex(ValueError, "Build pin persisted"):
             audit_module.audit(self.image([layer({})], {"config": {"Env": ["STANDARDS_PIN=other"]}}), package)
+
+    def test_audits_zstd_layers_alone_or_mixed_with_gzip_layers_by_the_same_rules(self):
+        package, private = self.package()
+        safe = {"repo/source": b"safe"}
+        self.assertEqual(zstd_layer(safe)[:4], b"\x28\xb5\x2f\xfd")
+        audit_module.audit(self.image([zstd_layer(safe)]), package)
+        audit_module.audit(self.image([layer(safe), zstd_layer(safe), layer(safe), zstd_layer(safe)]), package)
+        for files, message in (({"elsewhere/copied-policy": private}, "Shared Config Bundle content persisted"),
+                               ({"repo/.standards-config/config/private": b"short"}, "Shared Config Directory persisted"),
+                               ({"workspaces/repo/.git/HEAD": b"ref"}, "Package or temporary Git state persisted")):
+            for blobs in ([zstd_layer(files)], [layer(safe), zstd_layer(files)], [zstd_layer(safe), layer(files)]):
+                with self.assertRaisesRegex(ValueError, message):
+                    audit_module.audit(self.image(blobs), package)
+
+    def test_a_truncated_zstd_layer_fails_instead_of_passing_unread(self):
+        package, _ = self.package()
+        blob = zstd_layer({"repo/source": b"x" * 100_000})
+        with self.assertRaises(tarfile.TarError):
+            audit_module.audit(self.image([blob[: len(blob) // 2]]), package)
 
     def test_a_directory_without_config_or_layers_is_rejected(self):
         package, _ = self.package()

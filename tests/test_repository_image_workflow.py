@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "actions/repository-image"
+ASSETS = ROOT / "actions/dev-container-image"
 TEXT = (ROOT / ".github/workflows/repository-image.yml").read_text()
 MODULE = (ASSETS / "image.mjs").as_uri()
 PACKAGE_LINK = "../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml"
@@ -84,10 +84,10 @@ class Contracts(unittest.TestCase):
     def test_assets_are_owned_by_the_shared_action_and_refs_pinned(self):
         action = (ASSETS / "action.yml").read_text()
         self.assertIn('$GITHUB_ACTION_PATH/image.mjs', action)
-        self.assertNotIn("./actions/repository-image", TEXT)
+        self.assertNotIn("./actions/dev-container-image", TEXT)
         for ref in re.findall(r"uses: (\S+)", TEXT):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
-                self.assertEqual(ref, "Rubio-Enterprises/.github/actions/repository-image@main")
+                self.assertEqual(ref, "Rubio-Enterprises/.github/actions/dev-container-image@main")
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
         self.assertIn("persist-credentials: false", TEXT)

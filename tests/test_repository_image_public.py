@@ -84,7 +84,7 @@ class HostedJobIsolation(unittest.TestCase):
     def test_actions_are_pinned_and_the_same_checks_run_in_order(self):
         for ref in re.findall(r"uses: (\S+)", PUBLIC):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
-                self.assertEqual(ref, "Rubio-Enterprises/.github/actions/repository-image@main")
+                self.assertEqual(ref, "Rubio-Enterprises/.github/actions/dev-container-image@main")
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
         names = ["Check out the caller", "Verify native Docker architecture", "Set up Buildx", "Set up Node",

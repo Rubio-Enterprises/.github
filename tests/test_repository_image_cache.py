@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "actions/repository-image"
+ASSETS = ROOT / "actions/dev-container-image"
 FROZEN_RECIPE = "frozen-repository-image-v2.Dockerfile"
 CACHE_NAMES = ("UV_CACHE_DIR", "npm_config_cache", "pnpm_config_store_dir", "GOMODCACHE", "MISE_CACHE_DIR", "CARGO_HOME")
 SDK_HOME_NAMES = ("RUSTUP_HOME", "UV_PYTHON_INSTALL_DIR")

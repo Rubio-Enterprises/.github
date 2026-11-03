@@ -147,7 +147,7 @@ resolves to another digest afterwards fails the job.
 
 ## How a job gets the image to GHCR
 
-1. `connect` (the `repository-image` action's `connect.sh`, reused so there is one
+1. `connect` (the `dev-container-image` action's `connect.sh`, reused so there is one
    implementation) trades the job's OIDC token for a one-hour client certificate and configures
    the remote buildx builder.
 2. `build` runs `docker buildx build` into the staging registry beside the builder. The builder
@@ -194,7 +194,7 @@ Repository files are data to the job that holds the credentials, never code.
 - Any path from the caller must stay inside the checkout, symlinks resolved.
 - `--secret` and SSH mounts are not offered. No repository's image build used one.
 - The first BuildKit restart-retry (`code = Unavailable`) is the only retry. It is `retry_unavailable` in
-  `actions/build-service/retry.sh`, shared with `repository-image`.
+  `actions/build-service/retry.sh`, shared with `dev-container-image`.
 - Under `pipeline`, `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
   script refuse any other package, so one repository cannot publish into another's. GHCR separately
   refuses a push to an existing package the repository has no access to.

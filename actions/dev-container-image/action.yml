@@ -1,4 +1,4 @@
-name: Repository image assets
+name: Dev Container Image assets
 description: Central generic build inputs and immutable base-pair validation
 inputs:
   operation:
