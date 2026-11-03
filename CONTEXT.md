@@ -51,3 +51,17 @@ The first application to implement and validate a shared contract. Later applica
 ## CloudKit Production environment
 
 The CloudKit environment used by distribution-signed applications, including Ad Hoc release-testing, TestFlight, and App Store builds. Deploying a schema to this environment does not make an application public or submit it to App Review.
+
+## App Image
+
+A repository's product, packaged as a container image for others to run. It is not the repository's Dev Container Image, which is the work environment for building the repository itself.
+
+_Avoid_: release image, production image, runtime image, application container
+
+## Candidate Image
+
+An App Image built once and held at a temporary tag, so that a job can test exactly those bytes before anything is published.
+
+## Promote
+
+To publish a tested Candidate Image by retagging it, never by rebuilding it, so the published bytes are the bytes that were tested.
