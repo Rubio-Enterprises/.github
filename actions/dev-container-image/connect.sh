@@ -102,6 +102,11 @@ for config in docker-build docker-publish; do
 done
 
 export DOCKER_CONFIG="$dir/docker-build"
+# Every run stages into its own repository, <repository>/run-<run>-<attempt>/<name>. The registry's retention counts a
+# digest's age from its first push to a repository, not from the tag's, so the deterministic Features image pushed again
+# under a later run's tag would inherit the first push's age and be deleted while this job reads it. A new repository per
+# run starts every age at zero. BuildKit's cache keys on content, never on the output name, so the path costs it no hit.
+STAGING_TAG="run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 driver_options="cacert=$dir/ca.crt,cert=$dir/client.crt,key=$dir/client.key"
 if [[ -n "${BUILD_SERVICE_SERVERNAME:-}" ]]; then driver_options+=",servername=$BUILD_SERVICE_SERVERNAME"; fi
 docker buildx create --name build-service --driver remote --driver-opt "$driver_options" "$BUILD_SERVICE_BUILDER" > /dev/null
@@ -120,6 +125,6 @@ grep -Eq '^Platforms:[[:space:]]+linux/amd64\*?(,|$)' "$dir/builder.txt" || fail
   echo "DOCKER_CONFIG=$dir/docker-build"
   echo 'BUILDX_BUILDER=build-service'
   echo "SSL_CERT_FILE=$dir/ca-bundle.pem"
-  echo "STAGING=$BUILD_SERVICE_REGISTRY/${GITHUB_REPOSITORY,,}"
-  echo "STAGING_TAG=run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+  echo "STAGING=$BUILD_SERVICE_REGISTRY/${GITHUB_REPOSITORY,,}/$STAGING_TAG"
+  echo "STAGING_TAG=$STAGING_TAG"
 } >> "$GITHUB_ENV"

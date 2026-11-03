@@ -387,8 +387,12 @@ stops image builds until it is fixed.
   `Rubio-Enterprises/devcontainers`, against `base-ci` plus a reference repository layer. This
   workflow reuses this action's `cache-smoke.sh` for that check, so keep it compatible.
 
-**Staging.** Builds push `features`, `dev` and `ci` to `<registry>/<owner>/<repo>/…:run-<run>-<attempt>`.
-The registry is disposable; nothing prunes it from here.
+**Staging.** Builds push `features`, `dev` and `ci` to `<registry>/<owner>/<repo>/run-<run>-<attempt>/<name>:run-<run>-<attempt>`:
+every run and every attempt has its own staging repository. The registry ages a digest from its first push to a
+repository, not from the tag's push, and the Features image is deterministic, so a shared repository would let a later
+run's identical Features image inherit the first push's age and be expired while the job still reads it. The new path
+costs no cache: BuildKit keys its cache on content, not on the output name. The registry is disposable and expires its own
+content; nothing prunes it from here.
 
 **Features image.** The Dev Container CLI builds Features with `--push --omit-syntax-directive` and
 `BUILDX_NO_DEFAULT_ATTESTATIONS=1`. Without attestations the pushed tag is one manifest, so `crane

@@ -208,7 +208,7 @@ and the weekly rebuild of the builder:
 - **Not "pulls with no credentials".** The build's Docker config holds the shared staging registry
   credential, and BuildKit hands it to a build that asks (`FROM`, a `# syntax=` frontend, a
   `COPY --from`). A Dockerfile can therefore `FROM` another repository's staged image
-  (`<staging>/rubio-enterprises/<repo>/<package>:run-…`) and read it. Staged images are disposable
+  (`<staging>/rubio-enterprises/<repo>/run-<run>-<attempt>/<package>:run-…`) and read it. Staged images are disposable
   and the registry is emptied daily. Base images from public registries need no credential. The
   GHCR token and the client key never reach the daemon.
 - **Cache mounts are daemon-wide.** `RUN --mount=type=cache` shares a cache by `id`, and the

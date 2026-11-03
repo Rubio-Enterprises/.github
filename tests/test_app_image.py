@@ -18,7 +18,7 @@ DIGEST = "sha256:" + "a" * 64
 OTHER = "sha256:" + "b" * 64
 WRAPPED = "sha256:" + "c" * 64  # the index buildx wraps a bare image manifest in
 IMAGE = "ghcr.io/rubio-enterprises/example"
-STAGING = "stage.example.invalid:5000/rubio-enterprises/repo"
+STAGING = "stage.example.invalid:5000/rubio-enterprises/repo/run-123-2"
 TOKEN = "ghs_secret_token_value"
 
 

@@ -21,7 +21,7 @@ SERVICE = TEXT.split("\n  build:\n", 1)[1].split("\n\n  # Public repositories ca
 # The Build Service jobs and the shared jobs; the hosted public-repository job is covered in test_repository_image_public.py
 PRIVATE_TEXT = TEXT.split("\n  # Public repositories cannot use self-hosted runners", 1)[0] + "\n  alias:\n" + TEXT.split("\n  alias:\n", 1)[1]
 MODULE = (ASSETS / "image.mjs").as_uri()
-STAGING = "stage.example.invalid:5000/rubio-enterprises/repo"
+STAGING = "stage.example.invalid:5000/rubio-enterprises/repo/run-123-1"
 TAG = "run-123-1"
 FEATURES, DEV, CI = ("sha256:" + char * 64 for char in "fdc")
 LAYERS = ["sha256:" + char * 64 for char in "123"]  # base, feature, repository
@@ -223,8 +223,21 @@ esac
         self.assertNotIn("servername", create)
         self.assertEqual(dict(line.split("=", 1) for line in (self.root / "github-env").read_text().splitlines()), {
             "DOCKER_CONFIG": f"{directory}/docker-build", "BUILDX_BUILDER": "build-service",
-            "SSL_CERT_FILE": f"{directory}/ca-bundle.pem", "STAGING": "stage.example.invalid:5000/rubio-enterprises/repo",
+            "SSL_CERT_FILE": f"{directory}/ca-bundle.pem", "STAGING": "stage.example.invalid:5000/rubio-enterprises/repo/run-123-1",
             "STAGING_TAG": "run-123-1"})
+
+    def test_every_run_and_attempt_stages_into_its_own_repository(self):
+        # zot ages a digest from its first push to a repository: the deterministic Features image must not share one across runs
+        staged = set()
+        for run, attempt in ("123", "1"), ("123", "2"), ("124", "1"):
+            result = self.connect(GITHUB_RUN_ID=run, GITHUB_RUN_ATTEMPT=attempt)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            written = dict(line.split("=", 1) for line in (self.root / "github-env").read_text().splitlines())
+            self.assertEqual(written["STAGING"], f"stage.example.invalid:5000/rubio-enterprises/repo/run-{run}-{attempt}")
+            self.assertEqual(written["STAGING_TAG"], f"run-{run}-{attempt}")
+            staged.add(written["STAGING"])
+            (self.root / "github-env").write_text("")
+        self.assertEqual(len(staged), 3)
 
     def test_neither_token_ever_appears_in_a_command_line(self):
         result = self.connect()
