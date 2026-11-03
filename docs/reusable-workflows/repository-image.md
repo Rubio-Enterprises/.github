@@ -280,6 +280,105 @@ is no second Docker-capable publication job. Registry writes across two packages
 not atomic. Retention keeps five untagged versions per package, never deleting
 tagged history or index children; it runs after a build, not after an alias.
 
+## Build Service path (canary)
+
+The caller input `build-service: true` builds on the shared Build Service instead of a Machine Pool
+runner, as mac-dev-playbook ADR 0057 and 0058 decide. The input exists for the canary and is removed
+when the cutover deletes the Machine Pool path; the default is `false`, so callers that do not set
+it are unchanged. **The caller's `repository-image` job must grant `id-token: write`**, which the
+starter `standards.yml` does from Standards Release 3.0.0. GitHub rejects a called workflow whose job
+asks for more permission than its caller grants, even when the job is skipped, so a caller without
+the grant fails at startup. Merge this workflow only after the fleet carries the permission.
+
+The `build-service` job runs on the image Scale Set (`RUNNERS.image`, falling back to the label
+`linux-x64-image`). It has **no hosted fallback**: the daemon is reachable only from that pool. It is a
+thin client with no Docker daemon, no root and no socket.
+
+| Step | Where it runs |
+| --- | --- |
+| Resolve base pair and Standards Release, input key, skip or alias | `prepare` and `alias`, small route, unchanged |
+| Client tools: Docker CLI, buildx, crane | Job, checksum-pinned, skipped for any already on `PATH` |
+| Client certificate, builder, Docker configs | Job: `connect.sh` |
+| Features image, recipe build (`ci` target) | Build Service, pushed to the staging registry |
+| `crane` rebase, `verify` | Job, against the staging registry (metadata only) |
+| Image audit | Job, on the layers above the public base only |
+| Cache smoke checks of the dev image | Build Service, as `--network=none` build stages (`smoke.Dockerfile`) |
+| Trivy secret scan | Job, `--image-src remote` against the staging registry |
+| Copy to GHCR, one-entry indices, aliases | Job, with its own `GITHUB_TOKEN` |
+| Prune untagged versions | `prune`, small route, unchanged |
+
+**Coordinates come from the image runner**, so this public workflow names no internal host:
+
+| Variable | Meaning |
+| --- | --- |
+| `BUILD_SERVICE_BUILDER` | `tcp://host:port` of the BuildKit daemon |
+| `BUILD_SERVICE_REGISTRY` | `host:port` of the staging registry (TLS, password) |
+| `BUILD_SERVICE_REGISTRY_AUTH_FILE` | File with one line, `user:password` |
+| `BUILD_SERVICE_CA_URL`, `BUILD_SERVICE_CA_ROOT_SHA256` | Private CA API and the lowercase hex SHA-256 fingerprint of its root, without colons |
+| `BUILD_SERVICE_SERVERNAME` | Optional TLS server name of the daemon (default: the endpoint's host) |
+| `BUILD_SERVICE_AUDIENCE` | Optional OIDC audience (default `homelab-build-service`) |
+
+**Identity.** The job fetches the Private CA root from `BUILD_SERVICE_CA_URL` and trusts it only when its
+SHA-256 matches `BUILD_SERVICE_CA_ROOT_SHA256`. It then requests a GitHub OIDC token for the audience
+and POSTs it with a fresh CSR to the CA's `/1.0/sign`, which returns a one-hour client certificate
+that names the repository (the client step of mac-dev-playbook
+`docs/homelab/references/operations/build-service-client-certificates.md`). The CA takes the
+identity from the token and issues only to this workflow on the default branch. **No token appears in a
+command line**: curl reads the runtime request token's header from stdin, and jq reads the OIDC token
+from stdin and writes the request body to curl's stdin. The exchange lives in one function,
+`request_certificate` in `connect.sh`. The runner needs `curl`, `openssl` and `jq`. The job's 45
+minute timeout is shorter than the certificate's life, so a build never needs a renewal. The daemon
+trusts only that CA. The Private CA is on every image build's path: its outage stops image builds.
+
+**Credentials stay scoped.** buildx forwards its configured credentials to the daemon during a build,
+so the job keeps two Docker configs under `$RUNNER_TEMP/build-service/`. `docker-build` holds only
+the staging registry's credential and serves every build step. `docker-publish` adds GHCR and serves
+only the copy and index steps, after the checks pass. The daemon never sees a GHCR token, which is
+why the build does not use `--cache-from` or inline cache: the daemon's own cache replaces them. The
+cleanup step deletes the certificate, key and configs on success, failure and cancellation.
+
+**Failure handling.** Every contact with a daemon that rejects the client hangs at "waiting for
+connection", so the bootstrap carries a 60 second timeout and one retry. A restarting daemon fails its
+in-flight clients with `Unavailable`; its cache survives, so each build step retries once after 20
+seconds. Anything else fails the build. There is no fallback to the Machine Pool: a builder outage
+stops image builds until it is fixed.
+
+**Checks that moved.**
+
+- The audit reads only the dev image's layers above the public base. `verify` has already proven the
+  base layers byte-identical to the published base, which holds no standards content, and skipping them
+  saves 40 to 70 percent of the download. `audit.py` accepts a directory of `config.json` and ordered
+  `layer-*` blobs besides a saved-image archive.
+- The dev image's cache checks for UID 1000 and 1001 run as stages of `smoke.Dockerfile`.
+  `--no-cache-filter` makes every stage execute on every build. BuildKit has no equivalent of
+  `--memory 1g --pids-limit 512`; the daemon's own cgroup bounds the checks.
+- **The per-build CI image checks (runtime, and cache for UID 1000) are gone.** `verify` proves the
+  CI image is the dev image's repository layers and config on `base-ci`, so only the runner-base
+  additions can differ. They run **once per base pair release**, in the `Base images` workflow of
+  `Rubio-Enterprises/devcontainers`, against `base-ci` plus a reference repository layer. This
+  workflow reuses this action's `cache-smoke.sh` for that check, so keep it compatible.
+
+**Staging.** Builds push `features`, `dev` and `ci` to `<registry>/<owner>/<repo>/…:run-<run>-<attempt>`.
+The registry is disposable; nothing prunes it from here.
+
+**Features image.** The Dev Container CLI builds Features with `--push --omit-syntax-directive` and
+`BUILDX_NO_DEFAULT_ATTESTATIONS=1`. Without attestations the pushed tag is one manifest, so `crane
+digest` is the image digest and the recipe's `BASE` is stable. Without a reachable Docker engine the
+CLI otherwise writes a syntax directive that makes the daemon fetch the `docker/dockerfile:1.4`
+frontend from Docker Hub on every build.
+
+**Canary and rollout notes.**
+
+- The called workflow is part of the certificate's claims (`job_workflow_ref`). A canary that calls
+  this workflow from a branch must have that ref allowed by the Private CA template, and the
+  workflow's `Rubio-Enterprises/.github/actions/repository-image@main` references must point at the
+  same branch.
+- Any change to a file in `actions/repository-image/` changes every repository's image input key, so
+  each repository rebuilds once at its next push. Merging this workflow before the cutover therefore
+  rebuilds the fleet on the Machine Pool.
+- For a repository with extra Features, build the Features image twice on the real builder and require
+  the same digest before the cutover.
+
 ## Image input key
 
 A default-branch push of a v2 repository builds only when the image's inputs

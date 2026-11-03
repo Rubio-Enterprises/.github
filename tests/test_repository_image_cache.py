@@ -60,16 +60,15 @@ class RepositoryImageCaches(unittest.TestCase):
     def test_new_cache_paths_retain_package_only_secret_scan_exclusions(self):
         for filename in (FROZEN_RECIPE,):
             environment = cache_environment(filename)
-            for workflow in ("repository-image.yml",):
-                source = (ROOT / ".github/workflows" / workflow).read_text()
-                policy = source.split("skip-patterns:\n", 1)[1].split("exclude-block:", 1)[0]
-                patterns = re.findall(r'^\s*- "([^"]+)"$', policy, re.MULTILINE)
-                for name, suffix in PACKAGE_SUFFIXES.items():
-                    with self.subTest(dockerfile=filename, workflow=workflow, cache=name):
-                        sample = (environment[name] + suffix).lstrip("/")
-                        self.assertTrue(any(fnmatch.fnmatchcase(sample, pattern) for pattern in patterns), sample)
-                for sample in CONFIG_SAMPLES:
-                    self.assertFalse(any(fnmatch.fnmatchcase(sample, pattern) for pattern in patterns), sample)
+            source = (ASSETS / "trivy-secret.yaml").read_text()
+            policy = source.split("skip-patterns:\n", 1)[1].split("exclude-block:", 1)[0]
+            patterns = re.findall(r'^\s*- "([^"]+)"$', policy, re.MULTILINE)
+            for name, suffix in PACKAGE_SUFFIXES.items():
+                with self.subTest(dockerfile=filename, cache=name):
+                    sample = (environment[name] + suffix).lstrip("/")
+                    self.assertTrue(any(fnmatch.fnmatchcase(sample, pattern) for pattern in patterns), sample)
+            for sample in CONFIG_SAMPLES:
+                self.assertFalse(any(fnmatch.fnmatchcase(sample, pattern) for pattern in patterns), sample)
 
     def test_dev_checks_both_uids_and_ci_checks_only_its_fixed_uid(self):
         build = (ASSETS / "build.sh").read_text()

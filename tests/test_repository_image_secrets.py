@@ -11,7 +11,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_repository_image_workflow import script
+from test_repository_image_workflow import ASSETS, script
+
+POLICY = ASSETS / "trivy-secret.yaml"
 
 DEFAULT_SKIP_PATTERNS = (
     "**/.git/**",
@@ -99,8 +101,7 @@ RUBY_PUBLIC_CACHE_SKIP_PATTERNS = (
 
 class SecretPolicyTests(unittest.TestCase):
     def test_scan_preserves_all_defaults_and_package_only_exclusions(self):
-        body = script("Scan the dev artifact for secrets")
-        policy = body.split("<<\'TRIVY\'\n", 1)[1].split("\nTRIVY", 1)[0]
+        policy = POLICY.read_text()
         patterns = tuple(re.findall(r'^  - "([^"]+)"$', policy, re.MULTILINE))
         self.assertEqual(patterns, DEFAULT_SKIP_PATTERNS + CACHE_SKIP_PATTERNS + ROOTED_PUBLIC_CACHE_SKIP_PATTERNS + RUBY_PUBLIC_CACHE_SKIP_PATTERNS)
 
@@ -124,7 +125,7 @@ class RealTrivyTests(unittest.TestCase):
         self.fixture = self.root / "image"
         self.fixture.mkdir()
         body = script("Scan the dev artifact for secrets")
-        self.policy = body.split("<<'TRIVY'\n", 1)[1].split("\nTRIVY", 1)[0] + "\n"
+        self.policy = POLICY.read_text()
         self.config = self.root / "policy.yaml"
         self.config.write_text(self.policy)
         self.template = next(line[len("template='"):-1] for line in body.splitlines() if line.startswith("template='"))

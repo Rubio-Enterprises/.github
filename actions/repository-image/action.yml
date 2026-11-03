@@ -2,7 +2,7 @@ name: Repository image assets
 description: Central generic build inputs and immutable base-pair validation
 inputs:
   operation:
-    description: resolve, inspect, release, prepare, pack, key or alias
+    description: resolve, inspect, release, prepare, pack, key, alias or tools
     required: true
   base:
     description: Public base tag or immutable index reference

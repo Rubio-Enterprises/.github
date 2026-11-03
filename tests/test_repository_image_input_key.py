@@ -470,7 +470,10 @@ class WorkflowContracts(unittest.TestCase):
 
     def test_build_runs_only_when_the_published_pair_cannot_stand_in(self):
         build = self.job("build")
-        self.assertIn("if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.skip != 'true'", build)
+        self.assertIn("!inputs.build-service && needs.prepare.outputs.publish == 'true' &&\n      needs.prepare.outputs.skip != 'true'", build)
+        service = self.job("build-service")
+        self.assertIn("inputs.build-service && needs.prepare.outputs.publish == 'true' &&\n      needs.prepare.outputs.skip != 'true'", service)
+        self.assertIn("INPUT_KEY: ${{ needs.prepare.outputs.input-key }}", service)
         self.assertIn("INPUT_KEY: ${{ needs.prepare.outputs.input-key }}", TEXT)
 
     def test_prepare_compares_inputs_without_docker_or_write_access(self):

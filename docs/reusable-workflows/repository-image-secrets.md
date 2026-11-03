@@ -32,8 +32,9 @@ download is not a trust pin. This avoids the mutable action/setup tags implicate
 in the [March 2026 incident](https://github.com/aquasecurity/trivy/discussions/10425).
 Checksums establish byte integrity, not immunity to a malicious upstream release.
 
-Caller `trivy.yaml`, `.trivyignore` and `trivy-secret.yaml` are not loaded. Setting
-`skip-patterns` **replaces**, rather than extends, Trivy's defaults. The workflow
+Caller `trivy.yaml`, `.trivyignore` and `trivy-secret.yaml` are not loaded. The policy is
+`actions/repository-image/trivy-secret.yaml`, which every scan step copies from the central action.
+Setting `skip-patterns` **replaces**, rather than extends, Trivy's defaults. The workflow
 preserves all 23 patterns from 0.76.1's
 [`defaultSkipPatterns`](https://github.com/aquasecurity/trivy/blob/e713f67f7d54decdcd9b3132c9751833dcced698/pkg/fanal/secret/scanner.go#L33-L58):
 `.git`, `node_modules`, the listed dependency manifests/lockfiles, and the listed
