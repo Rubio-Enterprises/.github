@@ -872,8 +872,17 @@ fi
             for flag in ("--image-src remote", "--platform linux/amd64", "--config ", "--ignorefile ", "--exit-code 0", "--format json"):
                 self.assertIn(flag, command)
             self.assertTrue(command.endswith(f"{STAGING}/example:run-123-2-candidate@{DIGEST}"))
-        self.assertIn("--scanners secret --image-config-scanners secret", calls[0])
+        self.assertIn("--scanners secret --image-config-scanners secret --secret-config", calls[0])
+        self.assertIn("trivy-secret.yaml", calls[0])
+        self.assertNotIn("--secret-config", calls[1])
         self.assertIn("--scanners vuln --severity HIGH,CRITICAL", calls[1])
+
+    def test_package_caches_and_logs_are_outside_the_secret_scan(self):
+        # an npm cache index records the signed download URLs it fetched from; the playwright base image carries one (found by the canary)
+        policy = (ACTION / "trivy-secret.yaml").read_text()
+        for pattern in ("**/_cacache/**", "**/.npm/_logs/**", "**/.cache/uv/**", "**/node_modules/**", "**/.git/**"):
+            self.assertIn(f'"{pattern}"', policy)
+        self.assertNotIn("exclude-block", policy)
 
     def test_the_vulnerability_report_does_not_fail_the_build_by_default(self):
         report = self.vulnerabilities(("CVE-1", "CRITICAL", "1.1"), ("CVE-2", "CRITICAL", ""), ("CVE-3", "HIGH", "2"))
