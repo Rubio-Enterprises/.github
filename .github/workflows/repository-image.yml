@@ -31,10 +31,11 @@ concurrency:
 jobs:
   prepare:
     name: Resolve publication and base pair
+    # A run outside the default branch is allowed only for a scratch image-name; the policy step refuses the repository's own pair
     if: >-
       github.event_name == 'pull_request' ||
       (contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) &&
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.image-name != ''))
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 5
     permissions:
@@ -64,6 +65,7 @@ jobs:
           IMAGE_INPUT: ${{ inputs.image-name }}
           CONFIG: ${{ inputs.config }}
           PUBLISH: ${{ github.event_name != 'pull_request' }}
+          ON_DEFAULT_BRANCH: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         run: |
           set -euo pipefail
           case "$CONFIG" in
@@ -76,6 +78,12 @@ jobs:
           package="${image#"$prefix"}"
           if [[ "$image" != "$prefix"* || ! "$package" =~ ^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$ ]]; then
             echo "::error::image-name must be an untagged GHCR image in the caller's owner namespace"
+            exit 1
+          fi
+          # Publication from another branch must not touch the repository's own image pair
+          own="ghcr.io/${GITHUB_REPOSITORY,,}/devcontainer"
+          if [[ "$PUBLISH" == true && "$ON_DEFAULT_BRANCH" != true && ("$image" == "$own" || "$image" == "$own-ci") ]]; then
+            echo "::error::a run outside the default branch must name a scratch image-name, not the repository's own image"
             exit 1
           fi
           printf 'image=%s\npackage=%s\npublish=%s\n' "$image" "$package" "$PUBLISH" >> "$GITHUB_OUTPUT"
