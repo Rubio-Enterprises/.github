@@ -44,15 +44,15 @@ for public repositories. Provenance and SBOM attestations come from BuildKit ins
 
 | Input | Meaning |
 | --- | --- |
-| `image-name` | Untagged GHCR image: `ghcr.io/<owner>/<repo>` (the default) or `ghcr.io/<owner>/<repo>/<name>`. An image belongs to the repository that builds it; any other name is refused |
+| `image-name` | Untagged GHCR image in the caller's owner namespace. Default `ghcr.io/<owner>/<repo>`. Under `pipeline` it must be that or `ghcr.io/<owner>/<repo>/<name>`: an image belongs to the repository that builds it |
 | `context`, `file`, `target` | Context directory, Dockerfile and stage, relative to the repository root. `file` defaults to `<context>/Dockerfile` |
 | `build-args`, `labels` | One `NAME=value` / `key=value` per line. `labels` are extra OCI labels merged by `docker/metadata-action` |
 | `tags`, `flavor` | `docker/metadata-action` rules. `tags` is required when `publish` is true |
 | `publish` | Push the final tags, with `provenance=mode=max` and an SBOM unless `attestations` is false |
 | `candidate` | Push one temporary tag (with attestations unless `attestations` is false) for a later job to pull and test. Exclusive with `publish` and `promote` |
 | `promote`, `candidate-image` | Give a tested candidate (`image@digest`, from the candidate build's `image` output) its final tags: no build, no builder, no certificate. Needs `tags`. Exclusive with `publish` and `candidate` |
-| `moving-tags` | Publish and promote: tags that may move to another image, one exact tag per line. Every other existing tag is never overwritten, and `latest` is never published |
-| `server`, `block-vulnerabilities` | Tier 1: a server's configuration must declare a `HEALTHCHECK`; a fixable CRITICAL vulnerability fails the build (default: report only) |
+| `pipeline` | Set by `app-image-pipeline.yml` only: turns on the App Image policy for the call (below). A direct caller keeps its earlier behaviour until it moves onto the pipeline; the closing change then deletes the input and the direct modes, and the policy is always on |
+| `moving-tags`, `server`, `block-vulnerabilities` | Pipeline only. Tags that may move to another image, one exact tag per line; tier 1: a server's configuration must declare a `HEALTHCHECK`, and a fixable CRITICAL vulnerability fails the build (default: report only) |
 | `verified-image` | Publish only: the `image` output of the candidate a job tested. The publish fails unless its amd64 layers equal the candidate's. Omit it to publish without the check; a value that resolves empty (an output that is missing) fails the run, never skips the check |
 | `standards-install` | For a Dockerfile that copies a file out of `.standards/`: a separate job runs `mise run standards:install` and hands the directory over as an artifact (see "What runs where") |
 | `ref`, `submodules` | Passed to `actions/checkout`. A `ref` other than the event's also switches `docker/metadata-action` to `context: git`, so tags and labels describe what was built |
@@ -123,9 +123,15 @@ resolves empty (the job it reads was skipped, or the output was renamed) arrives
 which GitHub does not replace with the default, and the workflow fails with `verified-image was passed
 but is empty`. Pass `none` yourself only to publish without verification on purpose.
 
-## Tier 1 and promotion
+## The pipeline policy, tier 1 and promotion
 
-Between `build` and the copy, every mode runs **T1** (`structure.sh`) against the staged image with the
+`pipeline: true` (set only by `app-image-pipeline.yml`) turns on the App Image policy: the image name must be
+`<repo>` or `<repo>/<name>`, `latest` is never published (and `docker/metadata-action`'s automatic `latest` is
+off), an existing tag that points at another image is never overwritten unless `moving-tags` lists it, and
+**T1** runs and fails the build. Without it the workflow behaves as it did before the pipeline existed.
+Promotion always applies the policy.
+
+Between `build` and the copy, a pipeline call runs **T1** (`structure.sh`) against the staged image with the
 staging credential only, so an image that fails is never pushed to GHCR: a non-root `USER`, a `HEALTHCHECK`
 when `server` is true, the `org.opencontainers.image.source` and `revision` labels, a Trivy secret scan of
 layers and configuration (a finding fails; the match is never printed), and a vulnerability report of the
@@ -188,7 +194,7 @@ Repository files are data to the job that holds the credentials, never code.
 - Any path from the caller must stay inside the checkout, symlinks resolved.
 - `--secret` and SSH mounts are not offered. No repository's image build used one.
 - The first BuildKit restart-retry (`code = Unavailable`) is the only retry.
-- `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
+- Under `pipeline`, `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
   script refuse any other package, so one repository cannot publish into another's. GHCR separately
   refuses a push to an existing package the repository has no access to.
 

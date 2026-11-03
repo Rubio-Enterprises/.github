@@ -13,7 +13,7 @@ by digest, in the same package.
 
 | Tier | Job | Runs on | Holds | What it checks |
 | --- | --- | --- | --- | --- |
-| Build | `build` (the [builder](app-image.md)) | image Scale Set | OIDC token, GHCR write | One candidate on the Build Service (amd64). Attestations (SLSA provenance, SBOM) when the run will publish |
+| Build | `build` (the [builder](app-image.md), called with `pipeline: true`) | image Scale Set | OIDC token, GHCR write | One candidate on the Build Service (amd64). Attestations (SLSA provenance, SBOM) when the run will publish |
 | **T1** structure | inside `build` | image Scale Set | staging credential only | Non-root `USER`; a `HEALTHCHECK` when the image is a server; the `source` and `revision` labels; a secret scan of layers and configuration; a vulnerability report. It reads the staged image **before anything reaches GHCR**: a failing image is never pushed |
 | **T2** smoke | `smoke` | `docker` route (`linux-x64-large`) | `packages: read`, no checkout | A server starts and reports healthy, and no process runs as root. A command-line tool runs its `smoke-command` and exits 0 |
 | **T3** functional | `test` | `docker` route | `contents: read`, `packages: read` | `mise run test:image`, with `IMAGE` set to the candidate (`image@digest`) |
