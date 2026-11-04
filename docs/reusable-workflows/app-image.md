@@ -1,87 +1,51 @@
 # App image builder
 
-`app-image.yml` builds one app or release container image on the Build Service
-(mac-dev-playbook ADR 0057) and copies it to GHCR. It replaces the per-repository
-`docker-image.yml`/`docker-publish.yml` copies that built on a job-local Docker daemon, and
-it serves private repositories only: public repositories cannot use self-hosted runners and
-stay GitHub-hosted. [`repository-image.yml`](repository-image.md) builds the Dev Container
-Image pair and is separate.
+`app-image.yml` is the builder of the [App Image pipeline](app-image-pipeline.md): it builds one App Image
+on the Build Service (mac-dev-playbook ADR 0057) as a **candidate** pushed to GHCR, and **promotes** a
+tested candidate by retagging it. It serves private repositories only: public repositories cannot use
+self-hosted runners and stay GitHub-hosted. [`repository-image.yml`](repository-image.md) builds the Dev
+Container Image pair and is separate.
 
-**A repository that publishes an App Image calls [`app-image-pipeline.yml`](app-image-pipeline.md), not
-this workflow:** the pipeline chains this builder's `candidate` and `promote` modes with the smoke and
-functional tiers (build once, test, promote). This page describes the builder. Its `publish` and
-`verified-image` inputs are the old test-then-rebuild path; they stay only until the last caller has moved
-to the pipeline, and then they are deleted.
+**Only `app-image-pipeline.yml` calls this workflow.** A repository calls the pipeline, which chains the
+candidate build, the structure checks (T1), the smoke test, the repository's `mise run test:image` and the
+promotion (build once, test, promote). This page describes the builder. The earlier modes (a build check
+and a direct publish that rebuilt after testing, with `verified-image`) are gone.
 
-The job runs on the image Scale Set (`RUNNERS.image`, falling back to `linux-x64-image`, with
-no hosted fallback) with no Docker daemon and no root. It builds **linux/amd64 only**: the
-builder is native amd64 and has no emulation, so a repository that needs another platform
-cannot use this workflow.
+The build job runs on the image Scale Set (`RUNNERS.image`, falling back to `linux-x64-image`, with no
+hosted fallback) with no Docker daemon and no root. It builds **linux/amd64 only**: the builder is native
+amd64 and has no emulation, and an arm64 App Image builds natively on the arm pool in the pipeline instead.
 
-## Calling it
+## Inputs
 
-```yaml
-jobs:
-  image:
-    uses: Rubio-Enterprises/.github/.github/workflows/app-image.yml@main
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    with:
-      publish: ${{ github.event_name == 'push' }}
-      tags: |
-        type=semver,pattern={{version}}
-        type=sha,prefix=sha-,format=short
-```
-
-**Grant all three permissions on every calling job, pull requests included.** A called
-workflow whose job asks for more than its caller grants fails the caller at startup, even when
-the job would not run. `id-token: write` is what the certificate exchange needs; `packages:
-write` lets a candidate or published image reach GHCR. The workflow asks for no
-`attestations: write`: the GitHub artifact attestation steps these repositories had ran only
-for public repositories. Provenance and SBOM attestations come from BuildKit instead.
+**Grant `contents: read`, `packages: write` and `id-token: write` on every calling job, pull requests
+included.** A called workflow whose job asks for more than its caller grants fails the caller at startup,
+even when the job would not run. `id-token: write` is what the certificate exchange needs; `packages:
+write` lets a candidate reach GHCR. The workflow asks for no `attestations: write`: the GitHub artifact
+attestation steps these repositories had ran only for public repositories. Provenance and SBOM
+attestations come from BuildKit instead.
 
 | Input | Meaning |
 | --- | --- |
-| `image-name` | Untagged GHCR image in the caller's owner namespace. Default `ghcr.io/<owner>/<repo>`. Under `pipeline` it must be that or `ghcr.io/<owner>/<repo>/<name>`: an image belongs to the repository that builds it |
+| `candidate` or `promote` | Exactly one. `candidate` builds the image and pushes it to GHCR under a temporary tag for a later job to pull by digest. `promote` gives a tested candidate its final tags: no build, no builder, no certificate |
+| `image-name` | Untagged GHCR image: `ghcr.io/<owner>/<repo>` (the default) or `ghcr.io/<owner>/<repo>/<name>`. An image belongs to the repository that builds it; any other name is refused |
 | `context`, `file`, `target` | Context directory, Dockerfile and stage, relative to the repository root. `file` defaults to `<context>/Dockerfile` |
 | `build-args`, `labels` | One `NAME=value` / `key=value` per line. `labels` are extra OCI labels merged by `docker/metadata-action` |
-| `tags`, `flavor` | `docker/metadata-action` rules. `tags` is required when `publish` is true |
-| `publish` | Push the final tags, with `provenance=mode=max` and an SBOM unless `attestations` is false |
-| `candidate` | Push one temporary tag (with attestations unless `attestations` is false) for a later job to pull and test. Exclusive with `publish` and `promote` |
-| `promote`, `candidate-image` | Give a tested candidate (`image@digest`, from the candidate build's `image` output) its final tags: no build, no builder, no certificate. Needs `tags`. Exclusive with `publish` and `candidate` |
-| `pipeline` | Set by `app-image-pipeline.yml` only: turns on the App Image policy for the call (below). A direct caller keeps its earlier behaviour until it moves onto the pipeline; the closing change then deletes the input and the direct modes, and the policy is always on |
-| `moving-tags`, `server`, `block-vulnerabilities` | Pipeline only. Tags that may move to another image, one exact tag per line; tier 1: a server's configuration must declare a `HEALTHCHECK`, and a fixable CRITICAL vulnerability fails the build (default: report only) |
-| `verified-image` | Publish only: the `image` output of the candidate a job tested. The publish fails unless its amd64 layers equal the candidate's. Omit it to publish without the check; a value that resolves empty (an output that is missing) fails the run, never skips the check |
+| `tags`, `flavor` | `docker/metadata-action` rules. `promote` gives the image these tags; `latest` is always off |
+| `attestations` | Add provenance (`mode=max`) and an SBOM to the candidate (default true). The pipeline sets it on a publishing run |
+| `candidate-image` | Promote only: the tested candidate, the `image` output of the candidate build |
+| `moving-tags` | Promote only: tags that may move to another image, one exact tag per line. Every other existing tag is never overwritten |
+| `server`, `block-vulnerabilities` | Tier 1: a server's configuration must declare a `HEALTHCHECK`; a fixable CRITICAL vulnerability fails the build (default: report only) |
 | `standards-install` | For a Dockerfile that copies a file out of `.standards/`: a separate job runs `mise run standards:install` and hands the directory over as an artifact (see "What runs where") |
 | `ref`, `submodules` | Passed to `actions/checkout`. A `ref` other than the event's also switches `docker/metadata-action` to `context: git`, so tags and labels describe what was built |
-| `timeout-minutes` | Job timeout (default 45) |
+| `timeout-minutes` | Build job timeout (default 45) |
 
-With neither `publish` nor `candidate` the workflow is a **build check**: the image is built
-and left in the staging registry, which the daily wipe empties. Outputs are `digest`, `image`
-(`image@digest`, empty for a check), `version` and `tags`.
+Outputs are `digest`, `image` (`image@digest`), `version` and `tags` (promote only).
 
-## Build, then run
+## Candidates
 
-A job that must run the image (Testcontainers, Compose, KVM) stays on a Docker route, which
-cannot reach the Build Service host. It pulls from GHCR instead:
-
-```yaml
-jobs:
-  image:
-    uses: Rubio-Enterprises/.github/.github/workflows/app-image.yml@main
-    permissions: { contents: read, packages: write, id-token: write }
-    with: { candidate: true }
-  test:
-    needs: image
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
-    permissions: { contents: read, packages: read }
-    steps:
-      - run: docker pull "${IMAGE}" && ./run-the-tests
-        env:
-          IMAGE: ${{ needs.image.outputs.image }}
-```
+A job that must run the image (Testcontainers, Compose, KVM) stays on a Docker route, which cannot reach
+the Build Service host. It pulls the candidate from GHCR by digest, which is what the pipeline's smoke and
+test jobs do.
 
 A candidate is tagged `candidate-<run>-<attempt>-<12 hex digits of its digest>`. Unless `attestations` is
 false it carries the provenance and SBOM its promotion will publish, so it is an index whose two children
@@ -97,41 +61,9 @@ the Admin role on the package** (Manage Actions access), not Write: with Write t
 every delete is refused. A refused or failed prune only warns and never fails the build, so a
 package that is not set up leaves its candidates behind; check the first run's log.
 
-To publish only after the run job passes, call the workflow a second time with `publish: true`
-after it, and pass the candidate as `verified-image`:
+## Tier 1 and promotion
 
-```yaml
-  publish:
-    needs: test
-    uses: Rubio-Enterprises/.github/.github/workflows/app-image.yml@main
-    permissions: { contents: read, packages: write, id-token: write }
-    with:
-      publish: true
-      verified-image: ${{ needs.image.outputs.image }}
-      tags: type=semver,pattern={{version}}
-```
-
-That rebuild finds every layer in the builder's cache and attaches the attestations, which is
-what the old test-then-push flow did. The cache is not a guarantee: any client may prune the
-builder (ADR 0058), and a build step that is not reproducible rebuilds to different layers.
-`verified-image` therefore compares the amd64 layer digests, in order, of the image just built
-and of the candidate that was tested, and fails before anything is published if they differ;
-re-run the workflow. The config (labels, `created`) legitimately differs.
-
-The check cannot be skipped by accident. An omitted input defaults to `none`; one that is passed but
-resolves empty (the job it reads was skipped, or the output was renamed) arrives as an empty string,
-which GitHub does not replace with the default, and the workflow fails with `verified-image was passed
-but is empty`. Pass `none` yourself only to publish without verification on purpose.
-
-## The pipeline policy, tier 1 and promotion
-
-`pipeline: true` (set only by `app-image-pipeline.yml`) turns on the App Image policy: the image name must be
-`<repo>` or `<repo>/<name>`, `latest` is never published (and `docker/metadata-action`'s automatic `latest` is
-off), an existing tag that points at another image is never overwritten unless `moving-tags` lists it, and
-**T1** runs and fails the build. Without it the workflow behaves as it did before the pipeline existed.
-Promotion always applies the policy.
-
-Between `build` and the copy, a pipeline call runs **T1** (`structure.sh`) against the staged image with the
+Between the build and the copy to GHCR, the build job runs **T1** (`structure.sh`) against the staged image with the
 staging credential only, so an image that fails is never pushed to GHCR: a non-root `USER`, a `HEALTHCHECK`
 when `server` is true, the `org.opencontainers.image.source` and `revision` labels, a Trivy secret scan of
 layers and configuration (a finding fails; the match is never printed), and a vulnerability report of the
@@ -152,10 +84,10 @@ resolves to another digest afterwards fails the job.
    the remote buildx builder.
 2. `build` runs `docker buildx build` into the staging registry beside the builder. The builder
    holds no registry credential, so no `--cache-from`/`--cache-to`: its own cache persists.
-3. `publish` is the only step with the GHCR token. `docker buildx imagetools create
+3. `candidate` is the only step with the GHCR token. `docker buildx imagetools create
    --prefer-index=false` copies the staged digest to each tag, preserving the digest and every
    child manifest, and each tag is checked against it. `--prefer-index=false` matters: by default
-   buildx wraps a bare image manifest (a candidate, or a publish with `attestations: false`) in a
+   buildx wraps a bare image manifest (a candidate with `attestations: false`) in a
    new index with a different digest, so the check could never match; an index is copied byte
    for byte either way. `crane copy` is deliberately not used: it also writes a
    `sha256-<digest>` referrers tag per attestation, which GHCR cannot hide.
@@ -195,7 +127,7 @@ Repository files are data to the job that holds the credentials, never code.
 - `--secret` and SSH mounts are not offered. No repository's image build used one.
 - The first BuildKit restart-retry (`code = Unavailable`) is the only retry. It is `retry_unavailable` in
   `actions/build-service/retry.sh`, shared with `dev-container-image`.
-- Under `pipeline`, `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
+- `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
   script refuse any other package, so one repository cannot publish into another's. GHCR separately
   refuses a push to an existing package the repository has no access to.
 
@@ -219,7 +151,7 @@ and the weekly rebuild of the builder:
 
 ## Validation boundary
 
-`tests/test_app_image.py` runs the three scripts against stubs that model the tools they call
+`tests/test_app_image.py` runs the scripts against stubs that model the tools they call
 (including buildx's wrapping of a bare image manifest, so the `--prefer-index=false` test fails
 without the flag) and checks the workflow's shape and trust boundaries.
 
@@ -227,12 +159,10 @@ Functional runs on 2026-11-03 used the real scripts against BuildKit v0.34.1 ove
 password-protected staging registry and a stand-in registry aliased `ghcr.io`, with a stub for the
 Private CA exchange only:
 
-- check, candidate, and publish with provenance and SBOM to three tags;
 - a candidate copy with the pre-fix script failed its digest check (`c1f7d2…` against `2821c2…`),
-  and passes with `--prefer-index=false`; so does a publish with `attestations: false`;
-- an attested index copied with the same digest, children present, no referrers tag;
-- `verified-image` accepted an attested publish of the tested layers and refused a publish of
-  different layers, publishing nothing.
+  and passes with `--prefer-index=false`;
+- an attested index copied with the same digest, children present, no referrers tag, then promoted to
+  two tags with the digest unchanged.
 
 The production builder, the Private CA exchange, `standards-install` end to end and GHCR's package
 deletion are qualification gates for the canary, not claims of the fixtures.

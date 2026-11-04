@@ -60,24 +60,24 @@ class WorkflowShape(unittest.TestCase):
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
     def test_steps_run_in_the_order_that_keeps_credentials_scoped(self):
-        names = ["Resolve the image and the build mode", "Check out the caller", "Set up Node",
+        names = ["Resolve the image", "Check out the caller", "Set up Node",
                  "Fetch the Standards Package prepared without credentials", "Install the Build Service client tools", "Compute image tags and labels", "Connect to the Build Service",
-                 "Build the image on the Build Service", "Check the image's structure", "Copy the verified image to GHCR", "Prune stale candidate images",
+                 "Build the image on the Build Service", "Check the image's structure", "Push the candidate to GHCR", "Prune stale candidate images",
                  "Remove the job's certificate, credentials and build inputs"]
         positions = [BUILD.index(f"- name: {name}\n") for name in names]
         self.assertEqual(positions, sorted(positions))
         # Only the copy step sees the GHCR token and only the prune the API token; the one other use is the prepare job's package read
         self.assertEqual(TEXT.count("github.token"), 4)  # the prepare job, the copy, the prune and the promote job
         self.assertEqual(BUILD.count("github.token"), 2)
-        self.assertIn("REGISTRY_TOKEN: ${{ github.token }}", steps("Copy the verified image to GHCR"))
+        self.assertIn("REGISTRY_TOKEN: ${{ github.token }}", steps("Push the candidate to GHCR"))
         self.assertNotIn("github.token", steps("Build the image on the Build Service"))
         self.assertIn("GH_TOKEN: ${{ github.token }}", steps("Prune stale candidate images"))
         self.assertIn("if: always()", TEXT.split("- name: Remove the job's certificate", 1)[1])
-        self.assertIn("steps.resolve.outputs.mode != 'check'", steps("Copy the verified image to GHCR"))
-        self.assertIn("steps.resolve.outputs.mode == 'candidate'", steps("Prune stale candidate images"))
+        self.assertNotIn("if:", steps("Push the candidate to GHCR"))  # a build always makes a candidate
+        self.assertNotIn("if:", steps("Prune stale candidate images"))
 
     def test_caller_text_reaches_scripts_only_through_the_environment(self):
-        for name in ("Resolve the image and the build mode", "Remove the job's certificate, credentials and build inputs",
+        for name in ("Resolve the image", "Remove the job's certificate, credentials and build inputs",
                      "Install the Standards Package into .standards", "Name the artifact"):
             run = steps(name).split("run:", 1)[1]
             self.assertNotIn("${{", run)
@@ -111,7 +111,7 @@ class WorkflowShape(unittest.TestCase):
             self.assertNotIn("workspace", run.lower())
         # Everything before the connect step is: our validation, checkout, setup-node, an artifact download and two central actions
         before_connect = BUILD.split("- name: Connect to the Build Service", 1)[0]
-        allowed = {"Resolve the image and the build mode", "Check out the caller", "Set up Node",
+        allowed = {"Resolve the image", "Check out the caller", "Set up Node",
                    "Fetch the Standards Package prepared without credentials", "Install the Build Service client tools",
                    "Compute image tags and labels"}
         self.assertEqual(set(re.findall(r"- name: (.*)\n", before_connect)), allowed)
@@ -124,25 +124,7 @@ class WorkflowShape(unittest.TestCase):
             if "GITHUB_ENV" in step or "GITHUB_PATH" in step:
                 self.fail(f"{name} writes the environment later steps inherit")
         # The caller's checkout stays a build context: the only files the build executes come from the central action directory
-        self.assertEqual(BUILD.count("Rubio-Enterprises/.github/actions/"), 6)  # tools, connect, build, structure, publish, prune
-
-    def test_publish_and_candidate_are_exclusive_and_publish_needs_tags(self):
-        resolve = steps("Resolve the image and the build mode")
-        self.assertIn('"$PUBLISH" == true && "$CANDIDATE" == true', resolve)
-        self.assertIn("publish needs the tags input", resolve)
-        self.assertIn("tags: ${{ inputs.publish && steps.meta.outputs.tags || '' }}", TEXT)
-
-    def test_a_verified_image_is_a_publish_only_candidate_of_the_same_image(self):
-        resolve = steps("Resolve the image and the build mode")
-        self.assertIn("VERIFIED: ${{ inputs.verified-image }}", resolve)
-        # The default is a sentinel, because a passed input that resolves empty stays "" (the default applies only when the input is
-        # omitted); that difference is what lets an unwired output fail instead of skipping the check
-        self.assertRegex(TEXT, r"      verified-image:\n        description: >-\n(?:          .*\n)+        type: string\n        default: none\n")
-        self.assertIn('if [[ "$VERIFIED" != none ]]; then', resolve)
-        self.assertIn("verified-image was passed but is empty", resolve)
-        self.assertIn("verified-image only applies to a publish", resolve)
-        self.assertIn('"${VERIFIED,,}" != "$image@sha256:"*', resolve)
-        self.assertIn("VERIFIED_IMAGE: ${{ inputs.verified-image }}", steps("Copy the verified image to GHCR"))
+        self.assertEqual(BUILD.count("Rubio-Enterprises/.github/actions/"), 6)  # tools, connect, build, structure, candidate, prune
 
     def test_tags_and_labels_follow_a_ref_other_than_the_events(self):
         meta = steps("Compute image tags and labels")
@@ -160,16 +142,26 @@ class WorkflowShape(unittest.TestCase):
             used.update(re.findall(rf"steps\.{step_id}\.outputs\.([\w-]+)", TEXT))
         self.assertEqual(used, {"digest", "image"})
         self.assertLessEqual(used, set(declared))
-        for output, source in (("digest", "steps.build.outputs.digest"), ("image", "steps.publish.outputs.image")):
+        for output, source in (("digest", "steps.build.outputs.digest"), ("image", "steps.candidate.outputs.image")):
             self.assertIn(f"{output}: ${{{{ {source} }}}}", BUILD)
 
     def test_the_action_dispatches_only_known_operations_and_reuses_the_connect_script(self):
         action = (ACTION / "action.yml").read_text()
         self.assertIn('exec bash "$GITHUB_ACTION_PATH/../dev-container-image/connect.sh"', action)
-        self.assertIn("build | structure | publish | promote | prune | smoke | pull | changes)", action)
+        self.assertIn("build | structure | candidate | promote | prune | smoke | pull | changes)", action)
         self.assertIn("OPERATION: ${{ inputs.operation }}", action)
         self.assertNotIn("${{", action.split("run: |", 1)[1])
         self.assertTrue((ROOT / "actions/dev-container-image/connect.sh").is_file())
+
+
+    def test_a_build_is_always_a_candidate_whose_image_belongs_to_the_repository(self):
+        resolve = steps("Resolve the image")
+        self.assertIn('if [[ "$CANDIDATE" != true ]]; then', resolve)
+        self.assertIn("call app-image-pipeline.yml", resolve)
+        self.assertIn('[[ "$package" != "$repo" && "$package" != "$repo/"* ]]', resolve)
+        for gone in ("publish:", "verified-image:", "pipeline:", "inputs.publish", "inputs.verified-image", "inputs.pipeline"):
+            self.assertNotIn(gone, TEXT)
+        self.assertNotIn("tags:", BUILD.split("outputs:", 1)[1].split("steps:", 1)[0])
 
 
 def run_block(step_name: str) -> str:
@@ -187,51 +179,29 @@ class Resolve(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.output = Path(self.tmp.name) / "output"
         self.output.touch()
-        self.script = run_block("Resolve the image and the build mode")
+        self.script = run_block("Resolve the image")
 
     def resolve(self, **overrides):
         env = {**os.environ, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo",
-               "GITHUB_OUTPUT": str(self.output), "IMAGE_INPUT": "", "PUBLISH": "true", "CANDIDATE": "false",
-               "TAGS": "type=raw,value=1", "VERIFIED": "none", "POLICY": "true", **overrides}
+               "GITHUB_OUTPUT": str(self.output), "IMAGE_INPUT": "", "CANDIDATE": "true", **overrides}
         return subprocess.run(["bash", "-c", self.script], env=env, capture_output=True, text=True)
 
-    def test_an_omitted_verified_image_publishes_without_the_check(self):
+    def test_a_candidate_resolves_to_the_repositorys_default_image(self):
         result = self.resolve()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("mode=publish", self.output.read_text())
+        self.assertEqual(self.output.read_text(), "image=ghcr.io/rubio-enterprises/repo\n")
 
-    def test_a_verified_image_that_resolved_empty_fails_loudly_in_every_mode(self):
-        # A caller who wires the input to a job output that is missing (a skipped job, a renamed output) gets "" here,
-        # not the default, and must never silently lose the check
-        for name, overrides in [("publish", {}), ("candidate", {"PUBLISH": "false", "CANDIDATE": "true", "TAGS": ""}),
-                                ("check", {"PUBLISH": "false", "TAGS": ""})]:
-            with self.subTest(name):
-                result = self.resolve(VERIFIED="", **overrides)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("verified-image was passed but is empty", result.stdout)
-                self.assertEqual(self.output.read_text(), "")
-
-    def test_a_real_candidate_of_this_image_passes_and_anything_else_is_refused(self):
-        image = "ghcr.io/rubio-enterprises/repo"
-        good = f"{image}@sha256:{'a' * 64}"
-        self.assertEqual(self.resolve(VERIFIED=good).returncode, 0)
-        for name, overrides, message in [
-            ("another image", {"VERIFIED": f"ghcr.io/rubio-enterprises/other@sha256:{'a' * 64}"}, "must be this image's candidate"),
-            ("a tag", {"VERIFIED": f"{image}:candidate-1-1-aaaaaaaaaaaa"}, "must be this image's candidate"),
-            ("a short digest", {"VERIFIED": f"{image}@sha256:abc"}, "must be this image's candidate"),
-            ("not a publish", {"VERIFIED": good, "PUBLISH": "false", "CANDIDATE": "true", "TAGS": ""}, "only applies to a publish"),
-        ]:
-            with self.subTest(name):
-                result = self.resolve(**overrides)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(message, result.stdout)
+    def test_a_build_that_is_not_a_candidate_is_refused_with_the_way_forward(self):
+        result = self.resolve(CANDIDATE="false")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("call app-image-pipeline.yml", result.stdout)
 
     def test_an_image_belongs_to_the_repository_that_builds_it(self):
         for image in ("ghcr.io/rubio-enterprises/repo", "ghcr.io/rubio-enterprises/repo/worker", "GHCR.io/Rubio-Enterprises/Repo/Worker"):
             with self.subTest(image):
                 self.assertEqual(self.resolve(IMAGE_INPUT=image).returncode, 0)
         for image in ("ghcr.io/rubio-enterprises/other", "ghcr.io/rubio-enterprises/repository", "ghcr.io/rubio-enterprises/other/repo",
-                      "ghcr.io/rubio-enterprises/repos/worker"):
+                      "ghcr.io/rubio-enterprises/repos/worker", "docker.io/rubio-enterprises/repo", "ghcr.io/rubio-enterprises/repo:latest"):
             with self.subTest(image):
                 result = self.resolve(IMAGE_INPUT=image)
                 self.assertNotEqual(result.returncode, 0)
@@ -259,7 +229,7 @@ class Workspace(unittest.TestCase):
             "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Example",
             "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_ACTOR": "octocat",
             "STAGING": STAGING, "STAGING_TAG": "run-123-2", "BUILDX_BUILDER": "build-service", "BUILD_SERVICE_RETRY_DELAY": "0",
-            "IMAGE": IMAGE, "APP_IMAGE_POLICY": "true", "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+            "IMAGE": IMAGE, "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
         }
         for key in ("GH_TOKEN", "GITHUB_TOKEN", "REGISTRY_TOKEN"):
             self.env.pop(key, None)
@@ -291,7 +261,6 @@ class Workspace(unittest.TestCase):
 class Build(Workspace):
     def setUp(self):
         super().setUp()
-        self.env["MODE"] = "check"
         # docker records its line, fails on request, and writes the metadata file the build asked for
         self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
 count="$(cat "$RUNNER_TEMP/docker-count" 2>/dev/null || echo 0)"; echo $((count + 1)) > "$RUNNER_TEMP/docker-count"
@@ -312,32 +281,16 @@ if [[ "$1" = digest ]]; then printf '%s\\n' "${STAGED_DIGEST:-''' + DIGEST + '''
     def command(self) -> str:
         return self.calls("docker-calls")[-1]
 
-    def test_check_builds_amd64_without_attestations_into_a_per_package_staging_name(self):
-        result = self.build()
+    def test_a_candidate_builds_amd64_into_a_per_package_staging_name_with_the_attestations_its_promotion_will_publish(self):
+        result = self.build(ATTESTATIONS="true")
         self.assertEqual(result.returncode, 0, result.stderr)
         command = self.command()
         self.assertIn("buildx build --platform linux/amd64 --file " + str(self.workspace / "Dockerfile"), command)
-        self.assertIn("--provenance=false --sbom=false", command)
-        self.assertIn(f"--output type=image,name={STAGING}/example:run-123-2-check,push=true {self.workspace}", command)
+        self.assertIn("--provenance=mode=max --sbom=true", command)
+        self.assertIn(f"--output type=image,name={STAGING}/example:run-123-2-candidate,push=true {self.workspace}", command)
         self.assertEqual(self.outputs(), {"digest": DIGEST})
         self.assertEqual((self.root / "runner/app-image/digest").read_text().strip(), DIGEST)
-
-    def test_publish_adds_max_provenance_and_an_sbom_unless_turned_off(self):
-        self.assertEqual(self.build(MODE="publish").returncode, 0)
-        self.assertIn("--provenance=mode=max --sbom=true", self.command())
-        self.assertIn("run-123-2-publish,push=true", self.command())
-        self.assertEqual(self.build(MODE="publish", ATTESTATIONS="false").returncode, 0)
-        self.assertIn("--provenance=false --sbom=false", self.command())
-
-    def test_a_candidate_carries_the_attestations_its_promotion_will_publish(self):
-        self.assertEqual(self.build(MODE="candidate", ATTESTATIONS="true").returncode, 0)
-        self.assertIn("--provenance=mode=max --sbom=true", self.command())
-        self.assertIn("run-123-2-candidate,push=true", self.command())
-        self.assertEqual(self.build(MODE="candidate", ATTESTATIONS="false").returncode, 0)
-        self.assertIn("--provenance=false --sbom=false", self.command())
-
-    def test_a_check_never_carries_attestations(self):
-        self.assertEqual(self.build(MODE="check", ATTESTATIONS="true").returncode, 0)
+        self.assertEqual(self.build(ATTESTATIONS="false").returncode, 0)
         self.assertIn("--provenance=false --sbom=false", self.command())
 
     def test_context_file_target_arguments_and_labels_reach_the_build(self):
@@ -372,7 +325,6 @@ if [[ "$1" = digest ]]; then printf '%s\\n' "${STAGED_DIGEST:-''' + DIGEST + '''
             ("symlinked file", {"BUILD_FILE": "linked-file"}, "resolves outside the repository"),
             ("bad argument", {"BUILD_ARGS": "NOT AN ARG"}, "NAME=value"),
             ("bad label", {"BUILD_LABELS": "novalue"}, "key=value"),
-            ("bad mode", {"MODE": "push"}, "MODE must be"),
             ("foreign image", {"IMAGE": "ghcr.io/other/example"}, "namespace"),
             ("tagged image", {"IMAGE": f"{IMAGE}:latest"}, "valid package name"),
             ("hub image", {"IMAGE": "docker.io/rubio-enterprises/example"}, "namespace"),
@@ -389,7 +341,7 @@ if [[ "$1" = digest ]]; then printf '%s\\n' "${STAGED_DIGEST:-''' + DIGEST + '''
         self.assertIn("staged image differs", result.stdout)
         self.assertEqual(self.output.read_text(), "")
 
-    def test_a_failed_build_leaves_no_staged_image_for_publish_to_pick_up(self):
+    def test_a_failed_build_leaves_no_staged_image_for_candidate_to_pick_up(self):
         state = self.temp / "app-image"
         state.mkdir()
         (state / "digest").write_text(DIGEST + "\n")
@@ -421,19 +373,16 @@ if [[ "$1" = digest ]]; then printf '%s\\n' "${STAGED_DIGEST:-''' + DIGEST + '''
         self.assertEqual(len(self.calls("docker-calls")), 2)
 
 
-def layers_manifest(*digests: str) -> str:
-    return json.dumps({"schemaVersion": 2, "layers": [{"digest": digest, "size": 1} for digest in digests]})
+class Candidate(Workspace):
+    """candidate.sh: the staged image reaches GHCR under its temporary candidate tag."""
 
-
-class Publish(Workspace):
     def setUp(self):
         super().setUp()
-        self.env.update(MODE="publish", REGISTRY_TOKEN=TOKEN, STUB_DIGEST=DIGEST, STUB_WRAPPED=WRAPPED,
-                        TAGS=f"{IMAGE}:1.2.3\n{IMAGE}:1.2\n{IMAGE}:sha-abc1234\n")
+        self.env.update(REGISTRY_TOKEN=TOKEN, STUB_DIGEST=DIGEST, STUB_WRAPPED=WRAPPED)
         state = self.root / "runner/app-image"
         state.mkdir()
         (state / "digest").write_text(DIGEST + "\n")
-        (state / "staging.ref").write_text(f"{STAGING}/example:run-123-2-publish\n")
+        (state / "staging.ref").write_text(f"{STAGING}/example:run-123-2-candidate\n")
         # crane resolves a tag to what the docker stub published under it; manifest reads the layers of the image it is given
         self.stub("crane", '''printf '%s|%s\\n' "${DOCKER_CONFIG:-}" "$*" >> "$RUNNER_TEMP/crane-calls"
 case "$1" in
@@ -466,217 +415,85 @@ mkdir -p "$RUNNER_TEMP/published"
 for tag in "${tags[@]}"; do printf '%s\\n' "$published" > "$RUNNER_TEMP/published/${tag//[^a-zA-Z0-9]/_}"; done
 ''')
 
-    def publish(self, **overrides):
-        return self.run_script("publish.sh", **overrides)
+    def candidate(self, **overrides):
+        return self.run_script("candidate.sh", **overrides)
 
-    def test_copies_the_staged_digest_to_every_final_tag_with_one_imagetools_call_and_verifies_each(self):
-        result = self.publish(BUILDX_BUILDER="build-service")
-        self.assertEqual(result.returncode, 0, result.stderr)
+    def test_copies_the_staged_digest_to_one_candidate_tag_and_verifies_it(self):
+        result = self.candidate(BUILDX_BUILDER="build-service", SOURCE_KIND="image")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         config = f"{self.root}/runner/build-service/docker-publish"
-        staged = f"{STAGING}/example:run-123-2-publish@{DIGEST}"
+        staged = f"{STAGING}/example:run-123-2-candidate@{DIGEST}"
+        tag = f"{IMAGE}:candidate-123-2-{DIGEST[7:19]}"
         self.assertEqual(self.calls("crane-calls")[0], f"{config}|auth login ghcr.io --username octocat --password-stdin")
-        self.assertEqual(self.calls("docker-calls"), [
-            f"{config}|unset|buildx imagetools create --prefer-index=false --tag {IMAGE}:1.2.3 --tag {IMAGE}:1.2 --tag {IMAGE}:sha-abc1234 {staged}"])
-        for tag in ("1.2.3", "1.2", "sha-abc1234"):
-            self.assertIn(f"{config}|digest {IMAGE}:{tag}", self.calls("crane-calls"))
+        self.assertEqual(self.calls("docker-calls"), [f"{config}|unset|buildx imagetools create --prefer-index=false --tag {tag} {staged}"])
+        self.assertIn(f"{config}|digest {tag}", self.calls("crane-calls"))
         self.assertFalse([call for call in self.calls("crane-calls") if "|copy" in call])  # crane copy adds referrers tags
         self.assertEqual((self.temp / "crane-stdin").read_text(), TOKEN)
         self.assertEqual(self.outputs(), {"digest": DIGEST, "image": f"{IMAGE}@{DIGEST}"})
-        self.assertIn(f"{IMAGE}:1.2.3@{DIGEST}", self.summary.read_text())
 
-    def test_a_bare_image_manifest_is_copied_as_itself_not_wrapped_in_a_new_index(self):
-        # A candidate, and a publish with attestations off, stage one image manifest
-        for mode, tags in (("candidate", ""), ("publish", f"{IMAGE}:1.0.0")):
-            with self.subTest(mode):
+    def test_a_bare_image_manifest_is_copied_as_itself_and_an_index_byte_for_byte(self):
+        for kind in ("image", "index"):
+            with self.subTest(kind):
                 shutil.rmtree(self.temp / "published", ignore_errors=True)
-                result = self.publish(MODE=mode, TAGS=tags, SOURCE_KIND="image")
+                result = self.candidate(SOURCE_KIND=kind)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.outputs()["image"], f"{IMAGE}@{DIGEST}")
 
     def test_without_prefer_index_false_a_bare_image_manifest_would_fail_the_digest_check(self):
-        # publish.sh as it was before the flag: the stub wraps the image as buildx 0.38 does, and the digest check catches it
         broken = self.root / "broken/app-image"
         broken.mkdir(parents=True)
         (self.root / "broken/build-service").mkdir()
         (self.root / "broken/build-service/retry.sh").write_text((ROOT / "actions/build-service/retry.sh").read_text())
-        for name in ("publish.sh", "lib.sh"):
+        for name in ("candidate.sh", "lib.sh"):
             (broken / name).write_text((ACTION / name).read_text().replace("--prefer-index=false ", ""))
-        self.assertNotIn("--prefer-index", (broken / "lib.sh").read_text().split("imagetools create", 1)[1].splitlines()[0])
-        env = {**self.env, "MODE": "candidate", "TAGS": "", "SOURCE_KIND": "image"}
-        result = subprocess.run(["bash", str(broken / "publish.sh")], env=env, capture_output=True, text=True)
+        env = {**self.env, "SOURCE_KIND": "image"}
+        result = subprocess.run(["bash", str(broken / "candidate.sh")], env=env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("differs from the copied image", result.stdout)
 
-    def test_an_index_with_attestations_is_copied_byte_for_byte(self):
-        result = self.publish(SOURCE_KIND="index")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("--prefer-index=false", self.calls("docker-calls")[0])
-
     def test_the_token_never_appears_in_a_command_line_or_the_output(self):
-        result = self.publish()
+        result = self.candidate()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(TOKEN, "\n".join(self.calls("crane-calls") + self.calls("docker-calls")))
         self.assertNotIn(TOKEN, result.stdout + result.stderr + self.output.read_text() + self.summary.read_text())
 
-    def test_a_candidate_gets_one_temporary_tag_named_for_the_run_and_the_image(self):
-        result = self.publish(MODE="candidate", TAGS="", SOURCE_KIND="image")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        copies = self.calls("docker-calls")
-        self.assertEqual(len(copies), 1)
-        self.assertIn(f"imagetools create --prefer-index=false --tag {IMAGE}:candidate-123-2-{DIGEST[7:19]} {STAGING}/example:run-123-2-publish@{DIGEST}", copies[0])
-        self.assertEqual(self.outputs()["image"], f"{IMAGE}@{DIGEST}")
-
     def test_two_candidates_of_one_image_in_a_run_do_not_share_a_tag(self):
-        first = self.publish(MODE="candidate", TAGS="", SOURCE_KIND="image")
+        first = self.candidate(SOURCE_KIND="image")
         (self.root / "runner/app-image/digest").write_text(OTHER + "\n")
         self.output.write_text("")
-        second = self.publish(MODE="candidate", TAGS="", SOURCE_KIND="image", STUB_DIGEST=OTHER)
+        second = self.candidate(SOURCE_KIND="image", STUB_DIGEST=OTHER)
         self.assertEqual((first.returncode, second.returncode), (0, 0), first.stdout + second.stdout)
         tags = [re.search(r"--tag (\S+)", call).group(1) for call in self.calls("docker-calls")]
         self.assertEqual(len(set(tags)), 2, tags)
         for tag in tags:
             self.assertRegex(tag, rf"^{re.escape(IMAGE)}:candidate-123-2-[a-f0-9]{{12}}$")
 
-    def test_tags_outside_the_image_or_malformed_publish_nothing(self):
-        for name, tags in [("other repository", f"{IMAGE}:ok\nghcr.io/rubio-enterprises/other:ok"),
-                           ("a digest", f"{IMAGE}:ok\n{IMAGE}@{OTHER}"),
-                           ("a bad tag", f"{IMAGE}:-bad"), ("a space", f"{IMAGE}:a b"), ("none", "\n \n"),
-                           ("a candidate lookalike", f"{IMAGE}:1.0\n{IMAGE}:candidate-1-1-aaaaaaaaaaaa"),
-                           ("any candidate prefix", f"{IMAGE}:candidate-release")]:
-            with self.subTest(name):
-                shutil.rmtree(self.root / "runner/build-service", ignore_errors=True)
-                (self.temp / "crane-calls").unlink(missing_ok=True)
-                result = self.publish(TAGS=tags)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(self.calls("crane-calls"), [])
-                self.assertEqual(self.calls("docker-calls"), [])
-
     def test_a_tag_that_does_not_resolve_to_the_staged_digest_fails(self):
-        result = self.publish(PUBLISHED_DIGEST=OTHER)
+        result = self.candidate(PUBLISHED_DIGEST=OTHER)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("differs from the copied image", result.stdout)
         self.assertEqual(self.output.read_text(), "")
 
     def test_a_failed_copy_fails_the_step_before_any_verification(self):
-        result = self.publish(IMAGETOOLS_STATUS="1")
+        result = self.candidate(IMAGETOOLS_STATUS="1")
         self.assertNotEqual(result.returncode, 0)
-        # only the check that each tag is unused ran: no tag was verified after the copy
-        self.assertEqual(len([call for call in self.calls("crane-calls") if "|digest" in call]), 3)
+        self.assertFalse([call for call in self.calls("crane-calls") if "|digest" in call])
         self.assertEqual(self.output.read_text(), "")
 
-    def test_nothing_is_published_when_the_build_did_not_stage_anything(self):
+    def test_nothing_is_copied_when_the_build_did_not_stage_anything(self):
         (self.root / "runner/app-image/digest").write_text("\n")
-        result = self.publish()
+        result = self.candidate()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no staged image", result.stdout)
         self.assertEqual(self.calls("crane-calls"), [])
 
-    def test_a_publish_of_the_tested_candidates_layers_goes_ahead(self):
-        layers = ["sha256:" + char * 64 for char in "123"]
-        result = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", TESTED_MANIFEST=layers_manifest(*layers),
-                              STAGED_MANIFEST=layers_manifest(*layers))
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("The staged image has the tested image's layers", result.stdout)
-        manifests = [call for call in self.calls("crane-calls") if "|manifest" in call]
-        self.assertEqual(len(manifests), 2)
-        self.assertTrue(all("manifest --platform linux/amd64" in call for call in manifests))
-        self.assertTrue(self.calls("docker-calls"))
-
-    def test_a_publish_whose_layers_differ_from_the_tested_ones_publishes_nothing(self):
-        tested = ["sha256:" + char * 64 for char in "123"]
-        built = ["sha256:" + char * 64 for char in "124"]
-        result = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", TESTED_MANIFEST=layers_manifest(*tested),
-                              STAGED_MANIFEST=layers_manifest(*built))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("different layers from the tested image", result.stdout)
-        self.assertEqual(self.calls("docker-calls"), [])
-        self.assertEqual(self.output.read_text(), "")
-        # Layer order is part of the image
-        reordered = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", TESTED_MANIFEST=layers_manifest(*tested),
-                                 STAGED_MANIFEST=layers_manifest(*reversed(tested)))
-        self.assertNotEqual(reordered.returncode, 0)
-
-    def test_an_omitted_or_none_verified_image_skips_the_check_and_an_empty_one_fails_before_anything_is_copied(self):
-        for name, overrides in [("unset", {}), ("none", {"VERIFIED_IMAGE": "none"})]:
-            with self.subTest(name):
-                shutil.rmtree(self.temp / "published", ignore_errors=True)
-                (self.temp / "crane-calls").unlink(missing_ok=True)
-                (self.temp / "docker-calls").unlink(missing_ok=True)
-                result = self.publish(**overrides)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertFalse([call for call in self.calls("crane-calls") if "|manifest" in call])
-        shutil.rmtree(self.temp / "published", ignore_errors=True)
-        (self.temp / "crane-calls").unlink(missing_ok=True)
-        (self.temp / "docker-calls").unlink(missing_ok=True)
-        empty = self.publish(VERIFIED_IMAGE="")
-        self.assertNotEqual(empty.returncode, 0)
-        self.assertIn("verified-image was passed but is empty", empty.stdout)
-        self.assertEqual(self.calls("docker-calls"), [])
-        self.assertEqual(self.calls("crane-calls"), [])
-
-    def test_an_unreadable_tested_or_staged_image_fails_rather_than_skipping_the_check(self):
-        layers = layers_manifest("sha256:" + "1" * 64)
-        for name, overrides in [("registry error", {"MANIFEST_STATUS": "1"}), ("no layers", {"TESTED_MANIFEST": "{}", "STAGED_MANIFEST": "{}"})]:
-            with self.subTest(name):
-                env = {"TESTED_MANIFEST": layers, "STAGED_MANIFEST": layers, **overrides}
-                result = self.publish(VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", **env)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(self.calls("docker-calls"), [])
-
-    def test_a_verified_image_must_be_a_digest_of_this_image_and_only_for_a_publish(self):
-        layers = layers_manifest("sha256:" + "1" * 64)
-        base = {"TESTED_MANIFEST": layers, "STAGED_MANIFEST": layers}
-        other_repository = self.publish(VERIFIED_IMAGE=f"ghcr.io/rubio-enterprises/other@{OTHER}", **base)
-        self.assertNotEqual(other_repository.returncode, 0)
-        self.assertIn("is not a digest of", other_repository.stdout)
-        candidate = self.publish(MODE="candidate", TAGS="", VERIFIED_IMAGE=f"{IMAGE}@{OTHER}", **base)
-        self.assertNotEqual(candidate.returncode, 0)
-        self.assertIn("only applies to a publish", candidate.stdout)
-        self.assertEqual(self.calls("docker-calls"), [])
-
-    def test_a_tag_that_already_holds_another_image_is_never_overwritten(self):
-        published = self.temp / "published"
-        published.mkdir()
-        (published / slug(f"{IMAGE}:1.2.3")).write_text(OTHER + "\n")
-        result = self.publish()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("already points at", result.stdout)
-        self.assertIn("never overwritten", result.stdout)
-        self.assertEqual(self.calls("docker-calls"), [])
-        self.assertEqual(self.output.read_text(), "")
-
-    def test_a_tag_on_the_moving_list_may_move_and_the_same_digest_is_a_rerun(self):
-        published = self.temp / "published"
-        published.mkdir()
-        (published / slug(f"{IMAGE}:1.2.3")).write_text(OTHER + "\n")
-        (published / slug(f"{IMAGE}:1.2")).write_text(DIGEST + "\n")
-        result = self.publish(MOVING_TAGS="\nsha-xyz\n1.2.3\r\n")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(self.calls("docker-calls")), 1)
-
-    def test_a_tag_that_cannot_be_read_stops_the_publish_instead_of_being_assumed_free(self):
-        self.stub("crane", '''case "$1" in auth) cat > /dev/null ;; digest) echo "UNAUTHORIZED: authentication required" >&2; exit 1 ;; esac
-''')
-        result = self.publish()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("could not read", result.stdout)
-        self.assertEqual(self.calls("docker-calls"), [])
-
-    def test_latest_is_never_published(self):
-        for tags in (f"{IMAGE}:latest", f"{IMAGE}:1.0.0\n{IMAGE}:latest"):
-            with self.subTest(tags):
-                result = self.publish(TAGS=tags)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("no latest tag", result.stdout)
-                self.assertEqual(self.calls("docker-calls"), [])
-
     def test_an_image_outside_the_repositorys_namespace_is_refused(self):
         for image in ("ghcr.io/rubio-enterprises/other", "ghcr.io/rubio-enterprises/examples", "ghcr.io/rubio-enterprises/other/example"):
             with self.subTest(image):
-                result = self.publish(IMAGE=image, TAGS=f"{image}:1.0.0")
+                result = self.candidate(IMAGE=image)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("outside this repository's namespace", result.stdout)
-        self.assertEqual(self.publish(IMAGE=f"{IMAGE}/worker", TAGS=f"{IMAGE}/worker:1.0.0").returncode, 0)
+        self.assertEqual(self.candidate(IMAGE=f"{IMAGE}/worker").returncode, 0)
 
 
 class Promote(Workspace):
@@ -1144,57 +961,6 @@ class Changes(Workspace):
         self.merge("assets/logo.png")
         self.assertEqual(self.decide(), "true")
         self.assertEqual(self.decide(IGNORE_PATHS="*.md\nassets/*\n"), "false")
-
-
-class DirectBehaviour(Workspace):
-    """Without the pipeline's policy the scripts behave as they did before the pipeline existed."""
-
-    def setUp(self):
-        super().setUp()
-        self.env["APP_IMAGE_POLICY"] = "false"
-        self.env.update(MODE="publish", REGISTRY_TOKEN=TOKEN, STUB_DIGEST=DIGEST)
-        state = self.root / "runner/app-image"
-        state.mkdir()
-        (state / "digest").write_text(DIGEST + "\n")
-        (state / "staging.ref").write_text(f"{STAGING}/other:run-123-2-publish\n")
-        (self.temp / "published").mkdir()
-        self.stub("crane", '''case "$1" in
-  auth) cat > /dev/null ;;
-  digest) if [[ -f "$RUNNER_TEMP/published/${2//[^a-zA-Z0-9]/_}" ]]; then cat "$RUNNER_TEMP/published/${2//[^a-zA-Z0-9]/_}"; else echo "MANIFEST_UNKNOWN" >&2; exit 1; fi ;;
-esac
-''')
-        self.stub("docker", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/docker-calls"
-args=("$@")
-for ((i = 0; i < ${#args[@]}; i++)); do
-  if [[ "${args[i]}" = --tag ]]; then printf '%s\\n' "$STUB_DIGEST" > "$RUNNER_TEMP/published/${args[i + 1]//[^a-zA-Z0-9]/_}"; fi
-done
-''')
-
-    def test_latest_a_foreign_image_name_and_a_moved_tag_still_publish(self):
-        other = "ghcr.io/rubio-enterprises/music-assistant"
-        (self.temp / "published" / slug(f"{other}:1.0")).write_text(OTHER + "\n")
-        result = self.run_script("publish.sh", IMAGE=other, TAGS=f"{other}:1.0\n{other}:latest")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(self.calls("docker-calls")), 1)
-        self.assertIn(f"--tag {other}:latest", self.calls("docker-calls")[0])
-
-    def test_the_other_checks_on_tags_still_apply(self):
-        for tags in ("ghcr.io/rubio-enterprises/other:candidate-release", "ghcr.io/rubio-enterprises/other:-bad", "ghcr.io/rubio-enterprises/x:1"):
-            self.assertNotEqual(self.run_script("publish.sh", IMAGE="ghcr.io/rubio-enterprises/other", TAGS=tags).returncode, 0, tags)
-
-    def test_resolve_accepts_any_name_in_the_owners_namespace(self):
-        script = run_block("Resolve the image and the build mode")
-        output = self.root / "resolve-output"
-        output.touch()
-        env = {**os.environ, "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_REPOSITORY": "Rubio-Enterprises/Repo", "GITHUB_OUTPUT": str(output),
-               "IMAGE_INPUT": "ghcr.io/rubio-enterprises/music-assistant", "PUBLISH": "false", "CANDIDATE": "false", "TAGS": "", "VERIFIED": "none"}
-        self.assertEqual(subprocess.run(["bash", "-c", script], env={**env, "POLICY": "false"}, capture_output=True, text=True).returncode, 0)
-        self.assertNotEqual(subprocess.run(["bash", "-c", script], env={**env, "POLICY": "true"}, capture_output=True, text=True).returncode, 0)
-
-    def test_prune_and_build_resolve_any_name_without_the_policy(self):
-        self.env.update(GH_TOKEN=TOKEN)
-        self.stub("curl", "cat > /dev/null; printf '[]' > \"$(printf '%s\\n' \"$@\" | awk '$0==\"--output\"{getline; print}')\"; printf 200\n")
-        self.assertEqual(self.run_script("prune.sh", IMAGE="ghcr.io/rubio-enterprises/music-assistant").returncode, 0)
 
 
 class Prune(Workspace):

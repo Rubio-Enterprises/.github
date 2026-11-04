@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 # Builds one app image on the Build Service and leaves it in the staging registry (mac-dev-playbook ADR 0057). The job is
 # a thin client: no Docker daemon, no root. connect.sh has set DOCKER_CONFIG, BUILDX_BUILDER, SSL_CERT_FILE, STAGING and
-# STAGING_TAG. publish.sh copies the staged result to GHCR; this step never holds a GHCR credential.
+# STAGING_TAG. candidate.sh copies the staged result to GHCR; this step never holds a GHCR credential.
 #
 # Environment:
 #   IMAGE          untagged GHCR image, ghcr.io/<owner>/<package>
-#   MODE           check (staging only), candidate (a temporary GHCR tag for a later run job) or publish (final tags)
 #   BUILD_CONTEXT  context directory relative to the workspace (default .)
 #   BUILD_FILE     Dockerfile relative to the workspace (default <context>/Dockerfile)
 #   BUILD_TARGET   optional stage
 #   BUILD_ARGS     optional lines of NAME=value
 #   BUILD_LABELS   optional lines of key=value
-#   ATTESTATIONS   true adds provenance=max and an SBOM to a candidate or publish build; a check never carries attestations
+#   ATTESTATIONS   true adds provenance=max and an SBOM to the candidate
 set -euo pipefail
-: "${IMAGE:?}" "${MODE:?}" "${RUNNER_TEMP:?}" "${GITHUB_WORKSPACE:?}" "${GITHUB_OUTPUT:?}" "${GITHUB_REPOSITORY_OWNER:?}"
+: "${IMAGE:?}" "${RUNNER_TEMP:?}" "${GITHUB_WORKSPACE:?}" "${GITHUB_OUTPUT:?}" "${GITHUB_REPOSITORY_OWNER:?}"
 : "${GITHUB_RUN_ID:?}" "${GITHUB_RUN_ATTEMPT:?}" "${STAGING:?}" "${STAGING_TAG:?}" "${BUILDX_BUILDER:?}"
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-case "$MODE" in check | candidate | publish) ;; *) fail 'MODE must be check, candidate or publish' ;; esac
 resolve_package "$IMAGE"
 package="$PACKAGE"
 
@@ -62,17 +60,17 @@ while IFS= read -r line; do
 done <<< "${BUILD_LABELS:-}"
 
 # A candidate carries the attestations its promotion will publish, so the tested digest is the published digest. It is an index:
-# prune.sh deletes its untagged child versions along with it. A check stays one manifest and is never copied to GHCR.
-if [[ "$MODE" != check && "${ATTESTATIONS:-true}" == true ]]; then
+# prune.sh deletes its untagged child versions along with it.
+if [[ "${ATTESTATIONS:-true}" == true ]]; then
   args+=(--provenance=mode=max --sbom=true)
 else
   args+=(--provenance=false --sbom=false)
 fi
 
 state="$(state_dir)"
-staging="$STAGING/$package:$STAGING_TAG-$MODE"
+staging="$STAGING/$package:$STAGING_TAG-candidate"
 metadata="$state/build-metadata.json"
-# A failed build must leave nothing for publish.sh to find: it would copy the previous build's image
+# A failed build must leave nothing for candidate.sh to find: it would copy the previous build's image
 rm -f "$metadata" "$state/digest" "$state/staging.ref"
 # The daemon's own cache replaces --cache-from and --cache-to: the daemon holds no registry or Actions credential
 retry_unavailable docker buildx build "${args[@]}" --metadata-file "$metadata" \
@@ -84,4 +82,4 @@ digest="$(jq --exit-status --raw-output '."containerimage.digest"' "$metadata")"
 printf '%s\n' "$digest" > "$state/digest"
 printf '%s\n' "$staging" > "$state/staging.ref"
 printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
-printf 'Built %s (%s) on the Build Service: %s\n' "$package" "$MODE" "$digest"
+printf 'Built %s (candidate) on the Build Service: %s\n' "$package" "$digest"

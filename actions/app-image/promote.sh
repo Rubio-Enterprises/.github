@@ -12,8 +12,6 @@
 set -euo pipefail
 : "${IMAGE:?}" "${CANDIDATE_IMAGE:?}" "${RUNNER_TEMP:?}" "${GITHUB_OUTPUT:?}" "${GITHUB_ACTOR:?}" "${REGISTRY_TOKEN:?}"
 : "${GITHUB_REPOSITORY_OWNER:?}" "${GITHUB_REPOSITORY:?}"
-# Promotion exists only for the pipeline, so its policy always applies
-export APP_IMAGE_POLICY=true
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
