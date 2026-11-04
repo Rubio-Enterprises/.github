@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_repository_image_workflow import ASSETS, FROZEN_RECIPE
+from test_dev_container_image_workflow import ASSETS, FROZEN_RECIPE
 
 
 class PackageRecipe(unittest.TestCase):

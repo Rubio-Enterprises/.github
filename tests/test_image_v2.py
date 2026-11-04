@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import test_repository_image_workflow as legacy
+import test_dev_container_image_workflow as legacy
 
 ASSETS = legacy.ASSETS
 LINK = ".config/mise/conf.d/standards.toml"

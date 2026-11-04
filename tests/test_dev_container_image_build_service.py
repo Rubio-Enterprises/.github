@@ -15,10 +15,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_repository_image_workflow import ASSETS, ROOT, TEXT, audit_module, config, manifest, script
+from test_dev_container_image_workflow import ASSETS, ROOT, TEXT, audit_module, config, manifest, script
 
 SERVICE = TEXT.split("\n  build:\n", 1)[1].split("\n\n  # Public repositories cannot use self-hosted runners", 1)[0]
-# The Build Service jobs and the shared jobs; the hosted public-repository job is covered in test_repository_image_public.py
+# The Build Service jobs and the shared jobs; the hosted public-repository job is covered in test_dev_container_image_public.py
 PRIVATE_TEXT = TEXT.split("\n  # Public repositories cannot use self-hosted runners", 1)[0] + "\n  alias:\n" + TEXT.split("\n  alias:\n", 1)[1]
 MODULE = (ASSETS / "image.mjs").as_uri()
 STAGING = "stage.example.invalid:5000/rubio-enterprises/repo/run-123-1"
