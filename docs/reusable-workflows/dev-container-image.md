@@ -1,6 +1,10 @@
 # Dev Container Image builder
 
-`repository-image.yml` is the generic builder for ADR-0036. It builds repositories
+> `repository-image.yml` is the old name of this workflow. It stays a byte-identical copy
+> (a test asserts it) while callers move to `dev-container-image.yml`, and is deleted once
+> none remains.
+
+`dev-container-image.yml` is the generic builder for ADR-0036. It builds repositories
 wired to the Standards Package (v2); Copier-era and unwired repositories fail
 preparation with an instruction to adopt the package. Dev Container Images are built and published for **linux/amd64 only**. Public `base` and
 `base-ci` images remain multi-architecture for local arm64 builds. Every image builds on the
@@ -274,7 +278,7 @@ SDK directories and Go/Bun/Cargo/package caches, including RubyGems/Bundler
 packages and cached gem archives, use scan-root-anchored exclusions. Home
 credentials/configuration, first-party source outside preserved dependency exclusions, and environment/history retain
 the same severities. The exact scopes, preserved defaults and blind spots are
-documented under [Secret checks](repository-image-secrets.md). No scan failure/scanner error
+documented under [Secret checks](dev-container-image-secrets.md). No scan failure/scanner error
 can proceed to either external push. A failed build blocks both moving indices
 and pruning.
 
@@ -421,7 +425,7 @@ and stays gzip.
   publish a scratch pair (`:main`, `:sha-<commit>` of the scratch name), never the repository's own.
   A canary uses this: a temporary branch changes the caller to pass a scratch `image-name`, and a
   manual run of the caller on that branch builds. The workflow ref the Private CA sees stays
-  `repository-image.yml@refs/heads/main`, so the template needs no change.
+  `dev-container-image.yml@refs/heads/main`, so the template needs no change.
 - The called workflow is part of the certificate's claims (`job_workflow_ref`). A caller on a branch
   does not change it. A new central image workflow needs the Private CA template's workflow list
   updated, and a branch canary of this workflow needs its ref allowed, with the

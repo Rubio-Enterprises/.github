@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "actions/dev-container-image"
-TEXT = (ROOT / ".github/workflows/repository-image.yml").read_text()
+TEXT = (ROOT / ".github/workflows/dev-container-image.yml").read_text()
 MODULE = (ASSETS / "image.mjs").as_uri()
 PACKAGE_LINK = "../../../.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml"
 V2_MISE = '[tasks.setup]\nrun = "true"\n[tasks."standards:install"]\nrun = "true"\n'
@@ -143,6 +143,11 @@ class Contracts(unittest.TestCase):
     def test_legacy_reusable_is_retired(self):
         self.assertFalse((ROOT / ".github/workflows/devcontainer-image.yml").exists())
         self.assertFalse((ROOT / "docs/reusable-workflows/devcontainer-image.md").exists())
+
+    def test_old_name_is_a_byte_identical_copy_while_callers_move(self):
+        old = ROOT / ".github/workflows/repository-image.yml"
+        if old.exists():  # delete this test with the old file once no caller uses it
+            self.assertEqual(old.read_bytes(), (ROOT / ".github/workflows/dev-container-image.yml").read_bytes())
 
 
 class Fixtures(unittest.TestCase):
@@ -451,7 +456,7 @@ case "$1" in
   auth) cat > /dev/null ;;
 esac
 ''')
-        self.stub("node", "exit 0\n")  # the mount script is covered in test_repository_image_mounts.py
+        self.stub("node", "exit 0\n")  # the mount script is covered in test_dev_container_image_mounts.py
         source = script("Scan the dev artifact for secrets") + script("Push the verified image pair")
         for dev in (1, 2, 0):
             (self.root / "pushed").unlink(missing_ok=True)

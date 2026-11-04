@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_repository_image_workflow import ASSETS, MODULE, ROOT, TEXT, config, manifest, script
+from test_dev_container_image_workflow import ASSETS, MODULE, ROOT, TEXT, config, manifest, script
 
 JOBS = "\n" + TEXT.split("\njobs:\n", 1)[1]
 PREPARE = JOBS.split("\n  prepare:\n", 1)[1].split("\n  build:\n", 1)[0]

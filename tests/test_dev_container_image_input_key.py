@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "actions/dev-container-image"
-TEXT = (ROOT / ".github/workflows/repository-image.yml").read_text()
+TEXT = (ROOT / ".github/workflows/dev-container-image.yml").read_text()
 KEY = (ASSETS / "key.mjs").as_uri()
 IMAGE = (ASSETS / "image.mjs").as_uri()
 spec = importlib.util.spec_from_file_location("image_recipe", ASSETS / "recipe.py")

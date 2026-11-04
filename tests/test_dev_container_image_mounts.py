@@ -11,8 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from test_repository_image_build_service import SERVICE
-from test_repository_image_workflow import ASSETS, script
+from test_dev_container_image_build_service import SERVICE
+from test_dev_container_image_workflow import ASSETS, script
 
 MOUNT = ASSETS / "ghcr/mount-layers.mjs"
 TOKEN = "ghs_registry_secret"

@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_repository_image_workflow import ASSETS, script
+from test_dev_container_image_workflow import ASSETS, script
 
 POLICY = ASSETS / "trivy-secret.yaml"
 
@@ -194,8 +194,8 @@ class RealTrivyTests(unittest.TestCase):
             self.assertNotIn(path, result.stdout)
         self.assertNotIn(self.token, result.stdout + result.stderr)
 
-    def test_repository_image_home_caches_exclude_packages_not_nearby_config(self) -> None:
-        from test_repository_image_cache import CONFIG_SAMPLES, PACKAGE_SUFFIXES, cache_environment
+    def test_dev_container_image_home_caches_exclude_packages_not_nearby_config(self) -> None:
+        from test_dev_container_image_cache import CONFIG_SAMPLES, PACKAGE_SUFFIXES, cache_environment
         environment = cache_environment("frozen-repository-image-v2.Dockerfile")
         for name, suffix in PACKAGE_SUFFIXES.items():
             self.put((environment[name] + suffix).lstrip("/"), "TOKEN=" + self.token)
@@ -212,7 +212,7 @@ class RealTrivyTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("PUBLIC_OPENSSL_SOURCE"), "PUBLIC_OPENSSL_SOURCE must name the verified public crate source")
     def test_public_cargo_fixture_is_skipped_without_hiding_first_party_keys(self) -> None:
-        from test_repository_image_cache import cache_environment
+        from test_dev_container_image_cache import cache_environment
         data = Path(os.environ["PUBLIC_OPENSSL_SOURCE"]).read_bytes()
         self.assertEqual(hashlib.sha256(data).hexdigest(), "f5a2f708afdd360135caa7c7984d639003dec6b012534b5c538fc9ca452aaaaa")
         home = cache_environment("frozen-repository-image-v2.Dockerfile").get("CARGO_HOME", "/home/vscode/.cargo")
@@ -308,7 +308,7 @@ class RealTrivyTests(unittest.TestCase):
     def test_rooted_cache_exclusions_keep_home_config_source_and_nonpackage_caches(self) -> None:
         for name, content in self.public_cache_fixtures().items():
             self.put(name, content)
-        from test_repository_image_cache import CONFIG_SAMPLES
+        from test_dev_container_image_cache import CONFIG_SAMPLES
         protected = CONFIG_SAMPLES + (
             "home/vscode/.npmrc", "home/vscode/.config/mise/config.toml",
             "home/vscode/.cache/npm/.npmrc", "home/vscode/.cache/mise/config.toml",
