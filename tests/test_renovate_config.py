@@ -266,6 +266,45 @@ class RenovateConfigContractTests(unittest.TestCase):
             ),
         )
 
+    def test_python_minor_bumps_are_manual_and_patch_bumps_automerge(self) -> None:
+        pins = (
+            ("mise", "mise.toml"),
+            ("mise", ".mise.toml"),
+            ("asdf", ".tool-versions"),
+            ("pyenv", ".python-version"),
+        )
+        for manager, file_name in pins:
+            dependency = {
+                "repository": "Rubio-Enterprises/org-ops",
+                "manager": manager,
+                "depName": "python",
+                "packageName": "python",
+                "fileName": file_name,
+                "currentVersion": "3.15.2",
+            }
+            with self.subTest(manager=manager, file=file_name):
+                minor = _resolve_dependency({**dependency, "updateType": "minor"})
+                self.assertNotIn("enabled", minor)
+                self.assertFalse(minor["automerge"])
+                self.assertFalse(minor["platformAutomerge"])
+                patch = _resolve_dependency({**dependency, "updateType": "patch"})
+                self.assertTrue(patch["automerge"])
+                self.assertFalse(patch["platformAutomerge"])
+
+        # Other runtimes, and other Python-named dependencies, keep the standing lane.
+        for manager, name in (("mise", "node"), ("npm", "python"), ("pep621", "pytest")):
+            with self.subTest(manager=manager, dep=name):
+                resolved = _resolve_dependency({
+                    "repository": "Rubio-Enterprises/org-ops",
+                    "manager": manager,
+                    "depName": name,
+                    "packageName": name,
+                    "fileName": "mise.toml",
+                    "currentVersion": "24.1.0",
+                    "updateType": "minor",
+                })
+                self.assertTrue(resolved["automerge"])
+
     def test_mise_manager_updates_repository_runtime_pins(self) -> None:
         resolved = _resolve_dependency({
             "repository": "Rubio-Enterprises/org-ops",
@@ -1039,6 +1078,13 @@ class RenovateConfigContractTests(unittest.TestCase):
             "mise-cli",
             "uv-cli",
         }
+        python_minor = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.get("matchDepNames") == ["python"]
+            and rule.get("matchUpdateTypes") == ["minor"]
+        )
+        self.assertGreater(python_minor, standing)
         for group_name in manual_groups:
             with self.subTest(group=group_name):
                 index = next(
