@@ -37,7 +37,7 @@ services:
       - PR_TITLE
       - TRIVY_CACHE_DIR
       - TRIVY_SKIP_DB_UPDATE
-      - RUBIO_VOLUME_DIRS=${REPO_DIR}/.venv ${REPO_DIR}/node_modules
+      - RUBIO_VOLUME_DIRS=${REPO_DIR}/.venv:${REPO_DIR}/node_modules
     volumes:
       - ${REPO_DIR}:${REPO_DIR}
       - ${GIT_COMMON_DIR}:${GIT_COMMON_DIR}
