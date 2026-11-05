@@ -161,7 +161,7 @@ fi
         client_calls = [
             call
             for call in credentials
-            if any(arg.startswith("ghcr.io/") for arg in call.split("|", 1)[1].split()[1:])
+            if any(arg.split("/", 1)[0] == "ghcr.io" for arg in call.split("|", 1)[1].split()[1:])
         ]
         self.assertTrue(client_calls)
         self.assertTrue(all(call.startswith(str(self.root / "build-service/docker-publish") + "|") for call in client_calls))
