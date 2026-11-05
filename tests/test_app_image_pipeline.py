@@ -44,12 +44,10 @@ class Shape(unittest.TestCase):
                 self.assertNotIn("mise ", job(name), name)
                 self.assertNotIn("mise-action", job(name), name)
         test = job("test")
-        self.assertEqual(re.findall(r"\bmise (?:run|tasks)[^\n]*", test), ["mise run setup", "mise tasks info test:image > /dev/null 2>&1; then", "mise run test:image"])
-        # The pull leaves no credential: it comes before any repository task
-        self.assertLess(test.index("operation: pull"), test.index("mise run setup"))
-        self.assertLess(test.index("operation: pull"), test.index("mise run test:image"))
-        self.assertIn('IMAGE_NAME="${IMAGE%@*}" mise run test:image', test)
-        self.assertIn("defines no test:image task", test)
+        self.assertNotIn("mise-action", test)
+        self.assertIn("run: just build && just setup", test)
+        self.assertIn('IMAGE_NAME="${IMAGE%@*}" just test-image', test)
+        self.assertLess(test.index("operation: pull"), test.index("just setup"))
 
     def test_the_smoke_job_checks_out_only_to_mount_listed_files_and_runs_nothing_from_it(self):
         smoke = job("smoke")
@@ -114,7 +112,7 @@ class Shape(unittest.TestCase):
     def test_third_party_actions_are_pinned_and_first_party_ones_follow_main(self):
         for ref in re.findall(r"uses: (\S+)", PIPELINE):
             if ref.startswith("Rubio-Enterprises/.github/"):
-                self.assertRegex(ref, r"^Rubio-Enterprises/\.github/(actions/(app-image|dev-container-image)|\.github/workflows/app-image\.yml)@main$")
+                self.assertRegex(ref, r"^Rubio-Enterprises/\.github/(actions/(app-image|build-service|setup-just)|\.github/workflows/app-image\.yml)@main$")
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
@@ -167,7 +165,7 @@ class Builder(unittest.TestCase):
     def test_the_builder_does_not_build_when_promoting_and_the_other_way_round(self):
         self.assertIn("if: ${{ !cancelled() && !failure() && !inputs.promote }}", APP_IMAGE)
         self.assertIn("    if: inputs.promote\n", APP_IMAGE)
-        self.assertIn("if: inputs.standards-install && !inputs.promote", APP_IMAGE)
+        self.assertNotIn("standards-install", APP_IMAGE)
 
     def test_the_builders_outputs_come_from_whichever_job_ran(self):
         for output in ("digest", "image", "version"):

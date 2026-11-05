@@ -28,7 +28,7 @@ class MainDeliveryTests(unittest.TestCase):
 
     def test_workflow_validation_does_not_invoke_retired_publication_code(self):
         validation = (ROOT / ".github/workflows/workflow-validation.yml").read_text()
-        self.assertIn("run: actionlint", validation)
+        self.assertIn("run: just build && just check", validation)
         self.assertNotIn("plumbing_ref", validation)
         self.assertNotIn("plumbing-ref", validation)
 

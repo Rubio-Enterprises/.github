@@ -4,10 +4,10 @@
 on the Build Service (mac-dev-playbook ADR 0057) as a **candidate** pushed to GHCR, and **promotes** a
 tested candidate by retagging it. It serves private repositories only: public repositories cannot use
 self-hosted runners and stay GitHub-hosted. [`repository-image.yml`](repository-image.md) builds the CI
-runner image pair and is separate.
+runner image and is separate.
 
 **Only `app-image-pipeline.yml` calls this workflow.** A repository calls the pipeline, which chains the
-candidate build, the structure checks (T1), the smoke test, the repository's `mise run test:image` and the
+candidate build, the structure checks (T1), the smoke test, the repository's `just test-image` and the
 promotion (build once, test, promote). This page describes the builder. The earlier modes (a build check
 and a direct publish that rebuilt after testing, with `verified-image`) are gone.
 
@@ -35,7 +35,6 @@ attestations come from BuildKit instead.
 | `candidate-image` | Promote only: the tested candidate, the `image` output of the candidate build |
 | `moving-tags` | Promote only: tags that may move to another image, one exact tag per line. Every other existing tag is never overwritten |
 | `server`, `block-vulnerabilities` | Tier 1: a server's configuration must declare a `HEALTHCHECK`; a fixable CRITICAL vulnerability fails the build (default: report only) |
-| `standards-install` | For a Dockerfile that copies a file out of `.standards/`: a separate job runs `mise run standards:install` and hands the directory over as an artifact (see "What runs where") |
 | `ref`, `submodules` | Passed to `actions/checkout`. A `ref` other than the event's also switches `docker/metadata-action` to `context: git`, so tags and labels describe what was built |
 | `timeout-minutes` | Build job timeout (default 45) |
 
@@ -79,12 +78,12 @@ resolves to another digest afterwards fails the job.
 
 ## How a job gets the image to GHCR
 
-1. `connect` (the `dev-container-image` action's `connect.sh`, reused so there is one
+1. `connect` (the `build-service` action's `connect.sh`, reused so there is one
    implementation) trades the job's OIDC token for a one-hour client certificate and configures
    the remote buildx builder.
 2. `build` runs `docker buildx build` into the staging registry beside the builder. The builder
    holds no registry credential, so no `--cache-from`/`--cache-to`: its own cache persists.
-3. `candidate` is the only step with the GHCR token. `docker buildx imagetools create
+3. `candidate` uses the GHCR publication credential. The build step forwards pull authentication only through the BuildKit session. `docker buildx imagetools create
    --prefer-index=false` copies the staged digest to each tag, preserving the digest and every
    child manifest, and each tag is checked against it. `--prefer-index=false` matters: by default
    buildx wraps a bare image manifest (a candidate with `attestations: false`) in a
@@ -114,19 +113,13 @@ Repository files are data to the job that holds the credentials, never code.
 - **`promote` job** (small pool, `contents: read`, `packages: write`, no OIDC token, no certificate): the
   registry client tools and the central `promote` action; a checkout appears only for a `ref` other than the
   event's, as data for `docker/metadata-action`.
-- **`prepare` job** (`standards-install` only; small pool, `contents: read`, `packages: read`, no
-  OIDC token): runs the repository's `mise run standards:install` and uploads `.standards/` as a
-  one-day artifact with a name unique to the call. The build downloads it into the workspace,
-  where it is build-context data like any tracked file. The small pool cannot reach the Build
-  Service host, and the job has nothing to write to GHCR with.
-- **Inside the builder**, the Dockerfile's steps are the repository's code. See the next section.
 
 ## Contract limits
 
 - Any path from the caller must stay inside the checkout, symlinks resolved.
 - `--secret` and SSH mounts are not offered. No repository's image build used one.
 - The first BuildKit restart-retry (`code = Unavailable`) is the only retry. It is `retry_unavailable` in
-  `actions/build-service/retry.sh`, shared with `dev-container-image`.
+  `actions/build-service/retry.sh`, shared with the CI image builder.
 - `image-name` is the repository's name or a name under it (`<repo>/<name>`): the workflow and every
   script refuse any other package, so one repository cannot publish into another's. GHCR separately
   refuses a push to an existing package the repository has no access to.
@@ -142,7 +135,7 @@ and the weekly rebuild of the builder:
   `COPY --from`). A Dockerfile can therefore `FROM` another repository's staged image
   (`<staging>/rubio-enterprises/<repo>/run-<run>-<attempt>/<package>:run-…`) and read it. Staged images are disposable
   and the registry is emptied daily. Base images from public registries need no credential. The
-  GHCR token and the client key never reach the daemon.
+  GHCR pull credential is forwarded only through the BuildKit registry-auth session; the client private key never reaches the daemon.
 - **Cache mounts are daemon-wide.** `RUN --mount=type=cache` shares a cache by `id`, and the
   default id is the target path, so two repositories mounting `/root/.cache/uv` share one cache.
   A repository can poison another's package cache, and the poison lands in the other repository's
@@ -164,6 +157,5 @@ Private CA exchange only:
 - an attested index copied with the same digest, children present, no referrers tag, then promoted to
   two tags with the digest unchanged.
 
-The production builder, the Private CA exchange, `standards-install` end to end and GHCR's package
+The production builder, the Private CA exchange and GHCR's package
 deletion are qualification gates for the canary, not claims of the fixtures.
-

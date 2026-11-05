@@ -1,0 +1,7 @@
+# Mirror the standards first-party ref policy (ADR-0034)
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "Rubio-Enterprises/*": any
+        "*": hash-pin

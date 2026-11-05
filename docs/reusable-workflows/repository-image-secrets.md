@@ -1,31 +1,14 @@
-# Dev Container Image secret checks
+# CI Image secret checks
 
-The dev artifact is audited and scanned before either variant can be pushed.
-The CI artifact relies on exact rebase/provenance verification instead of a
-second audit/scan; its runner-base additions are outside this scan's scope.
-
-1. `docker build --check --platform linux/amd64` validates the central recipe,
-   including `SecretsUsedInArgOrEnv`, without executing build steps. A violation
-   exits nonzero and fails the build. Buildx >= 0.15 and a supporting Dockerfile
-   frontend (introduced in Dockerfile 1.8) are required; unsupported tooling fails.
-2. Trivy scans the immutable dev reference in the job-local registry with
-   `--image-src remote --insecure --scanners secret --image-config-scanners secret
-   --exit-code 1`. Insecure transport is only for this loopback registry. Files,
-   environment variables and build history are checked, with no Docker-source
-   fallback. Scanner errors and the 15-minute timeout fail closed.
-3. The Go template prints only location, line range, rule ID and severity. Matched
-   contents and snippets are never rendered; no secret-bearing JSON/SARIF is
-   written or uploaded. Do not enable debug logging. Scan duration/status are
-   logged; telemetry and version checks are disabled, and no vulnerability DB
-   is needed for secret-only scanning.
-4. Only subsequent successful-step-only crane copies publish the verified
-   pair on allowed default-branch events. A failed scan prevents both pushes,
-   moving indices and pruning.
+The immutable staged CI image is scanned before it can reach GHCR. Scan failures
+block copy and tag movement. `actions/repository-image/scan.sh` uses the pinned
+Trivy binary, central policy and no caller-supplied ignore/config file. Findings
+remain in temporary JSON and are never printed or uploaded.
 
 ## Trivy installation and exclusions
 
 Trivy **0.76.1** is downloaded from its official GitHub release with the Linux
-amd64 SHA-256 committed in the workflow. `sha256sum --check --strict` must succeed
+amd64 SHA-256 committed in the scan script. `sha256sum --check --strict` must succeed
 before extraction; no installer script runs. Version updates require reviewing
 both the archive hash and the default skip-list snapshot. A floating checksum
 download is not a trust pin. This avoids the mutable action/setup tags implicated
@@ -33,7 +16,7 @@ in the [March 2026 incident](https://github.com/aquasecurity/trivy/discussions/1
 Checksums establish byte integrity, not immunity to a malicious upstream release.
 
 Caller `trivy.yaml`, `.trivyignore` and `trivy-secret.yaml` are not loaded. The policy is
-`actions/dev-container-image/trivy-secret.yaml`, which every scan step copies from the central action.
+`actions/build-service/trivy-secret.yaml`, which every scan step copies from the central action.
 Setting `skip-patterns` **replaces**, rather than extends, Trivy's defaults. The workflow
 preserves all 23 patterns from 0.76.1's
 [`defaultSkipPatterns`](https://github.com/aquasecurity/trivy/blob/e713f67f7d54decdcd9b3132c9751833dcced698/pkg/fanal/secret/scanner.go#L33-L58):
@@ -198,8 +181,8 @@ References: [Docker build checks](https://docs.docker.com/build/checks/),
 
 ## Local verification
 
-`tests/test_repository_image_secrets.py` preserves the policy snapshots and
-real-scanner regressions. Set `TRIVY_TEST_BINARY` to a checksum-verified Trivy
+`tests/test_host_first.py` covers publication failure paths;
+`tests/test_app_image_secret_policy.py` covers the App Image policy and real-scanner fixtures. Set `TRIVY_TEST_BINARY` to a checksum-verified Trivy
 0.76.1 binary to run the latter. Optional verified public sources are
 `PUBLIC_OPENSSL_SOURCE` (openssl 0.10.81 `src/pkey_ctx.rs`) and
 `PUBLIC_RUBY_GEM_CLIENT` (aws-sdk-core 3.261.0

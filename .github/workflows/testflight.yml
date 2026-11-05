@@ -89,6 +89,8 @@ jobs:
       # a release must build exactly the commit the operator attested to.
       - name: Check out caller revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Create run-scoped signing keychain
         run: |
@@ -143,6 +145,9 @@ jobs:
           echo "Selected Xcode $pinned at $selected"
           echo "DEVELOPER_DIR=$selected" >>"$GITHUB_ENV"
 
+      - name: Install just
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+
       - name: Set up Ruby
         uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1.328.0
         with:
@@ -171,7 +176,7 @@ jobs:
           MATCH_KEYCHAIN_NAME: ${{ env.SIGNING_KEYCHAIN_NAME }}
           MATCH_KEYCHAIN_PASSWORD: ''
           TESTFLIGHT_CHANGELOG: ${{ inputs.changelog }}
-        run: bundle exec fastlane ios testflight_release
+        run: just testflight
 
       - name: Record outcome
         if: ${{ always() }}

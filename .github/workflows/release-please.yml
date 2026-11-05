@@ -10,10 +10,12 @@ name: release-please
       tag_name: { value: "${{ jobs.release-please.outputs.tag_name }}" }
       version: { value: "${{ jobs.release-please.outputs.version }}" }
       prs_created: { value: "${{ jobs.release-please.outputs.prs_created }}" }
-permissions: {} # every write goes through the App token
+permissions:
+  contents: read
+  packages: read # internal base image for the uv.lock refresh
 jobs:
   release-please:
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 15
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -45,22 +47,29 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ steps.pr.outputs.branch }}
-          token: ${{ steps.app-token.outputs.token }} # pushes the uv.lock refresh below
-      # The version bump leaves a root uv.lock stale, which the standards check rejects.
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
       - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
-          # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          uv lock
+          just build
+          just exec uv lock
           git diff --quiet -- uv.lock && exit 0
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m 'chore: refresh uv lock' -- uv.lock
-          git push origin "HEAD:$BRANCH"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" \
+            git push origin "HEAD:$BRANCH"
       - if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

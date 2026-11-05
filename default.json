@@ -16,26 +16,18 @@
   "rangeStrategy": "bump",
   "minimumReleaseAge": "7 days",
   "rebaseWhen": "conflicted",
-  "labels": [
-    "dependencies"
-  ],
+  "labels": ["dependencies"],
   "copier": {
     "enabled": false
   },
   "devcontainer": {
-    "managerFilePatterns": [
-      "/^\\.github/\\.devcontainer/devcontainer\\.json$/"
-    ]
+    "managerFilePatterns": ["/^\\.github/\\.devcontainer/devcontainer\\.json$/"]
   },
   "packageRules": [
     {
       "description": "Biome is owned only by the standards mise floor. Freeze npm manifest copies (including upstream fork pins) without disabling custom.regex floor/schema bumps in standards.",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchPackageNames": [
-        "@biomejs/biome"
-      ],
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["@biomejs/biome"],
       "enabled": false
     },
     {
@@ -47,46 +39,27 @@
         "poetry",
         "pipenv"
       ],
-      "matchDatasources": [
-        "pypi"
-      ],
-      "matchPackageNames": [
-        "ruff"
-      ],
+      "matchDatasources": ["pypi"],
+      "matchPackageNames": ["ruff"],
       "enabled": false
     },
     {
       "description": "Do not automatically raise the consumer-owned pyproject.toml requires-python compatibility FLOOR on every CPython patch. Renovate bumped >=3.14.6 to >=3.14.7 while the pinned Python and uv 0.12.1 still provided at most 3.14.6, making uv lock and CI fail. Raise the floor deliberately alongside the repository's Python pin in image/mise.toml; ordinary pep621 package updates stay enabled.",
-      "matchManagers": [
-        "pep621"
-      ],
-      "matchDepTypes": [
-        "requires-python"
-      ],
-      "matchPackageNames": [
-        "python"
-      ],
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["requires-python"],
+      "matchPackageNames": ["python"],
       "enabled": false
     },
     {
       "description": "Disable Terraform CORE version bumps (`required_version` in versions.tf) across onboarded consumers. Renovate raises the constraint in git, but the executing version lives OUTSIDE git — it is the HCP Terraform workspace's own `terraform-version` setting — and nothing raises that. A merged bump therefore makes every run in that workspace fail at `terraform init` with `Error: Unsupported Terraform Core version`, which stays invisible until someone needs an apply. Measured: agent-workspaces#113 raised the constraint to >= 1.15.9, the workspace stayed on 1.15.8, and every run errored for two weeks — found only when an outage fix could not be applied. Raising Terraform core is a paired, deliberate move (raise the workspace setting, then merge the constraint), so it is not background maintenance. NOTE: scoped to the core-version depType only; provider and module updates under the terraform manager are unaffected.",
-      "matchManagers": [
-        "terraform"
-      ],
-      "matchDepTypes": [
-        "required_version"
-      ],
+      "matchManagers": ["terraform"],
+      "matchDepTypes": ["required_version"],
       "enabled": false
     },
     {
       "description": "Pin only named Python dev tools in pep621 dev groups: rangeStrategy:bump writes pyright>=1.1.413, then uv lock resolves 1.1.414 while it is inside the seven-day soak, and Renovate's artifact guard rejects the lockfile. An exact pin keeps the selected, aged version and its uv resolution aligned; runtime and optional dependencies retain their own range strategy.",
-      "matchManagers": [
-        "pep621"
-      ],
-      "matchDepTypes": [
-        "dependency-groups",
-        "tool.uv.dev-dependencies"
-      ],
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
       "matchPackageNames": [
         "pytest",
         "/^pytest-/",
@@ -99,13 +72,8 @@
     },
     {
       "description": "The exact pin of these dev tools writes the version uv.lock already resolves (Renovate 44 derives pep621 current versions from the lock), so it adopts no new release and the seven-day soak has nothing to age. Renovate also wires no release timestamp into `pin` updates (renovatebot/renovate#40288), so under timestamp-required every such pin branch otherwise holds renovate/stability-days pending forever. Only the pin skips the soak; version updates of these tools keep it.",
-      "matchManagers": [
-        "pep621"
-      ],
-      "matchDepTypes": [
-        "dependency-groups",
-        "tool.uv.dev-dependencies"
-      ],
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
       "matchPackageNames": [
         "pytest",
         "/^pytest-/",
@@ -114,96 +82,58 @@
         "coverage",
         "hypothesis"
       ],
-      "matchUpdateTypes": [
-        "pin"
-      ],
+      "matchUpdateTypes": ["pin"],
       "minimumReleaseAge": null
     },
     {
       "description": "Hold TypeScript 7 only where the current version is below 7: TypeScript 7 removes baseUrl and moduleResolution=node10, and typescript-eslint and @astrojs/check peer ranges do not yet support it. Lift the hold when both support TypeScript 7; repositories already on 7 continue receiving 7.x.",
-      "matchPackageNames": [
-        "typescript"
-      ],
+      "matchPackageNames": ["typescript"],
       "matchCurrentVersion": "<7",
       "allowedVersions": "<7"
     },
     {
       "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. The require-review fallback sets platformAutomerge:false so Renovate's own engine performs the merge as the bypassed Renovate App. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original onboarded set had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. Renovate's own engine is stricter here because it waits for every check the consumer actually renders, not only the checks required before GitHub merges.",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "digest",
-        "pinDigest"
-      ],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
       "matchCurrentVersion": "!/^v?0/",
       "automerge": true,
       "platformAutomerge": false
     },
     {
       "description": "A Python minor bump (3.14 -> 3.15) in a repository's mise, asdf or .python-version pin needs a human: the interpreter minor is where dependencies lose wheels or break (3.15 dropped typing.no_type_check_decorator and had no pydantic-core wheel). Tests ran on a different uv-picked Python until repositories set UV_PYTHON to the pin (standards#843), so earlier minor bumps merged on untested greens (issue-triage#126, #128). Patch bumps keep the standing automerge. Majors are already held drafts.",
-      "matchManagers": [
-        "mise",
-        "asdf",
-        "pyenv"
-      ],
-      "matchDepNames": [
-        "python"
-      ],
-      "matchUpdateTypes": [
-        "minor"
-      ],
+      "matchManagers": ["mise", "asdf", "pyenv"],
+      "matchDepNames": ["python"],
+      "matchUpdateTypes": ["minor"],
       "automerge": false,
       "platformAutomerge": false
     },
     {
       "description": "A go.mod directive raise must not outrun the organization golangci-lint floor, whose binary is built against a specific Go version; gha-outrunner PR #186 exposed this while standards#414 kept that floor blocked.",
-      "matchManagers": [
-        "gomod"
-      ],
-      "matchDepNames": [
-        "go"
-      ],
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
       "automerge": false
     },
     {
       "description": "Lockfile maintenance only refreshes transitive resolution inside existing ranges - the lowest-risk update class. minimumReleaseAge:0 is required for the automerge to ever fire: under the global 7-day soak, Renovate stamps its own `renovate/stability-days` pending status whenever any refreshed transitive release is younger than 7 days, its merge engine waits for ALL checks including that one, and the next weekly refresh pulls new young releases that re-arm the clock - so the PR stays green-but-unmergeable indefinitely (standards#404 sat 8 days; hand-merged 2026-08-03). The soak exists to vet just-published DIRECT updates; lockfile refreshes stay inside ranges already vetted by their own PRs.",
-      "matchUpdateTypes": [
-        "lockFileMaintenance"
-      ],
+      "matchUpdateTypes": ["lockFileMaintenance"],
       "automerge": true,
       "platformAutomerge": false,
       "minimumReleaseAge": "0 days"
     },
     {
       "description": "Ungrouped stable npm minor and patch updates share one rolling PR while inheriting the standing safe automerge posture. The current-version guard keeps pre-1.0 packages out, and the JSONata guard preserves an earlier narrower monorepo group.",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "!/^v?0/",
-      "matchJsonata": [
-        "$exists(groupName) = false"
-      ],
+      "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "stable non-major npm dependencies",
       "groupSlug": "npm-stable-non-major"
     },
     {
       "description": "Ungrouped pre-1.0 npm minor and patch updates remain human-reviewed in a branch distinct from stable npm updates. The JSONata guard preserves an earlier narrower monorepo group.",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "/^v?0/",
-      "matchJsonata": [
-        "$exists(groupName) = false"
-      ],
+      "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "pre-1.0 npm dependencies",
       "groupSlug": "npm-pre-1-0",
       "automerge": false,
@@ -211,33 +141,19 @@
     },
     {
       "description": "Ungrouped stable Cargo minor and patch updates share one rolling PR while inheriting the standing safe automerge posture. The current-version guard keeps pre-1.0 crates out, and the JSONata guard preserves an earlier narrower monorepo group.",
-      "matchManagers": [
-        "cargo"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "!/^v?0/",
-      "matchJsonata": [
-        "$exists(groupName) = false"
-      ],
+      "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "stable non-major cargo dependencies",
       "groupSlug": "cargo-stable-non-major"
     },
     {
       "description": "Ungrouped pre-1.0 Cargo minor and patch updates remain human-reviewed in a branch distinct from stable Cargo updates. The JSONata guard preserves an earlier narrower monorepo group.",
-      "matchManagers": [
-        "cargo"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "/^v?0/",
-      "matchJsonata": [
-        "$exists(groupName) = false"
-      ],
+      "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "pre-1.0 cargo dependencies",
       "groupSlug": "cargo-pre-1-0",
       "automerge": false,
@@ -245,67 +161,43 @@
     },
     {
       "description": "Ungrouped stable dependency pin updates share a safe automerge branch without being blocked by a pre-1.0 pin. The JSONata guard preserves earlier narrower groups, and later package-specific grouping rules remain authoritative.",
-      "matchUpdateTypes": [
-        "pin"
-      ],
+      "matchUpdateTypes": ["pin"],
       "matchCurrentVersion": "!/^v?0/",
-      "matchJsonata": [
-        "$exists(groupName) = false"
-      ],
+      "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "stable dependency pins",
       "groupSlug": "stable-dependency-pins"
     },
     {
       "description": "Ungrouped pre-1.0 dependency pin updates remain human-reviewed in a branch distinct from stable pins. The JSONata guard preserves earlier narrower groups, and later package-specific grouping rules remain authoritative.",
-      "matchUpdateTypes": [
-        "pin"
-      ],
+      "matchUpdateTypes": ["pin"],
       "matchCurrentVersion": "/^v?0/",
-      "matchJsonata": [
-        "$exists(groupName) = false"
-      ],
+      "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "pre-1.0 dependency pins",
       "groupSlug": "pre-1-0-dependency-pins",
       "automerge": false,
       "platformAutomerge": false
     },
     {
-      "matchManagers": [
-        "github-actions"
-      ],
+      "matchManagers": ["github-actions"],
       "groupName": "github-actions",
       "groupSlug": "github-actions"
     },
     {
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchDepNames": [
-        "aquasecurity/trivy-action"
-      ],
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["aquasecurity/trivy-action"],
       "extractVersion": "^v?(?<version>.+)$"
     },
     {
       "description": "The starter standards.yml is copied from the standards package and reported as Starter Drift when it differs. Its action pins advance in the package's starter, so per-consumer github-actions updates in this file are disabled to keep it identical. First-party .github calls follow main and are disabled separately for every caller.",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchFileNames": [
-        ".github/workflows/standards.yml"
-      ],
-      "matchRepositories": [
-        "!Rubio-Enterprises/.github"
-      ],
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/standards.yml"],
+      "matchRepositories": ["!Rubio-Enterprises/.github"],
       "enabled": false
     },
     {
       "description": "First-party fast lane for org-published OCI artifacts. The global 7-day minimumReleaseAge is a supply-chain soak for just-published THIRD-PARTY versions; an artifact the org itself publishes to ghcr.io/rubio-enterprises (Dev Container features, container images) was already gated by review and CI on the PR that released it, so there is nothing to vet. null, not \"0 days\": a Dev Container feature's OCI manifest carries no creation timestamp, and Renovate's default minimumReleaseAgeBehaviour (timestamp-required) never treats an untimestamped release as stable, so any age requirement at all would hold these updates forever. Scoped to the docker datasource and the ghcr.io/rubio-enterprises/ prefix because GHCR enforces org ownership of that namespace; the bare `rubio-enterprises/` docker name is deliberately NOT matched — it resolves to Docker Hub, whose namespaces are first-come and not provably the org's. The age exemption does not widen automerge: majors and pre-1.0 updates remain held drafts.",
-      "matchDatasources": [
-        "docker"
-      ],
-      "matchPackageNames": [
-        "/^ghcr\\.io\\/rubio-enterprises\\//i"
-      ],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/^ghcr\\.io\\/rubio-enterprises\\//i"],
       "minimumReleaseAge": null
     },
     {
@@ -326,51 +218,28 @@
     },
     {
       "description": "First-party .github workflows and actions follow main directly. Do not pin or update this dependency in any caller, including repository-owned TestFlight release workflows; third-party action updates retain their existing policy.",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchDepNames": [
-        "Rubio-Enterprises/.github"
-      ],
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["Rubio-Enterprises/.github"],
       "enabled": false,
       "pinDigests": false
     },
     {
       "description": "Runtime dependency updates that change a shipped tool (`rubio-cli-kit` or `typer`) must use `fix(deps)` so release-please cuts a patch release. This rule changes commit semantics only; the separate fast-lane rule below preserves the standing manual posture for major and 0.x updates.",
-      "matchDepNames": [
-        "rubio-cli-kit",
-        "typer"
-      ],
+      "matchDepNames": ["rubio-cli-kit", "typer"],
       "semanticCommitType": "fix"
     },
     {
       "description": "Group related tool runtime dependencies even when Typer is 0.x. A kit release can raise its Typer floor; separate branches make uv lock fail before either PR exists. This rule controls grouping and the age exemption only. Automerge remains per-upgrade, so a group containing a 0.x Typer update stays manual because Renovate automerges a branch only when every upgrade is automerge-enabled.",
-      "matchDepNames": [
-        "rubio-cli-kit",
-        "typer"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "digest"
-      ],
+      "matchDepNames": ["rubio-cli-kit", "typer"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "groupName": "tool runtime dependencies",
       "groupSlug": "tool-runtime-dependencies",
       "minimumReleaseAge": "0 days"
     },
     {
       "description": "Stable non-major tool runtime dependencies use the first-party fast lane: skip the third-party 7-day soak and let Renovate merge as soon as every check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable without widening automerge. Major and 0.x updates remain manual.",
-      "matchDepNames": [
-        "rubio-cli-kit",
-        "typer"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "digest"
-      ],
+      "matchDepNames": ["rubio-cli-kit", "typer"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^v?0/",
       "automerge": true,
       "platformAutomerge": false,
@@ -378,35 +247,17 @@
     },
     {
       "description": "Git-sourced uv-tools entries must resolve readable tags to immutable commit SHAs. This narrow rule owns pinDigests because it is a package option, not a custom-manager field; keeping it independent of update type and current version lets Renovate bootstrap a tag-only entry before it can classify the resulting pinDigest update.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchFileNames": [
-        "home/.chezmoidata/uv-tools.toml"
-      ],
-      "matchPackageNames": [
-        "/^Rubio-Enterprises\\//"
-      ],
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["home/.chezmoidata/uv-tools.toml"],
+      "matchPackageNames": ["/^Rubio-Enterprises\\//"],
       "pinDigests": true
     },
     {
       "description": "Git-sourced tool pins in `home/.chezmoidata/uv-tools.toml` are authoritative first-party inputs for the org. Group stable non-major tag/SHA advances into one PR, skip the org release-age soak, and use Renovate-side automerge; major and 0.x tool releases stay manual.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchFileNames": [
-        "home/.chezmoidata/uv-tools.toml"
-      ],
-      "matchPackageNames": [
-        "/^Rubio-Enterprises\\//"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "digest",
-        "pinDigest"
-      ],
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["home/.chezmoidata/uv-tools.toml"],
+      "matchPackageNames": ["/^Rubio-Enterprises\\//"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
       "matchCurrentVersion": "!/^v?0/",
       "groupName": "first-party tool pins",
       "groupSlug": "first-party-tool-pins",
@@ -416,9 +267,7 @@
     },
     {
       "description": "mise CLI pin on each workflow's MISE_VERSION fallback environment entry. The action receives the observed runner version instead, avoiding self-update on warm runners. Renovate updates the approved cold fallback (human merge only), with image convergence and a warm-glue receipt required before gate publication.",
-      "matchDepNames": [
-        "jdx/mise"
-      ],
+      "matchDepNames": ["jdx/mise"],
       "groupName": "mise-cli",
       "groupSlug": "mise-cli",
       "commitMessageTopic": "mise CLI",
@@ -427,12 +276,8 @@
     },
     {
       "description": "uv CLI version pin (the `version:` input on astral-sh/setup-uv across the reusable workflows, tracked by the astral-sh/uv customManager below). Same human-merge posture as the mise CLI pin above, for the same reason: setup-uv runs BEFORE every linter/test in every Python-touching gate, so a bad uv release fails onboarded consumers' gates at a step where no consumer diagnostic has run yet. uv is still 0.x, so the blanket automerge rule's `matchCurrentVersion: !/^v?0/` excludes it today; this explicit override keeps the pin manual after uv reaches 1.0.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "astral-sh/uv"
-      ],
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["astral-sh/uv"],
       "groupName": "uv-cli",
       "groupSlug": "uv-cli",
       "commitMessageTopic": "uv CLI",
@@ -441,27 +286,17 @@
     },
     {
       "description": "Renovate's devcontainer manager bumps images and features in .devcontainer/devcontainer.json but has no artifact updater for devcontainer-lock.json, so a feature bump would leave the lockfile pinning the old version and digest. Regenerate it once per branch with the Dev Container CLI, which .github-private's Renovate container provisions and allowlists as exactly this command, and commit only the lockfile. Scoped to the root workspace file: standards' template seed lives elsewhere and has no lockfile.",
-      "matchManagers": [
-        "devcontainer"
-      ],
-      "matchFileNames": [
-        ".devcontainer/devcontainer.json"
-      ],
+      "matchManagers": ["devcontainer"],
+      "matchFileNames": [".devcontainer/devcontainer.json"],
       "postUpgradeTasks": {
-        "commands": [
-          "devcontainer upgrade --workspace-folder ."
-        ],
-        "fileFilters": [
-          ".devcontainer/devcontainer-lock.json"
-        ],
+        "commands": ["devcontainer upgrade --workspace-folder ."],
+        "fileFilters": [".devcontainer/devcontainer-lock.json"],
         "executionMode": "branch"
       }
     },
     {
       "description": "Per-repository prebuilt Dev Container images deliberately float on :main. They are private packages unavailable to Renovate; do not look up versions or pin digests in any Docker-datasource manager.",
-      "matchDatasources": [
-        "docker"
-      ],
+      "matchDatasources": ["docker"],
       "matchPackageNames": [
         "/^ghcr\\.io/rubio-enterprises/[^/]+/devcontainer$/"
       ],
@@ -483,9 +318,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
-        "^\\.github/workflows/[^/]+\\.ya?ml$"
-      ],
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
       "matchStrings": [
         "# renovate: datasource=github-releases depName=jdx/mise\\s+MISE_VERSION:\\s*\"(?<currentValue>[^\"]+)\""
       ],
@@ -496,9 +329,7 @@
     {
       "description": "uv CLI pin on astral-sh/setup-uv's `version:` input. Mirrors the jdx/mise manager above; no extractVersionTemplate because astral-sh/uv tags are bare semver (`0.12.1`), not v-prefixed like mise's.",
       "customType": "regex",
-      "fileMatch": [
-        "^\\.github/workflows/[^/]+\\.ya?ml$"
-      ],
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
       "matchStrings": [
         "# renovate: datasource=github-releases depName=astral-sh/uv\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
       ],
@@ -508,9 +339,7 @@
     {
       "description": "Git-sourced uv-tools entries use recursive matching: the outer expression binds one TOML table to its GitHub repo, and the inner expression replaces only that table's `version` line. The paired package rule enables `pinDigests` so tag-only entries bootstrap, and the explicit replacement always writes the immutable SHA plus readable tag (`version = \"<sha>\"  # vX.Y.Z`).",
       "customType": "regex",
-      "fileMatch": [
-        "^home/\\.chezmoidata/uv-tools\\.toml$"
-      ],
+      "fileMatch": ["^home/\\.chezmoidata/uv-tools\\.toml$"],
       "matchStringsStrategy": "recursive",
       "matchStrings": [
         "(?m)^\\[tools\\.(?<depName>[A-Za-z0-9._-]+)\\]\\r?\\n(?:(?:[^\\[\\r\\n][^\\r\\n]*)?\\r?\\n)*?^[ \\t]*source[ \\t]*=[ \\t]*\"git\\+ssh://git@github\\.com/(?<packageName>Rubio-Enterprises/[A-Za-z0-9._-]+)\"[^\\r\\n]*$",
@@ -523,8 +352,6 @@
     }
   ],
   "mise": {
-    "fileMatch": [
-      "(^|/)image/mise\\.toml$"
-    ]
+    "managerFilePatterns": ["/^image/mise\\.toml$/"]
   }
 }

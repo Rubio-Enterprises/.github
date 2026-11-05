@@ -52,13 +52,11 @@ stripped, then truncated to 40>-<size>`. Both image classes must already be admi
 before the central ID switch is enabled. No generic-runner fallback is attempted when an admitted
 image label is unavailable.
 
-Missing RUNNERS keys retain the existing hosted fallbacks: small → `ubuntu-slim`, medium/Docker/KVM
-→ `ubuntu-latest`, ARM → `ubuntu-24.04-arm`, macOS → `macos-26`; VRT remains self-only on
-`linux-x64-medium`. Public consumers cannot see the private map. An owner-selected hosted route
-also remains hosted even if the repository ID is admitted.
+Missing route keys retain the normal capability fallbacks. Linux project execution
+outside a CI Image needs Docker: a selected generic `linux-x64-small` or
+`linux-x64-medium` becomes the `RUNNERS.docker` route (fallback `ubuntu-latest`),
+and `ubuntu-slim` becomes `ubuntu-latest`. Explicit capability routes and custom
+multi-label constraints are preserved. An owner-selected hosted route stays hosted.
 
-The router itself is a repository-agnostic job on the ordinary small route, with its existing
-hosted fallback. It uses a SHA-pinned first-party GitHub action, the read-only job token, no
-checkout and no inherited secrets. Values enter through environment variables/context, not script
-interpolation. Invalid JSON/types, unknown routes and invalid property values fail clearly.
-
+The router itself stays a Docker-free small job. It uses the job's read-only token,
+no checkout and no inherited secrets. Invalid declarations fail before outputs.

@@ -8,7 +8,7 @@ name: codewiki-pages (reusable)
 # ------------------
 # This workflow only stages and deploys already-generated, already-committed
 # CodeWiki output. It does not run CodeWiki (generation is local, via the
-# consumer's `mise run codewiki`), and it does not enable Pages or choose the
+# consumer's `just codewiki`), and it does not enable Pages or choose the
 # site's visibility: the GitHub Settings Plane (.github-private Terraform,
 # `codewiki_pages`) enables Pages with build_type=workflow and mirrors the
 # repository's visibility. A repository whose Pages site is not enabled fails
@@ -77,7 +77,7 @@ jobs:
             exit 0
           fi
           if [ ! -f "$src/index.html" ]; then
-            echo "::error::codewiki-pages: '$src/index.html' is missing; regenerate with 'codewiki generate --github-pages' (mise run codewiki) and commit the viewer" >&2
+            echo "::error::codewiki-pages: '$src/index.html' is missing; regenerate with 'codewiki generate --github-pages' (just codewiki) and commit the viewer" >&2
             exit 1
           fi
           stage="$RUNNER_TEMP/codewiki-pages"

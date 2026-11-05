@@ -90,12 +90,12 @@ class ProjectRouteTests(unittest.TestCase):
         self.assertEqual(result['calls'], [])
 
     def test_unadmitted_repository_retains_the_plain_route(self):
-        self.assert_route(['linux-x64-small'], admitted=[])
-        self.assert_route(['linux-x64-small'], admitted=[ID + 1])
+        self.assert_route(['linux-x64-large'], admitted=[])
+        self.assert_route(['linux-x64-large'], admitted=[ID + 1])
 
     def test_hidden_runners_keeps_each_hosted_fallback_even_if_admitted(self):
         for route, expected in {
-            'small': 'ubuntu-slim', 'medium': 'ubuntu-latest', 'docker': 'ubuntu-latest',
+            'small': 'ubuntu-latest', 'medium': 'ubuntu-latest', 'docker': 'ubuntu-latest',
             'kvm': 'ubuntu-latest', 'arm': 'ubuntu-24.04-arm', 'macos': 'macos-26',
             'vrt': 'linux-x64-medium',
         }.items():
@@ -149,8 +149,8 @@ class ProjectRouteTests(unittest.TestCase):
                 self.assert_route([f'ci-{ID}-{slug}-small'], image=True, name=name)
 
     def test_public_repositories_and_other_organizations_never_enter_image_pools(self):
-        self.assert_route(['linux-x64-small'], repository={'private': False})
-        self.assert_route(['linux-x64-small'], owner='other-org')
+        self.assert_route(['ubuntu-latest'], repository={'private': False})
+        self.assert_route(['linux-x64-large'], owner='other-org')
 
     def test_invalid_declarations_fail_before_emitting_a_route(self):
         for kwargs in (
@@ -183,4 +183,3 @@ class ProjectRouteTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

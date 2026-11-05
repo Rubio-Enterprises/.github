@@ -27,7 +27,7 @@ class StandardsRouteTests(unittest.TestCase):
         self.assertIn("run: standards check-pr", WORKFLOW)
         self.assertIn("run: just build", WORKFLOW)
         self.assertIn("run: just check", WORKFLOW)
-        self.assertIn("run: just check-pr", WORKFLOW)
+        self.assertIn("just check-pr || status=$?", WORKFLOW)
         self.assertNotIn("jdx/mise-action@", WORKFLOW)
         self.assertNotIn("astral-sh/setup-uv@", WORKFLOW)
 
@@ -41,4 +41,3 @@ class StandardsRouteTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

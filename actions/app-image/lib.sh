@@ -6,7 +6,7 @@ fail() {
   exit 1
 }
 
-# retry_unavailable, shared with dev-container-image/build-service.sh
+# retry_unavailable, shared with the CI image builder
 # shellcheck source=../build-service/retry.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../build-service/retry.sh"
 

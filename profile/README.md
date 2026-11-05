@@ -4,7 +4,7 @@ Polyglot homelab + experimentation org. Repos are TS/JS, Python, Go, and Rust se
 
 ## Standards
 
-The source of truth lives in [`Rubio-Enterprises/standards`](https://github.com/Rubio-Enterprises/standards). Repositories follow the internal `@rubio-enterprises/standards` package: `npm init @rubio-enterprises/standards` onboards one, and `mise run check` runs every check locally exactly as CI does.
+The source of truth lives in [`Rubio-Enterprises/standards`](https://github.com/Rubio-Enterprises/standards). Repositories use the internal `ghcr.io/rubio-enterprises/base:main` image: `npm init @rubio-enterprises/standards` onboards one, and `just check` runs every check locally exactly as CI does.
 
 ## Reusable workflows
 

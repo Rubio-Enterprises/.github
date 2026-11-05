@@ -32,7 +32,6 @@ def steps(name: str) -> str:
     return TEXT.split(f"- name: {name}\n", 1)[1].split("\n      - name:", 1)[0].split("\n\n  ", 1)[0]
 
 
-PREPARE = TEXT.split("\n  prepare:\n", 1)[1].split("\n  build:\n", 1)[0]
 BUILD = TEXT.split("\n  build:\n", 1)[1].split("\n\n  # Gives a tested candidate", 1)[0]
 PROMOTE = TEXT.split("\n  promote:\n", 1)[1]
 
@@ -55,50 +54,32 @@ class WorkflowShape(unittest.TestCase):
     def test_third_party_actions_are_pinned_and_first_party_ones_follow_main(self):
         for ref in re.findall(r"uses: (\S+)", TEXT):
             if ref.startswith("Rubio-Enterprises/.github/actions/"):
-                self.assertIn(ref, ("Rubio-Enterprises/.github/actions/dev-container-image@main", "Rubio-Enterprises/.github/actions/app-image@main"))
+                self.assertIn(ref, ("Rubio-Enterprises/.github/actions/build-service@main", "Rubio-Enterprises/.github/actions/app-image@main"))
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
     def test_steps_run_in_the_order_that_keeps_credentials_scoped(self):
         names = ["Resolve the image", "Check out the caller", "Set up Node",
-                 "Fetch the Standards Package prepared without credentials", "Install the Build Service client tools", "Compute image tags and labels", "Connect to the Build Service",
+                 "Install the Build Service client tools", "Compute image tags and labels", "Connect to the Build Service",
                  "Build the image on the Build Service", "Check the image's structure", "Push the candidate to GHCR", "Prune stale candidate images",
                  "Remove the job's certificate, credentials and build inputs"]
         positions = [BUILD.index(f"- name: {name}\n") for name in names]
         self.assertEqual(positions, sorted(positions))
         # Only the copy step sees the GHCR token and only the prune the API token; the one other use is the prepare job's package read
         self.assertEqual(TEXT.count("github.token"), 4)  # the prepare job, the copy, the prune and the promote job
-        self.assertEqual(BUILD.count("github.token"), 2)
+        self.assertEqual(BUILD.count("github.token"), 3)
         self.assertIn("REGISTRY_TOKEN: ${{ github.token }}", steps("Push the candidate to GHCR"))
-        self.assertNotIn("github.token", steps("Build the image on the Build Service"))
+        self.assertIn("REGISTRY_TOKEN: ${{ github.token }}", steps("Build the image on the Build Service"))
         self.assertIn("GH_TOKEN: ${{ github.token }}", steps("Prune stale candidate images"))
         self.assertIn("if: always()", TEXT.split("- name: Remove the job's certificate", 1)[1])
         self.assertNotIn("if:", steps("Push the candidate to GHCR"))  # a build always makes a candidate
         self.assertNotIn("if:", steps("Prune stale candidate images"))
 
     def test_caller_text_reaches_scripts_only_through_the_environment(self):
-        for name in ("Resolve the image", "Remove the job's certificate, credentials and build inputs",
-                     "Install the Standards Package into .standards", "Name the artifact"):
+        for name in ("Resolve the image", "Remove the job's certificate, credentials and build inputs"):
             run = steps(name).split("run:", 1)[1]
             self.assertNotIn("${{", run)
 
-    def test_the_standards_install_runs_in_its_own_job_without_the_oidc_token_or_package_write(self):
-        self.assertIn("    if: inputs.standards-install && !inputs.promote\n    permissions:\n      contents: read\n      packages: read\n", PREPARE)
-        self.assertIn("runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('[\"ubuntu-slim\"]') }}", PREPARE)
-        for forbidden in ("id-token", "packages: write", "contents: write", "Rubio-Enterprises/.github/actions", "connect", "BUILD_SERVICE"):
-            self.assertNotIn(forbidden, PREPARE)
-        self.assertIn("mise install node && mise run standards:install", PREPARE)
-        self.assertIn("cache: false", steps("Set up mise"))
-        # The hand-over is an artifact named once per call, uploaded with its hidden directory
-        self.assertIn("artifact=standards-$(cat /proc/sys/kernel/random/uuid)", PREPARE)
-        upload = steps("Hand .standards over as an artifact")
-        for text in ("path: .standards", "include-hidden-files: true", "if-no-files-found: error", "retention-days: 1"):
-            self.assertIn(text, upload)
-        # The build only downloads it, and only when asked
-        download = steps("Fetch the Standards Package prepared without credentials")
-        self.assertIn("if: inputs.standards-install", download)
-        self.assertIn("name: ${{ needs.prepare.outputs.artifact }}\n          path: .standards", download)
-        self.assertIn("    needs: prepare\n    if: ${{ !cancelled() && !failure() && !inputs.promote }}\n", BUILD)
 
     def test_repository_code_never_runs_in_the_job_that_holds_the_credentials(self):
         # The job holds the OIDC token, the certificate, the staging password and the GHCR token, and its steps share PATH,
@@ -112,12 +93,12 @@ class WorkflowShape(unittest.TestCase):
         # Everything before the connect step is: our validation, checkout, setup-node, an artifact download and two central actions
         before_connect = BUILD.split("- name: Connect to the Build Service", 1)[0]
         allowed = {"Resolve the image", "Check out the caller", "Set up Node",
-                   "Fetch the Standards Package prepared without credentials", "Install the Build Service client tools",
+                   "Install the Build Service client tools",
                    "Compute image tags and labels"}
         self.assertEqual(set(re.findall(r"- name: (.*)\n", before_connect)), allowed)
         self.assertEqual(sorted(re.findall(r"uses: (\S+)", before_connect)), sorted([
             "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
-            "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", "Rubio-Enterprises/.github/actions/dev-container-image@main",
+            "Rubio-Enterprises/.github/actions/build-service@main",
             "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302"]))
         # No step but the trusted central ones writes to the files later steps inherit from
         for name, step in re.findall(r"- name: (.*)\n((?:        .*\n|      #.*\n|\n)*)", BUILD):
@@ -147,11 +128,11 @@ class WorkflowShape(unittest.TestCase):
 
     def test_the_action_dispatches_only_known_operations_and_reuses_the_connect_script(self):
         action = (ACTION / "action.yml").read_text()
-        self.assertIn('exec bash "$GITHUB_ACTION_PATH/../dev-container-image/connect.sh"', action)
+        self.assertIn('exec bash "$GITHUB_ACTION_PATH/../build-service/connect.sh"', action)
         self.assertIn("build | structure | candidate | promote | prune | smoke | pull | changes)", action)
         self.assertIn("OPERATION: ${{ inputs.operation }}", action)
         self.assertNotIn("${{", action.split("run: |", 1)[1])
-        self.assertTrue((ROOT / "actions/dev-container-image/connect.sh").is_file())
+        self.assertTrue((ROOT / "actions/build-service/connect.sh").is_file())
 
 
     def test_a_build_is_always_a_candidate_whose_image_belongs_to_the_repository(self):

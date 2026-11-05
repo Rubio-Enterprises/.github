@@ -130,4 +130,3 @@ if [[ "$failures" != 0 ]]; then
   fail "$failures image structure problem(s) in $ref"
 fi
 echo "Image structure checks passed for $ref"
-

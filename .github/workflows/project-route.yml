@@ -84,7 +84,12 @@ jobs:
               if (!slug) throw new Error('Repository basename produces an empty CI Image label');
               runner = [`ci-${repository.id}-${slug}-${route}`];
             }
+            // Generic small/medium runners have no Docker socket for the literal just recipes
+            if (!image && ['small', 'medium'].includes(route) && runner.length === 1) {
+              if (repository.private !== true) runner = ['ubuntu-latest'];
+              else if (runner[0] === `linux-x64-${route}`) runner = runners.docker || ['ubuntu-latest'];
+              else if (runner[0] === 'ubuntu-slim') runner = ['ubuntu-latest'];
+            }
             core.setOutput('runner', JSON.stringify(runner));
             core.setOutput('ci-image', String(image));
             core.info(`Project route: ${route}; CI Image: ${image}; runs-on: ${JSON.stringify(runner)}`);
-

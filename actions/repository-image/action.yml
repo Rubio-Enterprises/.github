@@ -1,0 +1,22 @@
+name: CI image builder
+description: Build, scan and publish the caller's ci target without running its code in the client
+inputs:
+  operation:
+    description: build, scan or publish
+    required: true
+outputs:
+  ref:
+    description: Immutable staged image reference
+    value: ${{ steps.run.outputs.ref }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+      run: |
+        case "$OPERATION" in
+          build|scan|publish) bash "$GITHUB_ACTION_PATH/$OPERATION.sh" ;;
+          *) echo '::error::unknown CI image operation'; exit 1 ;;
+        esac

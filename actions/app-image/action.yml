@@ -25,8 +25,8 @@ runs:
       run: |
         set -euo pipefail
         case "$OPERATION" in
-          # The certificate exchange and builder setup are the dev-container-image action's; they have one implementation.
-          connect) exec bash "$GITHUB_ACTION_PATH/../dev-container-image/connect.sh" ;;
+          # Share the certificate exchange with the CI image builder
+          connect) exec bash "$GITHUB_ACTION_PATH/../build-service/connect.sh" ;;
           build | structure | candidate | promote | prune | smoke | pull | changes) exec bash "$GITHUB_ACTION_PATH/$OPERATION.sh" ;;
           *) echo "::error::Unknown app image operation"; exit 1 ;;
         esac

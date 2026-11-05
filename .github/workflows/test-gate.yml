@@ -9,6 +9,7 @@ name: test-gate
   merge_group:
 permissions:
   contents: read
+  packages: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
@@ -16,31 +17,34 @@ concurrency:
 # a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
 # org maximum; any tighter timeout in this file is deliberate.
 jobs:
+  dependency-review:
+    if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5
+        with:
+          fail-on-severity: high
   canonical-tests:
     name: canonical tests
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 120
     outputs:
       tests_ran: ${{ steps.test.outputs.tests_ran }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
-          # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
-
-      - name: Install pytest
-        # The suite is stdlib-only unittest, so an isolated uv tool install is
-        # the whole dependency set. Pinning the bin dir under RUNNER_TEMP keeps
-        # the PATH edit explicit instead of depending on ~/.local/bin.
-        run: |
-          set -euo pipefail
-          uv python install
-          UV_TOOL_BIN_DIR="$RUNNER_TEMP/bin" uv tool install pytest
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
+          persist-credentials: false
+      - uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - run: just build && just setup
       - id: test
         name: Run canonical non-E2E tests
         env:
@@ -48,44 +52,17 @@ jobs:
         run: |
           set -euo pipefail
           rm -f "$RUBIO_TEST_GATE_COUNT_OUTPUT"
-          pytest tests/ --junitxml="$RUNNER_TEMP/junit.xml"
-          awk '/<testsuite /{match($0,/tests="[0-9]+"/);n+=substr($0,RSTART+7,RLENGTH-8)}END{print n+0}' "$RUNNER_TEMP/junit.xml" > "$RUBIO_TEST_GATE_COUNT_OUTPUT"
+          just test
+          awk '/<testsuite /{match($0,/tests="[0-9]+"/);n+=substr($0,RSTART+7,RLENGTH-8)}END{print n+0}' reports/test/junit.xml > "$RUBIO_TEST_GATE_COUNT_OUTPUT"
           test -s "$RUBIO_TEST_GATE_COUNT_OUTPUT"
           test "$(cat "$RUBIO_TEST_GATE_COUNT_OUTPUT")" -gt 0
-          echo "tests_ran=true" >> "$GITHUB_OUTPUT"
-
-  source-permissions-arm:
-    name: native ARM source permissions
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]') }}
-    timeout-minutes: 15
-    outputs:
-      tests_ran: ${{ steps.test.outputs.tests_ran }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "24.21.0"
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          driver-opts: image=moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
-      - id: test
-        name: Exercise named-user nested source writes
-        working-directory: tests
-        run: |
-          set -euo pipefail
-          test "$GITHUB_ACTIONS" = true
-          test "$RUNNER_OS" = Linux
-          test "$(uname -m)" = aarch64
-          python3 -m unittest -v test_image_v2.ImageV2.test_native_source_directories_are_writable_for_vscode
           echo "tests_ran=true" >> "$GITHUB_OUTPUT"
 
   aggregate:
     name: test-gate
     if: ${{ always() }}
-    needs: [canonical-tests, source-permissions-arm]
-    runs-on: ubuntu-24.04
+    needs: [canonical-tests]
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 120
     env:
       NEEDS_JSON: ${{ toJSON(needs) }}

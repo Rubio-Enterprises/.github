@@ -6,7 +6,7 @@ Thanks for considering a contribution.
 
 1. Open an issue first if the change is non-trivial (more than a docs typo or one-line fix).
 2. Fork + branch (`feat/<name>`, `fix/<name>`, `docs/<name>`, `refactor/<name>`).
-3. Run `mise install`, install lefthook (`lefthook install`), and run `mise run lint` + `mise run test` locally.
+3. With Docker, git, `just` and a GHCR login available, run `just build`, `just setup`, `just check` and `just test`. Project toolchains stay inside the image.
 4. Commit using Conventional Commits (`feat: …`, `fix: …`, etc. — see commitlint.config.js in any consumer repo).
 5. Open a PR. The PR title is what release-please reads at squash-merge time, so it MUST be a valid Conventional Commit message.
 

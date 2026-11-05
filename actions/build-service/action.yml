@@ -1,0 +1,18 @@
+name: Build Service client
+description: Checksum-pinned client tools and per-job mTLS connection
+inputs:
+  operation:
+    description: tools or connect
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+      run: |
+        case "$OPERATION" in
+          tools) node "$GITHUB_ACTION_PATH/tools.mjs" ;;
+          connect) bash "$GITHUB_ACTION_PATH/connect.sh" ;;
+          *) echo '::error::unknown Build Service operation'; exit 1 ;;
+        esac

@@ -1,0 +1,7 @@
+name: Set up just
+description: Install the checksum-pinned just release for Linux or macOS
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: bash "$GITHUB_ACTION_PATH/install.sh"

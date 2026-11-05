@@ -34,7 +34,7 @@ class StandardsCacheTests(unittest.TestCase):
         self.assertEqual(len(restores), 2)
         for fields in restores:
             self.assertEqual(fields['restore-keys'], fields['key'].rsplit('${{ steps.week', 1)[0])
-        # jdx/mise-action retired from injected standards.yml
+        self.assertNotIn("mise-action", INJECTED)
 
     def test_the_warmer_saves_the_keys_and_paths_the_injected_job_restores(self):
         def pairs(found):
@@ -54,7 +54,7 @@ class StandardsCacheTests(unittest.TestCase):
         self.assertIn(route, INJECTED)
         self.assertIn(route, WARMER)
         self.assertIn('runs-on: ${{ fromJSON(needs.route.outputs.runner) }}', WARMER)
-        self.assertRegex(WARMER, r'"on":\n  workflow_call:\n\n')
+        self.assertRegex(WARMER, r'"on":\n  workflow_call:\n')
         self.assertIn('permissions:\n  contents: read\n  packages: read', WARMER)
 
     def test_the_trivy_database_is_used_as_restored_only_when_fresh(self):
@@ -67,10 +67,10 @@ class StandardsCacheTests(unittest.TestCase):
             INJECTED.index('name: Every Check on every file (CI Image)'),
         )
 
-    def test_dangers_npm_ci_reads_the_restored_npm_cache(self):
-        self.assertIn("standards check-pr", INJECTED)
+    def test_warming_never_installs_project_toolchains_on_the_host(self):
+        self.assertNotIn("mise exec", WARMER)
+        self.assertIn("just exec trivy", WARMER)
 
 
 if __name__ == '__main__':
     unittest.main()
-
