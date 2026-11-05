@@ -143,11 +143,7 @@ class Contracts(unittest.TestCase):
     def test_legacy_reusable_is_retired(self):
         self.assertFalse((ROOT / ".github/workflows/devcontainer-image.yml").exists())
         self.assertFalse((ROOT / "docs/reusable-workflows/devcontainer-image.md").exists())
-
-    def test_old_name_is_a_byte_identical_copy_while_callers_move(self):
-        old = ROOT / ".github/workflows/repository-image.yml"
-        if old.exists():  # delete this test with the old file once no caller uses it
-            self.assertEqual(old.read_bytes(), (ROOT / ".github/workflows/dev-container-image.yml").read_bytes())
+        self.assertFalse((ROOT / ".github/workflows/repository-image.yml").exists())
 
 
 class Fixtures(unittest.TestCase):

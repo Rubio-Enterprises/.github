@@ -1,9 +1,5 @@
 # Dev Container Image builder
 
-> `repository-image.yml` is the old name of this workflow. It stays a byte-identical copy
-> (a test asserts it) while callers move to `dev-container-image.yml`, and is deleted once
-> none remains.
-
 `dev-container-image.yml` is the generic builder for ADR-0036. It builds repositories
 wired to the Standards Package (v2); Copier-era and unwired repositories fail
 preparation with an instruction to adopt the package. Dev Container Images are built and published for **linux/amd64 only**. Public `base` and
