@@ -13,7 +13,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_dev_container_image_workflow import ASSETS, FROZEN_RECIPE
+ROOT = Path(__file__).resolve().parents[1]
+ASSETS = ROOT / "actions/dev-container-image"
+FROZEN_RECIPE = ROOT / "tests/fixtures/frozen-repository-image-v2.Dockerfile" 
 
 
 class PackageRecipe(unittest.TestCase):

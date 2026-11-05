@@ -1,0 +1,79 @@
+name: fleet CI image rebuild
+
+# Triggered centrally after ghcr.io/rubio-enterprises/base:main moves (plan §3.2, standards#844).
+# Rebuilds the CI images for all admitted private repositories on the Build Service so that
+# quiet repositories stay updated with the latest base and standards layer.
+"on":
+  repository_dispatch:
+    types: [base-image-updated]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-ci-image-rebuild
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch fleet CI image rebuilds
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout inventory
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            inventory/ci-image-repositories.json
+          sparse-checkout-cone-mode: false
+
+      - id: app-token
+        name: Mint org dispatch token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        # zizmor: ignore[github-app]
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.AUDIT_APP_CLIENT_ID || secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.AUDIT_APP_PRIVATE_KEY || secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app]
+          permission-actions: write
+
+      - name: Paced dispatch across admitted repositories
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GH_DISPATCH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          inventory="inventory/ci-image-repositories.json"
+          if [ ! -f "$inventory" ]; then
+            echo "::error::admitted repositories inventory not found"
+            exit 1
+          fi
+
+          repos=$(jq -r '.[]' "$inventory")
+          total=$(echo "$repos" | wc -l | tr -d ' ')
+          current=0
+          failed=0
+
+          echo "Found $total admitted repositories for CI image rebuild"
+          for repo in $repos; do
+            current=$((current + 1))
+            echo "[$current/$total] Triggering CI image build for $repo..."
+            if gh workflow run standards.yml --repo "$repo" 2>/dev/null || gh workflow run ci-image.yml --repo "$repo" 2>/dev/null; then
+              echo "  -> dispatched successfully"
+            else
+              echo "  -> warning: failed to dispatch workflow for $repo (repo may lack workflow or permissions)"
+              failed=$((failed + 1))
+            fi
+            # Pacing interval: wait 15 seconds between dispatches so the Build Service
+            # (which admits max 6 concurrent builds) is not flooded with 60+ simultaneous jobs.
+            if [ "$current" -lt "$total" ]; then
+              sleep 15
+            fi
+          done
+
+          echo "Dispatched fleet CI image rebuild: $current attempted, $failed warnings"
+
+
+

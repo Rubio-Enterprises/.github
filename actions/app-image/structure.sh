@@ -38,7 +38,7 @@ fi
 [[ "$block" == true || "$block" == false ]] || fail 'BLOCK_VULNERABILITIES must be true or false'
 if [[ -n "${REGISTRY_TOKEN:-}" ]]; then ghcr_docker_config "$REGISTRY_TOKEN"; fi
 
-# The pinned Trivy release, the one dev-container-image.yml scans with
+# The pinned Trivy release, the one repository-image.yml scans with
 install_trivy() {
   local version=0.76.1 checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0 archive="$state/trivy.tar.gz"
   curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 --output "$archive" \
@@ -130,3 +130,4 @@ if [[ "$failures" != 0 ]]; then
   fail "$failures image structure problem(s) in $ref"
 fi
 echo "Image structure checks passed for $ref"
+

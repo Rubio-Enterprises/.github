@@ -83,7 +83,7 @@ class E2ERouteTests(unittest.TestCase):
 
     def test_setup_installs_the_package_before_the_suite_is_found(self) -> None:
         step = extract_step(TEXT, SETUP_STEP)
-        self.assertIn("run: mise run setup", step)
+        self.assertIn("mise run setup", step)
         self.assertIn("NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", step)
         self.assertIn("packages: read", job("e2e"))
         self.assertLess(TEXT.index(f"- name: {SETUP_STEP}\n"), TEXT.index("id: command\n"))
@@ -123,3 +123,4 @@ class E2EDetectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

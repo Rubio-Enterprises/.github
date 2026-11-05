@@ -1,7 +1,11 @@
 # The Standards Check (docs/standards-check.md). The `standards` org ruleset injects this workflow
-# into every repository whose custom property selects it. A thin shell: install the repository's
-# Standards Release and run the Conformance Tasks it ships (`check`, `check:pr`). No standards
-# logic lives here; change the checks in Rubio-Enterprises/standards.
+# into every repository whose custom property selects it.
+# In CI:
+#   - Private repositories run `standards check` and `standards check-pr` inside their CI Image
+#     on the Container Pool.
+#   - Hosted/public repositories install `just`, log in to GHCR, and run `just build`, `just check`,
+#     and `just check-pr` through Docker Compose on the host.
+# No standards logic lives here; change the checks in Rubio-Enterprises/standards.
 name: standards
 # Ruleset workflows ignore `types` and other filters: they run on opened, synchronize and reopened
 # (and merge_group checks_requested) only, so editing a title or description re-runs nothing.
@@ -10,7 +14,7 @@ name: standards
   merge_group:
 permissions:
   contents: read
-  packages: read # the internal @rubio-enterprises/standards package
+  packages: read # pull the internal ghcr.io/rubio-enterprises/base:main image
   pull-requests: read # Danger reads the pull request it checks
   issues: read # Danger fetches it through GET /repos/{o}/{r}/issues/{n}
 concurrency:
@@ -29,13 +33,12 @@ jobs:
     if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
     runs-on: >-
       ${{ needs.route.result == 'success' && fromJSON(needs.route.outputs.runner)
-      || (fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]')) }}
+      || (fromJSON(vars.RUNNERS || '{}').medium || fromJSON('["ubuntu-latest"]')) }}
     timeout-minutes: 30
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      # renovate: datasource=github-releases depName=jdx/mise
-      MISE_VERSION: "2026.10.19"
+      TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
     steps:
       - name: Require successful project routing
         if: needs.route.result != 'success'
@@ -55,82 +58,113 @@ jobs:
       - id: week
         name: Name this week's cache keys
         run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
-      # mise's pipx backend needs uv on PATH on a cold runner (AGENTS.md).
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        if: needs.route.outputs.ci-image != 'true'
-        with:
-          # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
-      # No mise cache: mise-action saves one only after its own `mise install`, which `setup` does
-      # instead, so it never had an entry to restore.
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-        if: needs.route.outputs.ci-image != 'true'
-        with:
-          version: ${{ env.MISE_VERSION }}
-          install: false
-          cache: false
       # Restore only. A pull request's own save is scoped to its merge ref, so no other pull request
-      # could restore it, and compressing the 1.6 GB database took up to 190 s per run. The caller
-      # standards-cache.yml writes these keys on the default branch, where every pull request
-      # reads them; last week's entries serve until this week's exist.
+      # could restore it. The caller standards-cache.yml writes these keys on the default branch.
       - id: trivy-db
         name: Restore the trivy vulnerability database
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/trivy/db
+          path: .cache/trivy/db
           key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
           restore-keys: standards-trivy-db-${{ runner.os }}-
       - name: Restore the PR conventions' npm cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/standards-npm
+          path: .cache/standards-npm
           key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
           restore-keys: standards-npm-${{ runner.os }}-
-      - name: Trust the checked-out repository in the CI Image
-        if: needs.route.outputs.ci-image == 'true'
-        run: mise trust "$GITHUB_WORKSPACE"
-      - id: setup
-        name: Install the Standards Release, its tools and the repository's dependencies
-        run: mise run setup
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # A repository task of the same name silently replaces a package task (mise precedence), so
-      # `check`/`check:pr` must be the package's: same file content as the installed release's
-      # mise/standards.toml (by content, not path: the standards repository links its own tree).
-      - name: Require the package's own check and check:pr tasks
-        run: |
-          pkg=.standards/node_modules/@rubio-enterprises/standards/mise/standards.toml
-          want="$(git hash-object "$pkg")"
-          for task in check check:pr; do
-            src="$(mise tasks info "$task" --json | jq -r .source)"
-            [ "$(git hash-object "$src")" = "$want" ] ||
-              { echo "::error::$task comes from $src, not the Standards Package; delete the repository's $task task"; exit 1; }
-          done
       # trivy replaces a database older than a day (metadata.json NextUpdate), which would make the
       # weekly cache useless. A restored one under 8 days old is used as it is.
       - name: Use the restored trivy database without updating it
         if: steps.trivy-db.outputs.cache-matched-key != ''
         run: |
           days=$(jq -r '(now - (.UpdatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) / 86400 | floor' \
-            ~/.cache/trivy/db/metadata.json) || days=99
+            .cache/trivy/db/metadata.json) || days=99
           echo "trivy vulnerability database: restored, $days day(s) old"
           if [ "$days" -lt 8 ]; then echo "TRIVY_SKIP_DB_UPDATE=true" >>"$GITHUB_ENV"; fi
-      - id: check
-        name: Every Check on every file
-        run: mise run check
+
+      # -----------------------------------------------------------------------
+      # CI-image leg: runner already executes inside devcontainer-ci:main
+      # -----------------------------------------------------------------------
+      - id: check-ci
+        name: Every Check on every file (CI Image)
+        if: needs.route.outputs.ci-image == 'true'
+        run: standards check
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # zizmor's online audits
-      - name: Pull-request Checks
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        # Danger's `npm ci` reads the restored npm cache (releases from 2.1.0 pass it themselves).
-        run: npm_config_cache="$HOME/.cache/standards-npm" mise run check:pr
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+
+      - id: check-pr-ci
+        name: Pull-request Checks (CI Image)
+        if: ${{ !cancelled() && needs.route.outputs.ci-image == 'true' && steps['check-ci'].outcome == 'success' }}
+        run: standards check-pr
         env:
+          BASE_SHA: ${{ env.BASE_SHA }}
+          HEAD_SHA: ${{ env.HEAD_SHA }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Lefthook 2.1 prints no per-job summary in CI when a Fixer's rewrite fails the run.
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+
+      # -----------------------------------------------------------------------
+      # Hosted leg: public repositories and hosted fallback on ubuntu-latest
+      # -----------------------------------------------------------------------
+      - name: Install just
+        if: needs.route.outputs.ci-image != 'true'
+        run: |
+          set -euo pipefail
+          JUST_VERSION="1.59.0"
+          case "$(uname -m)" in
+            x86_64) JUST_SHA256="409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"; ARCH="x86_64" ;;
+            aarch64|arm64) JUST_SHA256="23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d"; ARCH="aarch64" ;;
+            *) echo "Unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/just.tar.gz"
+          curl -sSfL "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${ARCH}-unknown-linux-musl.tar.gz" -o "$archive"
+          echo "${JUST_SHA256}  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" just
+          mkdir -p "$RUNNER_TEMP/bin"
+          mv "$RUNNER_TEMP/just" "$RUNNER_TEMP/bin/just"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Log in to ghcr.io
+        if: needs.route.outputs.ci-image != 'true'
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build dev image
+        if: needs.route.outputs.ci-image != 'true'
+        run: just build
+
+      - id: check-hosted
+        name: Every Check on every file (Hosted)
+        if: needs.route.outputs.ci-image != 'true'
+        run: just check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+
+      - id: check-pr-hosted
+        name: Pull-request Checks (Hosted)
+        if: ${{ !cancelled() && needs.route.outputs.ci-image != 'true' && steps['check-hosted'].outcome == 'success' }}
+        run: just check-pr
+        env:
+          BASE_SHA: ${{ env.BASE_SHA }}
+          HEAD_SHA: ${{ env.HEAD_SHA }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+
+      # -----------------------------------------------------------------------
+      # Summary step for failed Checks or fixer rewrites
+      # -----------------------------------------------------------------------
       - name: Summarize what the Checks rewrote
-        if: ${{ failure() && steps.check.outcome == 'failure' }}
+        if: ${{ failure() && (steps['check-ci'].outcome == 'failure' || steps['check-hosted'].outcome == 'failure') }}
         run: |
           { echo '```'; git status --short; git diff --stat; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "::error::the Checks failed or a Fixer rewrote files; run 'mise run check' locally and commit the result"
+          echo "::error::the Checks failed or a Fixer rewrote files; run 'just check' locally and commit the result"
+

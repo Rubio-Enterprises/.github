@@ -102,7 +102,12 @@ jobs:
           cache_key_prefix: mise-e2e-${{ steps.week.outputs.week }}
       - name: Install the Standards Release, tools and dependencies
         shell: bash
-        run: mise run setup
+        run: |
+          if [ -x bin/setup.sh ]; then
+            bin/setup.sh
+          else
+            mise run setup
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,16 +116,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
+          if [ -x bin/e2e.sh ]; then
+            echo "cmd=bin/e2e.sh" >> "$GITHUB_OUTPUT"
+          elif command -v mise >/dev/null 2>&1 && mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
             echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
           elif [ -f package.json ] && jq -e '.scripts.e2e | strings | select(length > 0)' package.json >/dev/null; then
             echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::reusable e2e requires an apex scripts.e2e or repo-owned mise e2e task" >&2
+            echo "::error::reusable e2e requires an apex scripts.e2e, bin/e2e.sh or repo-owned mise e2e task" >&2
             exit 1
           fi
           if [ -f package.json ] && jq -e '.scripts["e2e:setup"] | strings | select(length > 0)' package.json >/dev/null; then
             echo "setup=script" >> "$GITHUB_OUTPUT"
+          elif [ -x bin/e2e-setup.sh ]; then
+            echo "setup=bin" >> "$GITHUB_OUTPUT"
           else
             echo "setup=mise" >> "$GITHUB_OUTPUT"
           fi
@@ -154,7 +163,9 @@ jobs:
           set -euo pipefail
           if [ "$SETUP" = script ]; then
             npm run e2e:setup
-          elif mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
+          elif [ "$SETUP" = bin ]; then
+            bin/e2e-setup.sh
+          elif command -v mise >/dev/null 2>&1 && mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
             mise run e2e-setup
           fi
         shell: bash
@@ -214,3 +225,4 @@ jobs:
           path: reports/e2e/
           retention-days: 14
           if-no-files-found: error
+

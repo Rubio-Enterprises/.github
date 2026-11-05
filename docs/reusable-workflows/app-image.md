@@ -3,8 +3,8 @@
 `app-image.yml` is the builder of the [App Image pipeline](app-image-pipeline.md): it builds one App Image
 on the Build Service (mac-dev-playbook ADR 0057) as a **candidate** pushed to GHCR, and **promotes** a
 tested candidate by retagging it. It serves private repositories only: public repositories cannot use
-self-hosted runners and stay GitHub-hosted. [`dev-container-image.yml`](dev-container-image.md) builds the Dev
-Container Image pair and is separate.
+self-hosted runners and stay GitHub-hosted. [`repository-image.yml`](repository-image.md) builds the CI
+runner image pair and is separate.
 
 **Only `app-image-pipeline.yml` calls this workflow.** A repository calls the pipeline, which chains the
 candidate build, the structure checks (T1), the smoke test, the repository's `mise run test:image` and the
@@ -68,7 +68,7 @@ staging credential only, so an image that fails is never pushed to GHCR: a non-r
 when `server` is true, the `org.opencontainers.image.source` and `revision` labels, a Trivy secret scan of
 layers and configuration (a finding fails; the match is never printed), and a vulnerability report of the
 fixable HIGH and CRITICAL findings (it fails only with `block-vulnerabilities`, and only on a fixable
-CRITICAL). Trivy is the checksum-pinned release `dev-container-image.yml` uses and runs outside the checkout, so a
+CRITICAL). Trivy is the checksum-pinned release `repository-image.yml` uses and runs outside the checkout, so a
 `trivy.yaml`, `.trivyignore` or `trivy-secret.yaml` in the repository changes nothing.
 
 `promote: true` runs a separate job on the small route with only `contents: read` and `packages: write`.
@@ -166,3 +166,4 @@ Private CA exchange only:
 
 The production builder, the Private CA exchange, `standards-install` end to end and GHCR's package
 deletion are qualification gates for the canary, not claims of the fixtures.
+

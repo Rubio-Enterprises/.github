@@ -10,6 +10,10 @@ name: Copilot Setup Steps
 # folds bare `on` into the boolean `On`. GitHub Actions and actionlint accept both.
 "on": workflow_dispatch
 
+permissions:
+  contents: read
+  packages: read
+
 # Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
 # a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
 # org maximum; any tighter timeout in this file is deliberate.
@@ -20,3 +24,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install just
+        run: |
+          set -euo pipefail
+          JUST_VERSION="1.59.0"
+          case "$(uname -m)" in
+            x86_64) JUST_SHA256="409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"; ARCH="x86_64" ;;
+            aarch64|arm64) JUST_SHA256="23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d"; ARCH="aarch64" ;;
+            *) echo "Unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/just.tar.gz"
+          curl -sSfL "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${ARCH}-unknown-linux-musl.tar.gz" -o "$archive"
+          echo "${JUST_SHA256}  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" just
+          mkdir -p "$RUNNER_TEMP/bin"
+          mv "$RUNNER_TEMP/just" "$RUNNER_TEMP/bin/just"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build dev image
+        run: just build
+

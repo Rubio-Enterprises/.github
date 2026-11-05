@@ -22,21 +22,16 @@ class StandardsRouteTests(unittest.TestCase):
         self.assertIn('exit 1', guard)
         self.assertLess(WORKFLOW.index('Require successful project routing'), WORKFLOW.index('actions/checkout@'))
 
-    def test_image_mode_does_not_restore_plain_mise_data_or_bootstrap_tools(self):
-        for action in ('astral-sh/setup-uv@', 'jdx/mise-action@'):
-            step = WORKFLOW.split('- uses: ' + action, 1)[1].split('\n      - ', 1)[0]
-            self.assertIn("if: needs.route.outputs.ci-image != 'true'", step)
-        self.assertIn('run: mise trust "$GITHUB_WORKSPACE"', WORKFLOW)
-        self.assertLess(WORKFLOW.index('mise trust'), WORKFLOW.index('run: mise run setup'))
-        setup = WORKFLOW.split('      - id: setup\n', 1)[1].split('\n      - ', 1)[0]
-        self.assertIn('run: mise run setup', setup)
-        self.assertIn('NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}', setup)
-        self.assertIn('MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}', setup)
+    def test_ci_image_and_hosted_legs_run_standards_checks(self):
+        self.assertIn("run: standards check", WORKFLOW)
+        self.assertIn("run: standards check-pr", WORKFLOW)
+        self.assertIn("run: just build", WORKFLOW)
+        self.assertIn("run: just check", WORKFLOW)
+        self.assertIn("run: just check-pr", WORKFLOW)
+        self.assertNotIn("jdx/mise-action@", WORKFLOW)
+        self.assertNotIn("astral-sh/setup-uv@", WORKFLOW)
 
-    def test_all_project_checks_and_the_package_task_origin_guard_remain(self):
-        for command in ('run: mise run setup', 'run: mise run check\n', ' mise run check:pr\n'):
-            self.assertIn(command, WORKFLOW)
-        self.assertIn('for task in check check:pr; do', WORKFLOW)
+    def test_repository_hygiene_and_privileges_remain(self):
         self.assertIn('fetch-depth: 0', WORKFLOW)
         self.assertIn('persist-credentials: false', WORKFLOW)
         self.assertIn('packages: read', WORKFLOW)
@@ -46,3 +41,4 @@ class StandardsRouteTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

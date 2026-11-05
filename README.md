@@ -102,7 +102,7 @@ particularly in private repositories or for API/CLI-created issues.
 | Workflow | Purpose |
 | --- | --- |
 | [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness for a suite that needs its own job; runs `mise run setup`, then an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `ci-platform = macos` callers run on `RUNNERS.macos` |
-| [`dev-container-image.yml`](./.github/workflows/dev-container-image.yml) | Builds amd64-only Dev Container/CI image pairs on the Build Service and publishes one-entry indices; Apple Silicon uses a local build config. See [its contract](./docs/reusable-workflows/repository-image.md) |
+| [`repository-image.yml`](./.github/workflows/repository-image.yml) | Builds the repository's CI Image (`devcontainer-ci:main`) from its own `Dockerfile` on the Build Service (amd64) and publishes single-platform indices. See [its contract](./docs/reusable-workflows/repository-image.md) |
 | [`app-image.yml`](./.github/workflows/app-image.yml) | Builds one amd64 app or release image on the Build Service and copies it to GHCR (build check, candidate for a build-then-run job, or publish). See [its contract](./docs/reusable-workflows/app-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-range gitleaks scan runs in the package's `check:pr`) |
 | [`standards.yml`](./.github/workflows/standards.yml) | Injected, not called: the Standards Check. Installs the repository's Standards Release and runs `mise run check` and `mise run check:pr`; routed by the `ci-platform`/`ci-size` properties; see [its contract](./docs/standards-check.md) |
@@ -225,3 +225,4 @@ impact before landing.
 ## License
 
 [MIT](LICENSE) © 2026 Rubio Enterprises.
+

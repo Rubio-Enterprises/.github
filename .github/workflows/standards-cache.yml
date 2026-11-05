@@ -45,14 +45,14 @@ jobs:
         name: Look up this week's trivy vulnerability database
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/trivy/db
+          path: .cache/trivy/db
           key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
           lookup-only: true
       - id: npm
         name: Look up this week's npm cache for the PR conventions
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/standards-npm
+          path: .cache/standards-npm
           key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
           lookup-only: true
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
@@ -82,22 +82,23 @@ jobs:
           trivy=$(sed -n 's/^"aqua:aquasecurity\/trivy" = "\(.*\)"$/\1/p' "$pkg/mise/standards.toml")
           test -n "$trivy" || { echo "::error::no trivy pin in the package's mise/standards.toml"; exit 1; }
           mise exec "aqua:aquasecurity/trivy@$trivy" -- trivy fs --download-db-only --no-progress --quiet \
-            --cache-dir "$HOME/.cache/trivy"
+            --cache-dir ".cache/trivy"
       - name: Fill npm's cache with the PR conventions' dependencies
         if: steps.npm.outputs.cache-hit != 'true'
         run: |
           pkg="$RUNNER_TEMP/standards/node_modules/@rubio-enterprises/standards"
           mise exec node@24 -- npm ci --prefix "$pkg/pr-conventions" --ignore-scripts --no-audit --no-fund \
-            --loglevel=error --cache "$HOME/.cache/standards-npm"
+            --loglevel=error --cache ".cache/standards-npm"
       - name: Save the trivy vulnerability database
         if: steps.trivy.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/trivy/db
+          path: .cache/trivy/db
           key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
       - name: Save the npm cache
         if: steps.npm.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/standards-npm
+          path: .cache/standards-npm
           key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
+

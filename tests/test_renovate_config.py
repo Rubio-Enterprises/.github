@@ -268,8 +268,7 @@ class RenovateConfigContractTests(unittest.TestCase):
 
     def test_python_minor_bumps_are_manual_and_patch_bumps_automerge(self) -> None:
         pins = (
-            ("mise", "mise.toml"),
-            ("mise", ".mise.toml"),
+            ("mise", "image/mise.toml"),
             ("asdf", ".tool-versions"),
             ("pyenv", ".python-version"),
         )
@@ -311,7 +310,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             "manager": "mise",
             "depName": "node",
             "packageName": "node",
-            "fileName": "mise.toml",
+            "fileName": "image/mise.toml",
             "currentVersion": "24.1.0",
             "updateType": "minor",
         })
@@ -840,7 +839,6 @@ class RenovateConfigContractTests(unittest.TestCase):
         matcher = _python_regex(manager["matchStrings"][0])
         workflows = ROOT / ".github" / "workflows"
         expected = {
-            "standards.yml": 1,
             "e2e.yml": 1,
         }
         for filename, count in expected.items():
@@ -1468,3 +1466,6 @@ class DevcontainerLockfileTests(unittest.TestCase):
         for other in ("template/.devcontainer/devcontainer.json", ".devcontainer.json"):
             self.assertFalse(_rule_matches(rule, {**base, "fileName": other}, {}))
 
+
+    def test_mise_manager_matches_image_mise_toml(self) -> None:
+        self.assertEqual(CONFIG.get("mise", {}).get("fileMatch"), ["(^|/)image/mise\\.toml$"])

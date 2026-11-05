@@ -1,5 +1,5 @@
 // Image input key: everything that shapes a v2 repository image except the baked source snapshot.
-// See docs/reusable-workflows/dev-container-image.md#image-input-key before changing a rule here.
+// See docs/reusable-workflows/repository-image.md before changing a rule here.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -359,3 +359,4 @@ export function inputKey({ files, read, packageInputs, config, bases, repository
   };
   return { key: `sha256:${sha256(JSON.stringify(document))}`, rule, reasons, subst: subst.length > 0 };
 }
+
