@@ -24,10 +24,24 @@ repository content is BuildKit context data. The repository-image action uses
 `docker buildx build --platform linux/amd64 --target ci --pull`, OCI mediatypes,
 zstd level 9, no attestations, and no standards package secret.
 
-GHCR pull authentication is forwarded through the BuildKit session's Docker
-config, not as a Dockerfile secret, ARG or ENV. It is removed after the build.
-The daemon keeps its own layer cache. The output goes to the job-scoped staging
-registry, and its immutable digest is checked against BuildKit metadata.
+Before starting BuildKit, the client uses the job's `github.token` in the
+separate `docker-publish` config to resolve the Dockerfile's first `FROM`
+(`ghcr.io/rubio-enterprises/base:main` by default) and external runner
+`COPY --from` (`ghcr.io/rubio-enterprises/runner:main` by default). Both must be
+literal tagged or digest references; ARG-expanded references are refused rather
+than silently replacing a Release Pin with `main`. The `file` input selects the
+Dockerfile parsed, including when it is not at the repository root.
+
+Every build freshly resolves their amd64 digests, copies those exact images to
+`$STAGING/base:$STAGING_TAG` and `$STAGING/runner:$STAGING_TAG`, and verifies each
+copy. Buildx then substitutes the actual Dockerfile references with those
+immutable staging digests using named-image contexts. No Dockerfile rewrite is
+needed. The active `docker-build` config contains **staging auth only**: no GHCR
+authentication or publishing token reaches the BuildKit session (mac-dev-playbook
+ADR 0058). The daemon keeps its own layer cache. Its CI output goes to
+`$STAGING/ci:$STAGING_TAG`, and its immutable digest is checked against BuildKit
+metadata. Staging retains the connector's per-run repositories and expiry;
+`Unavailable` builds retry once with the same resolved inputs.
 
 Checksum-pinned Trivy scans the immutable staged image before publication. Scan
 errors and findings fail closed, with findings kept only in transient files.

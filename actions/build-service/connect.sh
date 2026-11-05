@@ -13,7 +13,7 @@
 # docs/homelab/references/operations/build-service-client-certificates.md.
 #
 # The job keeps two Docker configs. buildx forwards its configured credentials to the daemon during a build, so
-# docker-build holds only the staging registry's; docker-publish adds GHCR and is used only after the checks pass.
+# docker-build holds only the staging registry's; docker-publish adds GHCR for client-side base staging and verified-image publication.
 set -euo pipefail
 : "${RUNNER_TEMP:?}" "${GITHUB_ENV:?}" "${GITHUB_REPOSITORY:?}" "${GITHUB_RUN_ID:?}" "${GITHUB_RUN_ATTEMPT:?}"
 
