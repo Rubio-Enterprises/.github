@@ -56,11 +56,11 @@ jobs:
         name: Name this week's cache keys
         run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
       # mise's pipx backend needs uv on PATH on a cold runner (AGENTS.md).
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: needs.route.outputs.ci-image != 'true'
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
+          version: "0.13.6"
       # No mise cache: mise-action saves one only after its own `mise install`, which `setup` does
       # instead, so it never had an entry to restore.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
