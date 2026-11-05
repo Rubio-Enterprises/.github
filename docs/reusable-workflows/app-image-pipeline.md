@@ -16,10 +16,10 @@ by digest, in the same package.
 | Build | `build` (the [builder](app-image.md)) | image Scale Set | OIDC token, GHCR write | One candidate on the Build Service (amd64). Attestations (SLSA provenance, SBOM) when the run will publish |
 | **T1** structure | inside `build` | image Scale Set | staging credential only | Non-root `USER`; a `HEALTHCHECK` when the image is a server; the `source` and `revision` labels; a secret scan of layers and configuration; a vulnerability report. It reads the staged image **before anything reaches GHCR**: a failing image is never pushed |
 | **T2** smoke | `smoke` | `docker` route (`linux-x64-large`) | `contents: read` and `packages: read`; a checkout only when `smoke-files` is set, and nothing from it runs | A server starts and reports healthy, and no process runs as root. A command-line tool runs its `smoke-command` and exits 0 |
-| **T3** functional | `test` | `docker` route | `contents: read`, `packages: read` | `mise run test:image`, with `IMAGE` set to the candidate (`image@digest`) |
+| **T3** functional | `test` | `docker` route | `contents: read`, `packages: read` | `just test-image`, with `IMAGE` set to the candidate (`image@digest`) |
 | Promote | `promote` (the builder's promote job) | small route | GHCR write, no OIDC token | `imagetools create` of the tested digest under the final tags |
 
-T1 and T2 are always on. T3 is mandatory: the repository defines a `test:image` task, and the `test` job
+T1 and T2 are always on. T3 is mandatory: the repository defines a `bin/test-image.sh` script and `test-image` recipe, and the `test` job
 fails with an instruction when it does not. What it tests is the repository's choice: its main purpose,
 against fakes or a compose stack, with no production secrets. There is no minimum test count and no JUnit
 requirement. Pull requests that change only documentation skip every image job (`ignore-paths`).
@@ -74,7 +74,6 @@ even if the job is skipped. Inside the pipeline only `build` and `promote` ask f
 | `ignore-paths` | Shell patterns, one per line; a pull request whose every change matches skips the image jobs. Default `*.md`, `docs/*`, `LICENSE` (`*` also matches a slash) |
 | `arch` | `amd64` (default, the Build Service) or `arm64` (native build, below) |
 | `context`, `file`, `target`, `build-args` | The build. `build-args` may carry the version a release image bakes in: the candidate is built in the publishing run |
-| `standards-install` | amd64 only: see the [builder](app-image.md#what-runs-where) |
 | `ref`, `submodules`, `timeout-minutes`, `test-timeout-minutes` | As named |
 
 A server that refuses to start without a configuration file passes it as a smoke file, with a placeholder
@@ -93,19 +92,16 @@ command-line tool's `smoke-command` too.
 Outputs: `image` (the published `image@digest` of a publishing run, otherwise the tested candidate's),
 `digest`, `version`, `tags`.
 
-### What `test:image` receives
+### What `test-image` receives
 
 `IMAGE` is the candidate, `ghcr.io/<owner>/<package>@sha256:<digest>`, already pulled onto the runner by
-digest, and `IMAGE_NAME` is the same without the digest. The registry credential is gone before the task
-starts. A repository with several images calls the pipeline once per image; the one task receives each
-image in turn, so it tells them apart by `IMAGE_NAME`. The job runs `mise run setup` first, as the Test
+digest, and `IMAGE_NAME` is the same without the digest. The candidate pull uses a temporary credential; the dev-image build logs in for the internal base. A repository with several images calls the pipeline once per image; the one task receives each
+image in turn, so it tells them apart by `IMAGE_NAME`. The job runs `just build` and `just setup` first, as the Test
 Gate does.
 
-```toml
-[tasks."test:image"]
-description = "Run the candidate image against its fakes"
-run = "pnpm exec vitest run test/image"
-```
+`bin/test-image.sh` runs the candidate against its fakes. Its recipe dispatches
+through Compose, and the repository passes `IMAGE` and `IMAGE_NAME` into its dev
+service. Repositories whose image tests use Docker mount the host socket there.
 
 ## arm64
 
@@ -114,7 +110,7 @@ The Build Service is amd64. `arch: arm64` builds the same candidate natively on 
 straight from the job, which holds `packages: write` but no OIDC token, so the Private CA is not involved.
 T1 then reads the candidate from GHCR in a separate small-pool job that holds no repository code
 (`structure-arm64`). T2 and T3 run on the arm pool, and promotion is the same retag, which is
-architecture-neutral. The arm64 path has no `standards-install`, and its candidate is pushed before T1, so a
+architecture-neutral. Its candidate is pushed before T1, so a
 failing image leaves a candidate behind until prune deletes it.
 
 ## Why the jobs are split
@@ -145,4 +141,4 @@ stand-in aliased `ghcr.io`: an attested candidate built, structure-checked (a ro
 `HEALTHCHECK` and a leaked token each failed, with the match never printed), copied, and promoted with the
 digest, both children and no `sha256-…` referrers tag intact, and a stale candidate's children found and
 deleted through `imagetools inspect --raw`. The Private CA exchange, GHCR's package deletion and a real
-`test:image` run are the canary's gates.
+`test-image` run are the canary's gates.

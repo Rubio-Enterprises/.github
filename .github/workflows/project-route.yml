@@ -7,10 +7,6 @@ name: project route (reusable)
         description: "auto uses ci-platform/ci-size; capability jobs may select an explicit RUNNERS key"
         type: string
         default: auto
-      enable-hosted-image:
-        description: "Caller supports project-command; use declared Repository Images on hosted small/medium routes"
-        type: boolean
-        default: false
     outputs:
       runner:
         description: "JSON runs-on labels"
@@ -18,9 +14,6 @@ name: project route (reusable)
       ci-image:
         description: "true only when project commands will run in the repository's CI Image"
         value: ${{ jobs.route.outputs.ci-image }}
-      hosted-image:
-        description: "true only when the caller must execute through the hosted Dev Container CLI"
-        value: ${{ jobs.route.outputs.hosted-image }}
 
 permissions:
   contents: read
@@ -32,7 +25,6 @@ jobs:
     outputs:
       runner: ${{ steps.route.outputs.runner }}
       ci-image: ${{ steps.route.outputs.ci-image }}
-      hosted-image: ${{ steps.route.outputs.hosted-image }}
     steps:
       - id: route
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -40,7 +32,6 @@ jobs:
           ROUTE: ${{ inputs.route }}
           RUNNERS: ${{ vars.RUNNERS || '{}' }}
           CI_IMAGE_REPOS: ${{ vars.CI_IMAGE_REPOS || '[]' }}
-          ENABLE_HOSTED_IMAGE: ${{ inputs.enable-hosted-image }}
         with:
           script: |
             const fallbacks = {
@@ -93,29 +84,12 @@ jobs:
               if (!slug) throw new Error('Repository basename produces an empty CI Image label');
               runner = [`ci-${repository.id}-${slug}-${route}`];
             }
-            let hostedImage = false;
-            const hostedUbuntu = ['ubuntu-slim', 'ubuntu-latest', 'ubuntu-24.04', 'ubuntu-22.04'];
-            if (process.env.ENABLE_HOSTED_IMAGE === 'true' && ['small', 'medium'].includes(route)
-                && runner.length === 1 && hostedUbuntu.includes(runner[0])
-                && context.repo.owner.toLowerCase() === 'rubio-enterprises') {
-              if (typeof repository.default_branch !== 'string' || !repository.default_branch.trim()) {
-                throw new Error('Hosted image selection requires the base repository default branch');
-              }
-              const { data } = await github.request('GET /repos/{owner}/{repo}/git/trees/{tree_sha}', {
-                ...context.repo, tree_sha: repository.default_branch, recursive: '1',
-              });
-              if (data.truncated !== false || !Array.isArray(data.tree) || !/^[a-f0-9]{40}$/.test(data.sha || '')) {
-                throw new Error('Hosted image selection requires a complete base repository Git tree');
-              }
-              const definitions = data.tree.filter(entry => entry.path === '.github/.devcontainer/devcontainer.json');
-              if (definitions.length > 1 || definitions.some(entry => entry.type !== 'blob'
-                  || !['100644', '100755'].includes(entry.mode))) {
-                throw new Error('Repository Image build definition must be one regular file');
-              }
-              hostedImage = definitions.length === 1;
-              if (hostedImage && runner[0] === 'ubuntu-slim') runner = ['ubuntu-latest'];
+            // Generic small/medium runners have no Docker socket for the literal just recipes
+            if (!image && ['small', 'medium'].includes(route) && runner.length === 1) {
+              if (repository.private !== true) runner = ['ubuntu-latest'];
+              else if (runner[0] === `linux-x64-${route}`) runner = runners.docker || ['ubuntu-latest'];
+              else if (runner[0] === 'ubuntu-slim') runner = ['ubuntu-latest'];
             }
             core.setOutput('runner', JSON.stringify(runner));
             core.setOutput('ci-image', String(image));
-            core.setOutput('hosted-image', String(hostedImage));
-            core.info(`Project route: ${route}; CI Image: ${image}; hosted image: ${hostedImage}; runs-on: ${JSON.stringify(runner)}`);
+            core.info(`Project route: ${route}; CI Image: ${image}; runs-on: ${JSON.stringify(runner)}`);

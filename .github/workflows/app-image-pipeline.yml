@@ -1,7 +1,7 @@
 name: app image pipeline (reusable)
 # One App Image, built once, tested, then promoted. Docs: docs/reusable-workflows/app-image-pipeline.md. Pull requests run every
 # step but the promotion. A publishing run builds one candidate, checks its structure (T1), starts it (T2), runs the repository's
-# `mise run test:image` against it (T3), and retags that exact digest. Nothing is rebuilt at release.
+# `just test-image` against it (T3), and retags that exact digest. Nothing is rebuilt at release.
 "on":
   workflow_call:
     inputs:
@@ -86,12 +86,6 @@ name: app image pipeline (reusable)
           *.md
           docs/*
           LICENSE
-      standards-install:
-        description: >-
-          For a Dockerfile that copies a file from .standards/ (amd64 only): a separate job with no OIDC token runs
-          mise run standards:install and hands .standards/ to the build as an artifact
-        type: boolean
-        default: false
       ref:
         description: Ref to check out; defaults to the event's ref
         type: string
@@ -139,7 +133,6 @@ jobs:
           ARCH: ${{ inputs.arch }}
           PUBLISH: ${{ inputs.publish }}
           TAGS: ${{ inputs.tags }}
-          STANDARDS_INSTALL: ${{ inputs.standards-install }}
         run: |
           set -euo pipefail
           if [[ "$ARCH" != amd64 && "$ARCH" != arm64 ]]; then
@@ -148,10 +141,6 @@ jobs:
           fi
           if [[ "$PUBLISH" == true && -z "${TAGS//[[:space:]]/}" ]]; then
             echo "::error::publish needs the tags input"
-            exit 1
-          fi
-          if [[ "$ARCH" == arm64 && "$STANDARDS_INSTALL" == true ]]; then
-            echo "::error::standards-install is not available for an arm64 build"
             exit 1
           fi
       - name: Check out the caller
@@ -193,7 +182,6 @@ jobs:
       labels: ${{ inputs.labels }}
       tags: ${{ inputs.tags }}
       flavor: ${{ inputs.flavor }}
-      standards-install: ${{ inputs.standards-install }}
       ref: ${{ inputs.ref }}
       submodules: ${{ inputs.submodules }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
@@ -300,7 +288,7 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - name: Install the registry client tools
-        uses: Rubio-Enterprises/.github/actions/dev-container-image@main
+        uses: Rubio-Enterprises/.github/actions/build-service@main
         with:
           operation: tools
       - name: Check the image's structure
@@ -366,20 +354,14 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: ${{ inputs.submodules }}
           persist-credentials: false
-      # mise's pipx backend needs uv on PATH on a cold runner
-      - name: Set up uv for mise
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - name: Install just
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
-          # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
-      - name: Set up mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-        with:
-          # renovate: datasource=github-releases depName=jdx/mise
-          version: "2026.10.19"
-          install: false
-          # A run that may publish restores no cache another run could have poisoned
-          cache: false
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       # The pull comes first and leaves no registry credential behind for the repository's tasks
       - name: Pull the candidate
         uses: Rubio-Enterprises/.github/actions/app-image@main
@@ -388,23 +370,15 @@ jobs:
           REGISTRY_TOKEN: ${{ github.token }}
         with:
           operation: pull
-      - name: Install the standards package, the tools and the dependencies
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
-          MISE_GITHUB_TOKEN: ${{ github.token }}
-        run: mise run setup
+      - name: Install repository dependencies
+        run: just build && just setup
       - name: Run the repository's image test
         shell: bash
         env:
           IMAGE: ${{ needs.build.outputs.image || needs.build-arm64.outputs.image }}
         run: |
-          set -euo pipefail
-          if ! mise tasks info test:image > /dev/null 2>&1; then
-            echo "::error::This repository publishes an App Image but defines no test:image task. Define one in mise.toml: it receives the candidate as IMAGE (image@digest) and fails when the image does not do its job"
-            exit 1
-          fi
-          IMAGE_NAME="${IMAGE%@*}" mise run test:image
+          test -x bin/test-image.sh || { echo '::error::App Images require bin/test-image.sh and a test-image recipe'; exit 1; }
+          IMAGE_NAME="${IMAGE%@*}" just test-image
 
   # Promotion: the tested digest gets its final tags. It runs only after every tier passed, and holds only the GHCR token
   promote:

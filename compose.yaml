@@ -1,0 +1,54 @@
+services:
+  dev:
+    build:
+      context: .
+      target: dev
+    pull_policy: missing
+    working_dir: ${REPO_DIR}
+    init: true
+    environment:
+      - GH_TOKEN
+      - LEFTHOOK
+      - CI
+      - GITHUB_TOKEN
+      - GITHUB_ACTIONS
+      - GITHUB_EVENT_NAME
+      - GITHUB_EVENT_PATH
+      - GITHUB_STEP_SUMMARY
+      - GITHUB_REPOSITORY
+      - GITHUB_SERVER_URL
+      - GITHUB_API_URL
+      - GITHUB_WORKSPACE
+      - GITHUB_WORKFLOW
+      - GITHUB_WORKFLOW_REF
+      - GITHUB_RUN_ID
+      - GITHUB_RUN_ATTEMPT
+      - GITHUB_SHA
+      - GITHUB_REF
+      - GITHUB_HEAD_REF
+      - GITHUB_BASE_REF
+      - XDG_CACHE_HOME
+      - IMAGE
+      - IMAGE_NAME
+      - PW_RETRIES
+      - PW_SHARD
+      - BASE_SHA
+      - HEAD_SHA
+      - PR_TITLE
+      - TRIVY_CACHE_DIR
+      - TRIVY_SKIP_DB_UPDATE
+      - RUBIO_VOLUME_DIRS=${REPO_DIR}/.venv:${REPO_DIR}/node_modules
+    volumes:
+      - ${REPO_DIR}:${REPO_DIR}
+      - ${GIT_COMMON_DIR}:${GIT_COMMON_DIR}
+      - venv:${REPO_DIR}/.venv
+      - node_modules:${REPO_DIR}/node_modules
+      - rubio-uv-cache:/home/vscode/.cache/uv
+      - rubio-npm-cache:/home/vscode/.cache/npm
+volumes:
+  venv:
+  node_modules:
+  rubio-uv-cache:
+    external: true
+  rubio-npm-cache:
+    external: true

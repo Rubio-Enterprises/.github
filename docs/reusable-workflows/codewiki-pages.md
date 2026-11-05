@@ -9,7 +9,7 @@
 
 The reusable workflow publishes a repository's committed CodeWiki to GitHub
 Pages. CodeWiki output lives at `docs/codewiki/` in every repository that
-declares `has_codewiki`. It is generated locally with `mise run codewiki`
+declares `has_codewiki`. It is generated locally with `just codewiki`
 (`codewiki generate --output docs/codewiki --github-pages`) and lands on the
 default branch through normal pull requests. The workflow deploys that
 committed output; it never runs CodeWiki.

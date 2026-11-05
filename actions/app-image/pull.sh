@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pulls a candidate image by digest onto a runner with a Docker daemon, with a Docker config that exists only for the pull.
-# Nothing is left logged in, so a repository task that runs next (mise run test:image) finds no registry credential.
+# The temporary pull config is deleted before returning to the caller
 #
 # Environment:
 #   IMAGE           the candidate, ghcr.io/<owner>/<package>@sha256:<digest>

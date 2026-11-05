@@ -1,43 +1,5 @@
-# Reusable e2e workflow. A caller provides either an apex scripts.e2e or a
-# repository-owned mise e2e task (for nested/non-Node roots and non-browser
-# suites). Require a nonempty JUnit report at reports/e2e/junit.xml; the
-# consumer config owns the reporter path. Optional scripts.e2e:setup installs
-# the pinned browser. Most repositories run `e2e` inside their own Test Gate
-# instead (standards Lifecycle Tasks); this reusable suits a suite that needs
-# its own runner or job.
-#
-# RUNNER ROUTING
-# --------------
-# The caller's `ci-platform` custom property selects the runner: `macos` runs
-# the suite on RUNNERS.macos (hosted macos-26 fallback), which has Xcode and the
-# iOS Simulator. An Apple suite drives an unsigned simulator build; this
-# workflow holds no signing or App Store Connect credentials. Every other
-# suite stays on ARM64 (RUNNERS.arm, hosted ubuntu-24.04-arm; standards
-# ADR-0030).
-#
-# SETUP
-# -----
-# `mise run setup` (the repository's starter task) installs the Standards
-# Package, the repository's tools and its `setup:*` dependencies. The calling
-# job must grant `packages: read` for the internal package.
-#
-# DEV-SERVER CONTRACT (browser suites)
-# ------------------------------------
-# This workflow does NOT start a dev server before invoking `playwright test`.
-# Consumers must EITHER:
-#   (a) Wire `playwright.config.ts::webServer` to self-start the app under
-#       test (Playwright runs the command and waits on the URL before the
-#       first test runs). Single-process projects (Next.js dev, Vite dev, a
-#       static-site preview) fit cleanly here.
-#   (b) Skip this reusable entirely and call Playwright from the consumer's
-#       own workflow, with explicit prior steps for multi-process boots
-#       (e.g. `ng build` → `ng serve &` → `wait-on http://localhost:4200`
-#       → `playwright test` for Angular + Electron + Playwright shapes).
-# Option (b) is the expected path for any project where `config.webServer`
-# would have to orchestrate more than one long-running process. The dev-server
-# step must run *in the same job* as `playwright test` because Playwright
-# connects to localhost on the same runner.
 name: e2e (reusable)
+# The repository's bin/e2e.sh owns starting its server and writing reports/e2e/junit.xml
 "on":
   workflow_call:
     inputs:
@@ -46,127 +8,53 @@ name: e2e (reusable)
       timeout-minutes: {type: number, default: 30}
 permissions:
   contents: read
-# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
-# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
-# org maximum; any tighter timeout in this file is deliberate.
+  packages: read
 jobs:
+  route:
+    uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
   e2e:
-    # Publishing the JUnit Check and reading the Standards Package need these
-    # grants from the calling job too.
+    needs: route
     permissions:
       contents: read
       checks: write
       packages: read
-    runs-on: >-
-      ${{ github.event.repository.custom_properties['ci-platform'] == 'macos'
-      && (fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]'))
-      || (fromJSON(vars.RUNNERS || '{}').arm || fromJSON('["ubuntu-24.04-arm"]')) }}
-    env:
-      # renovate: datasource=github-releases depName=jdx/mise
-      MISE_VERSION: "2026.10.19"
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Prepare the macOS toolchain
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Tart's non-login shell does not inherit Homebrew's PATH
-          for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-            if [ -x "$b" ]; then
-              eval "$("$b" shellenv)"
-              printf '%s\n' "$(brew --prefix)/bin" "$(brew --prefix)/sbin" >> "$GITHUB_PATH"
-              break
-            fi
-          done
-          # An Apple suite needs the selected Xcode and its simulator runtimes
-          xcodebuild -version
-          xcrun simctl list runtimes available
-      # mise's pipx backend needs uv on PATH on a cold runner.
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - name: Install just
+        if: needs.route.outputs.ci-image != 'true'
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - name: Log in to GHCR
+        if: needs.route.outputs.ci-image != 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
-          # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.12.17"
-      - id: week
-        name: Name this week's cache key
-        shell: bash
-        run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-        with:
-          version: ${{ env.MISE_VERSION }}
-          install: false
-          cache: true
-          cache_key_prefix: mise-e2e-${{ steps.week.outputs.week }}
-      - name: Install the Standards Release, tools and dependencies
-        shell: bash
-        run: mise run setup
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Install repository dependencies
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MISE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Find the suite command
-        id: command
-        shell: bash
+          CI_IMAGE: ${{ needs.route.outputs.ci-image }}
         run: |
-          set -euo pipefail
-          if mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e")' >/dev/null; then
-            echo "cmd=mise run e2e" >> "$GITHUB_OUTPUT"
-          elif [ -f package.json ] && jq -e '.scripts.e2e | strings | select(length > 0)' package.json >/dev/null; then
-            echo "cmd=npm run e2e" >> "$GITHUB_OUTPUT"
+          test -x bin/e2e.sh
+          if [ "$CI_IMAGE" = true ]; then
+            if [ -x bin/setup.sh ]; then bin/setup.sh; fi
           else
-            echo "::error::reusable e2e requires an apex scripts.e2e or repo-owned mise e2e task" >&2
-            exit 1
+            just build
+            just setup
           fi
-          if [ -f package.json ] && jq -e '.scripts["e2e:setup"] | strings | select(length > 0)' package.json >/dev/null; then
-            echo "setup=script" >> "$GITHUB_OUTPUT"
-          else
-            echo "setup=mise" >> "$GITHUB_OUTPUT"
-          fi
-      # Stand up pnpm via the first-party `pnpm/action-setup` action rather
-      # than `corepack pnpm install`. Corepack ≤ 0.29 (bundled with Node
-      # 22.0–22.12) ships a stale pnpm signing-key trust store and crashes
-      # with `Cannot find matching keyid` when it tries to fetch the latest
-      # stable version. `pnpm/action-setup@v4` reads the consumer's
-      # `packageManager` field in package.json and installs exactly that
-      # version without going through corepack. The step is a no-op when
-      # `pnpm-lock.yaml` is absent.
-      - if: hashFiles('pnpm-lock.yaml') != ''
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - name: Install JS deps (lockfile-aware)
-        if: success()
-        run: |
-          set -euo pipefail
-          if [ -f package.json ]; then
-            if   [ -f pnpm-lock.yaml ];      then pnpm install --frozen-lockfile
-            elif [ -f yarn.lock ];           then corepack yarn install --frozen-lockfile
-            elif [ -f bun.lock ] || [ -f bun.lockb ]; then bun install --frozen-lockfile
-            elif [ -f package-lock.json ];   then npm ci
-            else echo "::error::package.json without lockfile"; exit 1
-            fi
-          fi
-        shell: bash
-      - name: e2e-setup (package-pinned browser install, fixtures, etc.)
-        env:
-          SETUP: ${{ steps.command.outputs.setup }}
-        run: |
-          set -euo pipefail
-          if [ "$SETUP" = script ]; then
-            npm run e2e:setup
-          elif mise tasks ls --json 2>/dev/null | jq -e '.[] | select(.name=="e2e-setup")' >/dev/null; then
-            mise run e2e-setup
-          fi
-        shell: bash
       - name: Run E2E suite
         id: suite
         env:
+          CI_IMAGE: ${{ needs.route.outputs.ci-image }}
           PW_RETRIES: ${{ inputs.retries }}
           PW_SHARD: ${{ inputs.shard }}
-          SUITE: ${{ steps.command.outputs.cmd }}
         run: |
+          rm -rf reports/e2e
           mkdir -p reports/e2e
-          $SUITE
+          if [ "$CI_IMAGE" = true ]; then bin/e2e.sh; else just e2e; fi
         timeout-minutes: ${{ inputs.timeout-minutes }}
       - name: Require executed E2E tests
         if: always()

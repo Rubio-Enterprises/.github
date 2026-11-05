@@ -44,7 +44,7 @@
       "enabled": false
     },
     {
-      "description": "Do not automatically raise the consumer-owned pyproject.toml requires-python compatibility FLOOR on every CPython patch. Renovate bumped >=3.14.6 to >=3.14.7 while the pinned Python and uv 0.12.1 still provided at most 3.14.6, making uv lock and CI fail. Raise the floor deliberately alongside the repository's Python pin in mise.toml; ordinary pep621 package updates stay enabled.",
+      "description": "Do not automatically raise the consumer-owned pyproject.toml requires-python compatibility FLOOR on every CPython patch. Renovate bumped >=3.14.6 to >=3.14.7 while the pinned Python and uv 0.12.1 still provided at most 3.14.6, making uv lock and CI fail. Raise the floor deliberately alongside the repository's Python pin in image/mise.toml; ordinary pep621 package updates stay enabled.",
       "matchManagers": ["pep621"],
       "matchDepTypes": ["requires-python"],
       "matchPackageNames": ["python"],
@@ -350,5 +350,8 @@
       "versioningTemplate": "loose",
       "autoReplaceStringTemplate": "{{{indentation}}}version = \"{{{newDigest}}}\"  # {{{newValue}}}"
     }
-  ]
+  ],
+  "mise": {
+    "managerFilePatterns": ["/^image/mise\\.toml$/"]
+  }
 }

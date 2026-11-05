@@ -1,0 +1,8 @@
+{
+  "name": "dot-github",
+  "dockerComposeFile": "../compose.yaml",
+  "service": "dev",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": false
+}

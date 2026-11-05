@@ -11,26 +11,39 @@ git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
 **GitHub Actions workflows** that run the onboarded repositories' PR checks: the
 injected **`standards`** Required Workflow, plus the reusables a repository's starter
 `.github/workflows/standards.yml` (or a release workflow) calls. In the three-repo
-governance system it is the *delivery vehicle*: `standards` ships the checks as the
-`@rubio-enterprises/standards` npm package, **this repo runs them in CI**, and
+governance system it is the *delivery vehicle*: `standards` ships the checks in
+`ghcr.io/rubio-enterprises/base:main`, **this repo runs them in CI**, and
 `dot-github-private` enforces repo settings (the `standards` and `test-gate` rulesets
 target `standards-onboarded = true`).
 
-This is a **bootstrap repo**: not standards-onboarded and not checked by its own injected
-workflow (the `standards` job skips `Rubio-Enterprises/.github`). There is **no `mise.toml`,
-no `lefthook.yml`, no `.editorconfig`, and no local task runner** here. Work here is editing
-workflow YAML + JSON config directly; `actionlint`, `zizmor` and the `tests/` suite
-(`uv run --no-project --with pytest pytest tests`) are the local checks.
+This is a **bootstrap repo**, not standards-onboarded: the injected workflow skips
+`Rubio-Enterprises/.github`, and there is no `lefthook.yml`. Its own tests and workflow
+linters still run in the dev image through `just`.
+
+## Local commands
+
+First command: `just build`. Host prerequisites are Docker, git and `just`, plus a
+GHCR login. Never install project toolchains on the host.
+
+- `just setup` syncs the test dependencies into the project volume.
+- `just test` runs the contract suite and writes `reports/test/junit.xml`.
+- `just check` runs actionlint and zizmor, including the central composite actions.
+- `just exec <command...>` runs a command in the same image. For one test:
+  `just exec uv run --frozen pytest tests/test_host_first.py::Build::test_mismatched_copy_cannot_move_main`.
+- `just shell` opens an interactive shell. `just fmt` and `just check-pr` expose the
+  base image's commands, but full standards onboarding is not claimed for this bootstrap.
+
+Pins live in `image/mise.toml`; repository code and language tools execute only in
+Compose. The editor attaches through `.devcontainer/devcontainer.json`.
 
 ## The workflows (`.github/workflows/`)
 
 **`standards.yml` — the injected Required Workflow** ([`docs/standards-check.md`](docs/standards-check.md)).
 The `standards` org ruleset injects it into every repository with `standards-onboarded = true`.
-A plain route job selects the project runner; the `standards` job installs the repository's
-Standards Release (`mise run setup`) and runs the package's Conformance Tasks `check` and
-`check:pr`. The checks themselves live in the package. Terraform
-owns the injected ref at `refs/heads/main`. The second required context, `test-gate`, is the
-repository's own starter workflow (the Test Gate), not a file here.
+The route job selects a project runner. CI Image jobs call `standards check` and
+`standards check-pr`; other jobs use the repository's literal `just` recipes.
+Terraform owns the injected ref at `refs/heads/main`. The `test-gate` required
+context is the repository's own starter workflow, not a reusable here.
 
 The Copier-era gate workflows (`standards-gates`, `lint-hooks`, `typecheck-ts`, `build`),
 `cloud-setup-smoke`, the `devcontainer-run` project-execution action and the Copier Renovate
@@ -42,14 +55,14 @@ preset are retired (standards v2 flag day, 2026-10-31).
 | Workflow | What it does |
 | --- | --- |
 | `project-route.yml` | Selects native runs-on JSON for project jobs from declared platform/size, RUNNERS and central CI Image admission. Read [`docs/reusable-workflows/project-route.md`](docs/reusable-workflows/project-route.md) before changing routing, adding a caller or skipping image-job bootstrap |
-| `standards-cache.yml` | Writes, on the default branch, the weekly trivy-database and npm caches the injected `standards` job restores (its pull-request runs cannot share caches); the starter caller runs it on push to `main` and dispatch with `packages: read`. Keys must match `standards.yml`'s (`tests/test_standards_cache.py`) |
+| `standards-cache.yml` | Writes, on the default branch, the weekly workspace-local trivy-database and npm caches the injected `standards` job restores (its pull-request runs cannot share caches); the starter caller runs it on push to `main` and dispatch with `packages: read`. Keys must match `standards.yml`'s (`tests/test_standards_cache.py`) |
 | `release-please.yml` | release-please with the `rubio-release-please` App token; the starter caller runs it when `release-please-config.json` exists. See [`docs/reusable-workflows/release-please.md`](docs/reusable-workflows/release-please.md) |
-| `dev-container-image.yml` | amd64-only per-repository Dev Container and CI image indices; a push whose image input key matches the published `:main` pair only aliases `:sha-<commit>`. Builds on the Build Service from the image Scale Set (`RUNNERS.image`); the caller's job must grant `id-token: write`. The starter caller runs it when `.github/.devcontainer/devcontainer.json` exists. Read [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) before changing publication, rebase verification or checks |
-| `app-image-pipeline.yml` | One App Image, built once, tested and promoted: a candidate on the Build Service (amd64) or natively on the arm pool, tier 1 structure checks, a smoke test, the repository's `mise run test:image`, then a retag of the tested digest. Callers grant `contents: read`, `packages: write` and `id-token: write`. Read [`docs/reusable-workflows/app-image-pipeline.md`](docs/reusable-workflows/app-image-pipeline.md) before changing the job graph or where repository code may run |
-| `app-image.yml` | The pipeline's builder, called only by it (amd64 only, private repositories): a `candidate` image or a `promote` of a tested candidate. Callers grant `contents: read`, `packages: write` and `id-token: write` on every calling job. Repository code never runs in the credentialed `build` job: `standards-install` runs in a separate `prepare` job with no OIDC token and hands `.standards/` over as an artifact. Read [`docs/reusable-workflows/app-image.md`](docs/reusable-workflows/app-image.md) before changing it; its job's `job_workflow_ref` is on the Private CA's allowed list in mac-dev-playbook |
+| `repository-image.yml` | Builds the repository's `ci` target from its own `Dockerfile` on the Build Service (amd64) and publishes `devcontainer-ci:main`; dev images are never built or published (host-first shape §7). See [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) |
+| `app-image-pipeline.yml` | One App Image, built once, tested and promoted: a candidate on the Build Service (amd64) or natively on the arm pool, tier 1 structure checks, a smoke test, the repository's `just test-image` (`bin/test-image.sh`), then a retag of the tested digest. Callers grant `contents: read`, `packages: write` and `id-token: write`. Read [`docs/reusable-workflows/app-image-pipeline.md`](docs/reusable-workflows/app-image-pipeline.md) before changing the job graph or where repository code may run |
+| `app-image.yml` | The pipeline's builder, called only by it (amd64 only, private repositories): a `candidate` image or a `promote` of a tested candidate. Callers grant `contents: read`, `packages: write` and `id-token: write` on every calling job. Repository code never runs in the credentialed `build` job: the Dockerfile consumes `/opt/standards` from the base image, not an installed npm bundle. Read [`docs/reusable-workflows/app-image.md`](docs/reusable-workflows/app-image.md) before changing it; its job's `job_workflow_ref` is on the Private CA's allowed list in mac-dev-playbook |
 | `codewiki-pages.yml` | Push-to-default deploy of a committed CodeWiki (`docs/codewiki/` minus `temp/`, requires the `index.html` viewer) to Pages; the starter caller runs it when `docs/codewiki/metadata.json` exists. Caller grants `contents: read`, `pages: write`, `id-token: write`; Pages enablement/visibility is `.github-private` Terraform's. See [`docs/reusable-workflows/codewiki-pages.md`](docs/reusable-workflows/codewiki-pages.md) |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-range gitleaks scan runs in the package's `check:pr` |
-| `e2e.yml` | E2E harness for a suite that needs its own job; accepts apex `scripts.e2e` or a repo-owned `mise run e2e`, requires nonempty JUnit at `reports/e2e/junit.xml`, supports optional `scripts.e2e:setup` or a mise `e2e-setup` task, and runs `mise run setup` first (the caller grants `packages: read`). Routes `ci-platform = macos` callers to `RUNNERS.macos`, others to `RUNNERS.arm`. Does **not** start a dev server (see its header). Most repositories run `e2e` in their Test Gate instead |
+| `e2e.yml` | Runs `bin/setup.sh` and `bin/e2e.sh` in a CI Image, otherwise `just setup` and `just e2e`; requires executed JUnit cases at `reports/e2e/junit.xml`. Uses `project-route.yml`, including the native macOS route |
 | `testflight.yml` | The signed Apple build reusable — see [`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md) and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md) |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source) |
 
@@ -59,8 +72,9 @@ ops, not reusables: `test-gate` runs `tests/` and reports the `test-gate` contex
 
 `bump-brew.yml` is invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
 
-V2 image builds use the `ci` target of `image/Dockerfile` from the repository's
-verified Standards Release (2.1.0+). This repository owns orchestration, not the v2 recipe.
+CI images build the caller's root Dockerfile `ci` target. The central
+`repository-image` action handles build, secret scan and publication;
+`build-service` owns the shared mTLS transport and client tool installer.
 
 There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
 Repositories join the onboarded set with `npm init @rubio-enterprises/standards`, which copies
@@ -79,33 +93,6 @@ release for this repository. Recover regressions through reviewed reverts.
   consumer contracts. Guard direct `pull_request` and `merge_group` events from this source
   repository explicitly. The Rust workflow skips its workload and lets the bucket report the
   source no-op; consumer direct events and `workflow_call` remain strict.
-- **`setup-uv` before `mise-action`.** Every mise-using job installs
-  `astral-sh/setup-uv@…` *before* `jdx/mise-action`. Without uv on PATH, mise ≥ 2026.6.2
-  routes pipx installs through pip's `--uploaded-prior-to`, which cold runners' bootstrap pip
-  (< 26) rejects → hard fail. Copy this step into any new mise-based reusable.
-- **uv CLI pin — `setup-uv` MUST carry an exact `version:`.** Every
-  `astral-sh/setup-uv` step pins an exact uv version behind a
-  `# renovate: datasource=github-releases depName=astral-sh/uv` marker (human-merge only,
-  like the mise pin). This is not cosmetic determinism — it changes the action's network
-  behaviour. Read `setupUv()` in the action: it calls `resolveUvVersion()` **before**
-  `tryGetFromToolCache()`. With no `version:` the specifier is `latest`, so
-  `LatestVersionResolver` must `fetch` `astral-sh/versions`'
-  `v1/uv.ndjson` from `raw.githubusercontent.com` under a hard
-  `AbortSignal.timeout(5_000)` on **every** run, before the tool cache is ever consulted —
-  an unconditional 5-second external dependency ahead of every linter and test in
-  onboarded consumers, and the first thing to snap when the shared runners are saturated. With an exact
-  version `ExactVersionResolver` returns offline, so a warm runner tool-cache hit installs
-  uv with **zero** network calls. Keep the marker and the exact pin when you add a job.
-  **Caveat, so nobody over-claims this:** on a *cold* tool cache the pin does not remove
-  the fetch — `downloadVersion()` → `getArtifact()` → `fetchManifest()` still reads the
-  same manifest to learn the artifact URL, and the action exposes no input to bypass it
-  (`manifest-file` only swaps the URL; `fetch` is undici, so a local path is not an
-  option). The pin converts "every run, always" into "first run per runner per uv
-  version" — it does not make the dependency disappear.
-- **mise CLI pin.** Each mise-using workflow (`standards.yml`, `e2e.yml`) passes its quoted
-  job-level `MISE_VERSION` to `jdx/mise-action`, tracked by
-  `# renovate: datasource=github-releases depName=jdx/mise`. The action receives
-  `MISE_GITHUB_TOKEN` before setup. Renovate bumps remain human-reviewed.
 - **Runner Route selection.** Private org variable `RUNNERS` is a JSON map;
   `org-ops ci mode` owns live values. Each key has an independent hosted
   fallback, so public consumers (which cannot see private org variables)
@@ -124,11 +111,7 @@ release for this repository. Recover regressions through reviewed reverts.
   | `vrt` | `linux-x64-medium` | `linux-x64-medium` (self-only) | pinned visual rendering |
   | `macos` | `macos-arm64` | `macos-26` | Xcode and signing |
 
-  This repo's `e2e.yml` uses `arm` with the `ubuntu-24.04-arm` fallback,
-  keeping self-hosted and hosted execution on ARM64 per standards
-  [ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md).
-  Capability outranks that: a caller whose `ci-platform` custom property is `macos` runs its
-  suite on `macos` (`macos-26` fallback), because simulator suites need Xcode.
+  Project workflows use the shared router. Small/medium jobs outside a CI Image need Docker: generic self-hosted routes use the `docker` route, and `ubuntu-slim` becomes `ubuntu-latest`. Native macOS projects retain `macos` for Xcode.
   `bump-brew` uses `arm` and its Ruby preflight can install
   through passwordless sudo on Tart Ubuntu. Long Xcode builds such as `testflight` use `macos`.
 - **Size and platform are DECLARED as custom properties, never derived from files.**
@@ -146,7 +129,7 @@ release for this repository. Recover regressions through reviewed reverts.
   ordinary update branches for weekends in `America/Chicago`; package-specific
   rules may have narrower schedules. Security vulnerability alert PRs retain
   Renovate's immediate default. Key rules: the built-in **`mise` manager is on** (runtime pins in a
-  repository's `mise.toml` are repository-owned; the check-tool pins live in the Standards Package);
+  repository's `image/mise.toml` are repository-owned; the check-tool pins live in the Standards Package);
   the **`copier` manager is off** (Copier is retired); **`github-actions` manager disabled for the
   starter `.github/workflows/standards.yml`** outside this repository (its action pins advance in the
   package's starter, and a local bump would show as Starter Drift); first-party `Rubio-Enterprises/.github`

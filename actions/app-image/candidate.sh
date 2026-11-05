@@ -2,7 +2,7 @@
 # Copies the image build.sh staged to GHCR under its temporary candidate tag and checks that the tag resolves to the staged digest.
 # imagetools copies by digest, so attestations and every child manifest come across unchanged. crane copy would also push a
 # sha256-<digest> referrers tag for each attestation (GHCR has no referrers API), cluttering the package's tag list and
-# version feeds. This is the only step that sees the GHCR token, and it reaches it through its environment.
+# version feeds. The GHCR token reaches this step through its environment.
 #
 # Environment:
 #   IMAGE           untagged GHCR image, ghcr.io/<owner>/<package>

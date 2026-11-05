@@ -101,16 +101,16 @@ particularly in private repositories or for API/CLI-created issues.
 
 | Workflow | Purpose |
 | --- | --- |
-| [`e2e.yml`](./.github/workflows/e2e.yml) | End-to-end harness for a suite that needs its own job; runs `mise run setup`, then an apex `scripts.e2e` or repo-owned `mise run e2e`, requires a nonempty JUnit report, and does not start a dev server. `ci-platform = macos` callers run on `RUNNERS.macos` |
-| [`dev-container-image.yml`](./.github/workflows/dev-container-image.yml) | Builds amd64-only Dev Container/CI image pairs on the Build Service and publishes one-entry indices; Apple Silicon uses a local build config. See [its contract](./docs/reusable-workflows/repository-image.md) |
+| [`e2e.yml`](./.github/workflows/e2e.yml) | Runs the E2E Lifecycle Script in the CI Image or the literal `just e2e` recipe, with nonempty JUnit proof |
+| [`repository-image.yml`](./.github/workflows/repository-image.yml) | Builds the repository's CI Image (`devcontainer-ci:main`) from its own `Dockerfile` on the Build Service (amd64) and publishes single-platform indices. See [its contract](./docs/reusable-workflows/repository-image.md) |
 | [`app-image.yml`](./.github/workflows/app-image.yml) | Builds one amd64 app or release image on the Build Service and copies it to GHCR (build check, candidate for a build-then-run job, or publish). See [its contract](./docs/reusable-workflows/app-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-range gitleaks scan runs in the package's `check:pr`) |
-| [`standards.yml`](./.github/workflows/standards.yml) | Injected, not called: the Standards Check. Installs the repository's Standards Release and runs `mise run check` and `mise run check:pr`; routed by the `ci-platform`/`ci-size` properties; see [its contract](./docs/standards-check.md) |
+| [`standards.yml`](./.github/workflows/standards.yml) | Injected Standards Check: `standards check` / `standards check-pr` in a CI Image, literal `just` recipes otherwise; see [its contract](./docs/standards-check.md) |
 | [`release-please.yml`](./.github/workflows/release-please.yml) | release-please with the `rubio-release-please` App token, a root `uv.lock` refresh and auto-merge on the release PR; called by the starter `standards.yml` when `release-please-config.json` exists; see [its contract](./docs/reusable-workflows/release-please.md) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages when the starter caller finds `docs/codewiki/metadata.json`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
-A repository workflow that needs the package's tools runs `jdx/mise-action` and
-`mise run setup` with `NODE_AUTH_TOKEN` and `packages: read`.
+Project workflows use the tools in `base:main`. Hosted jobs log into GHCR with
+`packages: read` and run the same `just` recipes as a laptop.
 
 Tests are not centrally executed: each onboarded repository gates landing
 through its own starter `.github/workflows/test-gate.yml` required status (the
@@ -137,12 +137,9 @@ route has its own hosted fallback for public callers:
 | `vrt` | `linux-x64-medium` | self-only `linux-x64-medium` |
 | `macos` | `macos-arm64` | `macos-26` |
 
-The `e2e.yml` reusable uses `arm`, including the `ubuntu-24.04-arm` fallback
-when the private map is unavailable. A caller whose `ci-platform` property is
-`macos` runs on `macos` instead (hosted `macos-26` fallback), because an Apple suite needs Xcode
-and the iOS Simulator. The map has exactly eight active keys; `light`, `heavy`
-and `e2e` are retired, and non-macOS E2E workflows use `arm` instead
-([standards ADR-0030](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0030-size-route-keys-and-hosted-fallbacks.md)).
+The project router keeps admitted private CI Image labels and native macOS routes.
+Non-image Linux project execution requires Docker: generic small/medium self-hosted
+routes use `docker`, while the public `ubuntu-slim` fallback becomes `ubuntu-latest`.
 
 The shared Renovate preset in `default.json` schedules ordinary updates on
 weekends in `America/Chicago`; vulnerability alerts remain immediate. Existing
@@ -157,10 +154,10 @@ a separate publication request. Recover a regression with a reviewed revert.
 
 ## Standards dependency
 
-The Standards Check installs `@rubio-enterprises/standards` (internal, GitHub
-Packages) at the repository's Standards Release: `latest`, or the Release Pin
-in its `mise.toml`. Check content therefore follows standards releases without
-a `.github` change.
+Standards content is baked into `ghcr.io/rubio-enterprises/base:main`. A Release Pin
+is a different base tag in the repository's Dockerfile, with an issue link.
+A base publication triggers the [fleet CI-image rebuild](.github/workflows/fleet-ci-image-rebuild.yml),
+which reads the admitted inventory from mac-dev-playbook and paces dispatches.
 
 Internal `.github` workflow/action calls follow `@main`; the shared Renovate
 preset disables updates and digest pinning for that exact dependency, including
@@ -198,21 +195,20 @@ How? and Testing? (with feedback, dependencies and screenshots when relevant).
 Keep the body within 400 words. See also [CONTRIBUTING.md](CONTRIBUTING.md),
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md).
 
-This repository has no mise tasks or local lefthook configuration; the consumer
-setup commands in `CONTRIBUTING.md` do not apply here. With actionlint and Python
-installed, check workflow syntax and the standard-library contract tests:
+This bootstrap repository uses Docker, git and `just`; all project toolchains
+stay inside the image. After a GHCR login:
 
 ```bash
-actionlint
-python3 -m unittest discover -s tests
+just build
+just setup
+just check
+just test
 ```
 
-Issue-form YAML/structure checks also use an existing `yq` v4 executable (no new
-Python dependencies); those checks skip when it is unavailable. To run only the
-issue-form tests:
+To run only the issue-form tests:
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_issue_forms.py' -v
+just exec uv run --frozen pytest tests/test_issue_forms.py
 ```
 
 These checks validate source paths and form structure, not GitHub rendering or

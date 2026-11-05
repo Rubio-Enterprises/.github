@@ -71,6 +71,7 @@ jobs:
         with:
           repository: ${{ inputs.tap }}
           token: ${{ steps.tap-app.outputs.token }}
+          persist-credentials: false
       # The formula rewrite needs Ruby. Tart Ubuntu supplies passwordless sudo
       # for the apt fallback if Ruby is absent from the runner image.
       - name: Ensure ruby is available
@@ -83,6 +84,7 @@ jobs:
           ruby --version
       - name: Rewrite formula tag + revision
         env:
+          GH_TOKEN: ${{ steps.tap-app.outputs.token }}
           FORMULA: ${{ inputs.formula-name }}
           TAP: ${{ inputs.tap }}
           TAG: ${{ github.ref_name }}
@@ -162,5 +164,7 @@ jobs:
             echo "::notice::${FORMULA} already at ${TAG}; nothing to bump"
           else
             git commit -m "chore(${FORMULA}): bump to ${TAG}"
-            git push
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" \
+              git push
           fi

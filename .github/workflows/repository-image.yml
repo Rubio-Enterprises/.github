@@ -1,0 +1,118 @@
+name: repository image (reusable)
+"on":
+  workflow_call:
+    inputs:
+      file:
+        description: Dockerfile relative to repository root
+        type: string
+        default: Dockerfile
+      target:
+        description: Must be ci
+        type: string
+        default: ci
+      context:
+        description: Build context relative to repository root
+        type: string
+        default: .
+      image-name:
+        description: Untagged GHCR image in the caller repository's namespace (scratch name off default branch)
+        type: string
+        default: ''
+permissions: {}
+concurrency:
+  group: repository-image-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    # Public repositories run literal just recipes and do not publish runner images
+    if: >-
+      github.event.repository.private == true &&
+      contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.image-name != '')
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').image || fromJSON('["linux-x64-image"]') }}
+    timeout-minutes: 45
+    outputs:
+      package: ${{ steps.resolve.outputs.package }}
+    steps:
+      - id: resolve
+        name: Resolve publication policy
+        shell: bash
+        env:
+          IMAGE_INPUT: ${{ inputs.image-name }}
+          ON_DEFAULT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        run: |
+          set -euo pipefail
+          own="ghcr.io/${GITHUB_REPOSITORY,,}/devcontainer-ci"
+          image="${IMAGE_INPUT:-$own}"
+          prefix="ghcr.io/${GITHUB_REPOSITORY,,}/"
+          if [[ "$image" != "$prefix"* || ! "$image" =~ ^ghcr.io/[a-z0-9._/-]+$ ]]; then
+            echo '::error::image-name must be untagged and inside the caller repository namespace'; exit 1
+          fi
+          if [[ "$ON_DEFAULT" != true && "$image" = "$own" ]]; then
+            echo '::error::off-default builds need a scratch image-name'; exit 1
+          fi
+          package="${image#ghcr.io/}"
+          printf 'image=%s\npackage=%s\n' "$image" "${package#*/}" >> "$GITHUB_OUTPUT"
+      - name: Check out the caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up the central action's JavaScript engine
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install the Build Service client tools
+        uses: Rubio-Enterprises/.github/actions/build-service@main
+        with:
+          operation: tools
+      - name: Connect to the Build Service
+        uses: Rubio-Enterprises/.github/actions/build-service@main
+        with:
+          operation: connect
+      - name: Build CI image
+        id: build
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          BUILD_FILE: ${{ inputs.file }}
+          BUILD_TARGET: ${{ inputs.target }}
+          BUILD_CONTEXT: ${{ inputs.context }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: build
+      - name: Scan CI image for secrets
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          REF: ${{ steps.build.outputs.ref }}
+        with:
+          operation: scan
+      - name: Publish verified CI image
+        uses: Rubio-Enterprises/.github/actions/repository-image@main
+        env:
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          REF: ${{ steps.build.outputs.ref }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        with:
+          operation: publish
+      - name: Remove job credentials
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/ci-scan"
+  prune:
+    needs: build
+    permissions:
+      packages: write
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
+        with:
+          owner: ${{ github.repository_owner }}
+          package-name: ${{ needs.build.outputs.package }}
+          package-type: container
+          delete-only-untagged-versions: 'true'
+          min-versions-to-keep: 5

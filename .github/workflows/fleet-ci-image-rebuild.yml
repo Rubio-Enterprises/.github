@@ -1,0 +1,52 @@
+name: fleet CI image rebuild
+"on":
+  repository_dispatch:
+    types: [base-image-updated]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fleet-ci-image-rebuild
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    # The paced fleet loop can exceed ubuntu-slim's execution limit
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').medium || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 60
+    steps:
+      - name: Mint dispatch token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] Fleet inventory spans the org
+          permission-contents: read
+          permission-actions: write
+      - name: Read canonical admission inventory
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        shell: bash
+        run: |
+          gh api repos/Rubio-Enterprises/mac-dev-playbook/contents/cue/incus/ci-image-inventory.json \
+            --jq '.content' | base64 --decode > "$RUNNER_TEMP/ci-image-inventory.json"
+          jq -e '.entries | length > 0' "$RUNNER_TEMP/ci-image-inventory.json"
+      - name: Dispatch admitted repositories at a paced rate
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -er '[.entries[].repository] | unique | if length > 0 and all(.[]; test("^Rubio-Enterprises/[A-Za-z0-9_.-]+$")) then .[] else error("invalid inventory") end' \
+            "$RUNNER_TEMP/ci-image-inventory.json" > "$RUNNER_TEMP/ci-repositories"
+          failed=0
+          while IFS= read -r repo; do
+            echo "Dispatch $repo"
+            if ! gh workflow run standards.yml --repo "$repo"; then
+              echo "::error::failed to dispatch $repo"
+              failed=$((failed + 1))
+            fi
+            sleep 15
+          done < "$RUNNER_TEMP/ci-repositories"
+          echo "Failed dispatches: $failed"
+          test "$failed" -eq 0

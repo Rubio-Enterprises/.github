@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds one app image on the Build Service and leaves it in the staging registry (mac-dev-playbook ADR 0057). The job is
 # a thin client: no Docker daemon, no root. connect.sh has set DOCKER_CONFIG, BUILDX_BUILDER, SSL_CERT_FILE, STAGING and
-# STAGING_TAG. candidate.sh copies the staged result to GHCR; this step never holds a GHCR credential.
+# STAGING_TAG. candidate.sh copies the staged result to GHCR. Pull auth reaches BuildKit only through its session.
 #
 # Environment:
 #   IMAGE          untagged GHCR image, ghcr.io/<owner>/<package>
@@ -73,6 +73,14 @@ metadata="$state/build-metadata.json"
 # A failed build must leave nothing for candidate.sh to find: it would copy the previous build's image
 rm -f "$metadata" "$state/digest" "$state/staging.ref"
 # The daemon's own cache replaces --cache-from and --cache-to: the daemon holds no registry or Actions credential
+if [[ -n "${REGISTRY_TOKEN:-}" ]]; then
+  cleanup_pull_auth() {
+    jq 'del(.auths["ghcr.io"])' "$DOCKER_CONFIG/config.json" > "$DOCKER_CONFIG/config.json.new"
+    mv "$DOCKER_CONFIG/config.json.new" "$DOCKER_CONFIG/config.json"
+  }
+  trap cleanup_pull_auth EXIT
+  printf '%s' "$REGISTRY_TOKEN" | crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+fi
 retry_unavailable docker buildx build "${args[@]}" --metadata-file "$metadata" \
   --output "type=image,name=$staging,push=true" "$context_path"
 
