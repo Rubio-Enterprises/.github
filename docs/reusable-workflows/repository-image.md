@@ -32,7 +32,8 @@ registry, and its immutable digest is checked against BuildKit metadata.
 Checksum-pinned Trivy scans the immutable staged image before publication. Scan
 errors and findings fail closed, with findings kept only in transient files.
 The existing central [scan policy](repository-image-secrets.md) is unchanged.
-Only then does crane copy the verified digest to `sha-<commit>-amd64` and buildx
+Before copying, the destination must be private/internal (or not yet created),
+and the staged config must declare linux/amd64. Only then does crane copy the verified digest to `sha-<commit>-amd64` and buildx
 publish one-platform indices as `main` and `sha-<commit>`. The selected amd64 child
 must still equal the scanned digest. Pruning retains five untagged versions.
 Credentials and scan files are removed on success and failure.

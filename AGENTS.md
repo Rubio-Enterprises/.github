@@ -11,8 +11,8 @@ git@github-personal:Rubio-Enterprises/.github.git`). Public org repo holding the
 **GitHub Actions workflows** that run the onboarded repositories' PR checks: the
 injected **`standards`** Required Workflow, plus the reusables a repository's starter
 `.github/workflows/standards.yml` (or a release workflow) calls. In the three-repo
-governance system it is the *delivery vehicle*: `standards` ships the checks as the
-`@rubio-enterprises/standards` npm package, **this repo runs them in CI**, and
+governance system it is the *delivery vehicle*: `standards` ships the checks in
+`ghcr.io/rubio-enterprises/base:main`, **this repo runs them in CI**, and
 `dot-github-private` enforces repo settings (the `standards` and `test-gate` rulesets
 target `standards-onboarded = true`).
 
