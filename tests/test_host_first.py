@@ -156,7 +156,13 @@ fi
         self.assertEqual((self.root / "build-token-env").read_text(), "unset")
         self.assertEqual((self.root / "build-config-paths").read_text().splitlines(), [str(config.parent)])
         credentials = (self.root / "credentials").read_text().splitlines()
-        client_calls = [call for call in credentials if "ghcr.io" in call]
+        # Each line is "<docker config dir>|crane <args>"; keep the calls whose arguments name a
+        # GHCR reference, by prefix, not by substring.
+        client_calls = [
+            call
+            for call in credentials
+            if any(arg.startswith("ghcr.io/") for arg in call.split("|", 1)[1].split()[1:])
+        ]
         self.assertTrue(client_calls)
         self.assertTrue(all(call.startswith(str(self.root / "build-service/docker-publish") + "|") for call in client_calls))
 
