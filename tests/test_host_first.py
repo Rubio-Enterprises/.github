@@ -286,6 +286,21 @@ fi
 
 
 class Contracts(unittest.TestCase):
+    def test_hosted_checkouts_are_writable_by_the_non_root_image_user(self):
+        for filename, job in (("test-gate.yml", "canonical-tests"),
+                              ("workflow-validation.yml", "validate"),
+                              ("standards.yml", "standards")):
+            with self.subTest(workflow=filename):
+                workflow = json.loads(subprocess.check_output(["yq", "-o=json", str(ROOT / ".github/workflows" / filename)], text=True))
+                steps = workflow["jobs"][job]["steps"]
+                prepared = next(i for i, step in enumerate(steps)
+                                if step.get("name") == "Prepare container-writable hosted checkout")
+                self.assertIn("runner.environment == 'github-hosted'", steps[prepared]["if"])
+                self.assertIn("runner.os == 'Linux'", steps[prepared]["if"])
+                self.assertEqual(steps[prepared]["run"], 'chmod -R a+rwX "$GITHUB_WORKSPACE"')
+                built = next(i for i, step in enumerate(steps) if "just build" in step.get("run", ""))
+                self.assertLess(prepared, built)
+
     def test_credentialed_ci_builder_runs_only_central_actions(self):
         workflow = (ROOT / ".github/workflows/repository-image.yml").read_text()
         self.assertNotIn("GITHUB_ACTION_PATH", workflow)

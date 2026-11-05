@@ -22,4 +22,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      - name: Prepare container-writable hosted checkout
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
       - run: just build && just check
