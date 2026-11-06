@@ -42,8 +42,13 @@ Compose. The editor attaches through `.devcontainer/devcontainer.json`.
 The `standards` org ruleset injects it into every repository with `standards-onboarded = true`.
 The route job selects a project runner. CI Image jobs call `standards check` and
 `standards check-pr`; other jobs use the repository's literal `just` recipes.
-Terraform owns the injected ref at `refs/heads/main`. The `test-gate` required
-context is the repository's own starter workflow, not a reusable here.
+Terraform owns the injected ref at `refs/heads/main`.
+
+**`test-gate.yml` — the injected Test Gate** ([`docs/test-gate.md`](docs/test-gate.md)).
+Before changing its routing, policy reader, Lifecycle execution or JUnit validation,
+read that contract and its Release Check qualification interface. The org ruleset
+requires the workflow identity; repositories keep only exception reasons in
+`.github/standards.toml`. `bootstrap-test-gate.yml` independently tests this source repo.
 
 The Copier-era gate workflows (`standards-gates`, `lint-hooks`, `typecheck-ts`, `build`),
 `cloud-setup-smoke`, the `devcontainer-run` project-execution action and the Copier Renovate
@@ -66,8 +71,8 @@ preset are retired (standards v2 flag day, 2026-10-31).
 | `testflight.yml` | The signed Apple build reusable — see [`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md) and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md) |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source) |
 
-`test-gate.yml`, `copilot-setup-steps.yml` and `workflow-validation.yml` are this repo's own
-ops, not reusables: `test-gate` runs `tests/` and reports the `test-gate` context;
+`bootstrap-test-gate.yml`, `copilot-setup-steps.yml` and `workflow-validation.yml` are this repo's own
+ops, not reusables: the bootstrap gate runs `tests/` and reports the `test-gate` context;
 `copilot-setup-steps` pins Copilot to a hosted runner because this repo is public.
 
 `bump-brew.yml` is invoked from a consumer's **release/tag workflow**, not from `standards.yml` (the Go/Swift CLIs that ship a `:git` formula in the tap call it on release). Push auth: preferred is the **rubio-tap-push App** — callers use `secrets: inherit` and the reusable mints a per-run token (contents:write, scoped to the tap repo) from the `TAP_PUSH_APP_ID`/`TAP_PUSH_APP_PRIVATE_KEY` org secrets. A caller that does not pass them fails fast with an explicit error. **Filename ≠ display name** — the file is `bump-brew.yml` (renamed from `bump-homebrew-git`) but its internal `name:` still reads `bump-homebrew-git (reusable)`; `uses:` the *path* `…/bump-brew.yml@main`.
@@ -78,7 +83,7 @@ CI images build the caller's root Dockerfile `ci` target. The central
 
 There is intentionally **no `workflow-templates/`** (org "New workflow" picker starters).
 Repositories join the onboarded set with `npm init @rubio-enterprises/standards`, which copies
-the starter `standards.yml` and `test-gate.yml`.
+the starter `standards.yml`; the Test Gate is centrally injected.
 
 ## Workflow delivery
 
@@ -218,7 +223,7 @@ release for this repository. Recover regressions through reviewed reverts.
   up to two days and were hand-merged.
 
   Since the standards v2 flag day (2026-10-31) every onboarded repository requires exactly two
-  contexts, the injected `standards` check and its own `test-gate`, so native auto-merge waits on
+  contexts, the injected `standards` check and central `test-gate`, so native auto-merge waits on
   the same lint/format and test results Renovate's engine would. The 2026-08 `gate-lint-hooks` /
   `gate-e2e` required contexts are retired with their workflows.
 

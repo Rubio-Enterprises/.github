@@ -194,6 +194,63 @@ class ProjectRouteTests(unittest.TestCase):
                 self.assertEqual(code, 1, result)
                 self.assertEqual(result['output'], {})
 
+    def test_test_route_overrides_only_test_execution(self):
+        for override, labels, platform in (
+            ("medium", [f"ci-{ID}-org-ops-medium"], "linux"),
+            ("small", [f"ci-{ID}-org-ops-small"], "linux"),
+            ("docker", ["linux-x64-large"], "linux"),
+            ("arm", ["linux-arm64"], "linux"),
+            ("macos", ["macos-arm64"], "macos"),
+        ):
+            properties = {"ci-platform": "linux", "ci-size": "small", "ci-test-route": override}
+            with self.subTest(override=override):
+                result = self.assert_route(labels, image=override in ("small", "medium"),
+                                           route="test", repository={"custom_properties": properties})
+                self.assertEqual(result["output"]["platform"], platform)
+                self.assertEqual(result["calls"], [])
+                self.assert_route([f"ci-{ID}-org-ops-small"], image=True,
+                                  route="linux", repository={"custom_properties": properties})
+                self.assert_route([f"ci-{ID}-org-ops-small"], image=True,
+                                  route="auto", repository={"custom_properties": properties})
+
+    def test_test_route_fetches_missing_override_and_fails_closed_on_api_error(self):
+        result = self.assert_route(["linux-arm64"], route="test", properties=[
+            {"property_name": "ci-platform", "value": "linux"},
+            {"property_name": "ci-size", "value": "small"},
+            {"property_name": "ci-test-route", "value": "arm"},
+        ])
+        self.assertEqual(len(result["calls"]), 1)
+        code, result = run_route(route="test", api_error=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(result["output"], {})
+
+    def test_unset_test_override_uses_platform_and_size_defaults(self):
+        for override in (None, ""):
+            self.assert_route(["macos-arm64"], route="test", repository={"custom_properties": {
+                "ci-platform": "macos", "ci-size": "medium", "ci-test-route": override,
+            }})
+        self.assert_route([f"ci-{ID}-org-ops-small"], image=True, route="test",
+                          repository={"custom_properties": None}, properties=[])
+
+    def test_test_route_never_sends_public_code_to_private_pools(self):
+        for override, expected in (("arm", "ubuntu-24.04-arm"), ("docker", "ubuntu-latest"),
+                                   ("medium", "ubuntu-latest"), ("macos", "macos-26")):
+            with self.subTest(override=override):
+                self.assert_route([expected], route="test", repository={
+                    "private": False, "custom_properties": {
+                        "ci-platform": "linux", "ci-size": "small", "ci-test-route": override,
+                    },
+                })
+
+    def test_invalid_test_override_emits_no_outputs(self):
+        for override in ("large", "kvm", "vrt", "__proto__", " ", [], False, 1):
+            with self.subTest(override=override):
+                code, result = run_route(route="test", repository={"custom_properties": {
+                    "ci-platform": "linux", "ci-size": "small", "ci-test-route": override,
+                }})
+                self.assertEqual(code, 1, result)
+                self.assertEqual(result["output"], {})
+
     def test_workflow_is_route_only_and_uses_no_inherited_secret_or_project_code(self):
         self.assertIn('workflow_call:', WORKFLOW)
         self.assertIn('contents: read', WORKFLOW)

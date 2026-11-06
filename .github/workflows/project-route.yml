@@ -4,7 +4,7 @@ name: project route (reusable)
   workflow_call:
     inputs:
       route:
-        description: "auto uses ci-platform/ci-size; linux uses ci-size for Linux-able checks; capability jobs may select a RUNNERS key"
+        description: "auto uses ci-platform/ci-size; linux selects Linux checks; test also reads ci-test-route; capability jobs select a RUNNERS key"
         type: string
         default: auto
     outputs:
@@ -53,10 +53,12 @@ jobs:
               throw new Error('CI_IMAGE_REPOS must be an array of positive integer repository IDs');
             }
             let route = process.env.ROUTE;
+            const testRoute = route === 'test';
             let platform = route === 'macos' ? 'macos' : 'linux';
-            if (['auto', 'linux'].includes(route)) {
+            if (['auto', 'linux', 'test'].includes(route)) {
               let properties = context.payload.repository?.custom_properties;
-              if (!properties || !Object.hasOwn(properties, 'ci-platform') || !Object.hasOwn(properties, 'ci-size')) {
+              if (!properties || !Object.hasOwn(properties, 'ci-platform') || !Object.hasOwn(properties, 'ci-size')
+                  || (testRoute && !Object.hasOwn(properties, 'ci-test-route'))) {
                 const { data } = await github.request('GET /repos/{owner}/{repo}/properties/values', context.repo);
                 properties = Object.fromEntries(data.map(({ property_name, value }) => [property_name, value]));
               }
@@ -65,16 +67,22 @@ jobs:
               if (!['linux', 'macos'].includes(platform) || !['small', 'medium'].includes(size)) {
                 throw new Error('Expected ci-platform=linux|macos and ci-size=small|medium');
               }
-              route = route === 'auto' && platform === 'macos' ? 'macos' : size;
+              const override = testRoute ? properties['ci-test-route'] : null;
+              if (override != null && override !== '' && !['small', 'medium', 'docker', 'arm', 'macos'].includes(override)) {
+                throw new Error('ci-test-route must be small, medium, docker, arm or macos when set');
+              }
+              route = override || (route !== 'linux' && platform === 'macos' ? 'macos' : size);
+              if (testRoute) platform = route === 'macos' ? 'macos' : 'linux';
             }
             if (!Object.hasOwn(fallbacks, route)) {
-              throw new Error('route must be auto, linux, small, medium, docker, kvm, arm, macos or vrt');
+              throw new Error('route must be auto, linux, test, small, medium, docker, kvm, arm, macos or vrt');
             }
-            let runner = runners[route] || fallbacks[route];
+            const repository = context.payload.repository;
+            let runner = testRoute && repository?.private !== true
+              ? fallbacks[route] : runners[route] || fallbacks[route];
             if (!Array.isArray(runner) || runner.length === 0 || runner.some(label => typeof label !== 'string' || !label.trim())) {
               throw new Error('The selected RUNNERS route must be a nonempty array of labels');
             }
-            const repository = context.payload.repository;
             if (!Number.isSafeInteger(repository?.id) || repository.id <= 0) {
               throw new Error('The event must identify the base repository with a positive integer ID');
             }
