@@ -8,13 +8,30 @@ The required check remains `standards`; `test-gate` remains repository-owned.
 
 The [project router](reusable-workflows/project-route.md) reads `ci-platform`,
 `ci-size`, `RUNNERS` and the central `CI_IMAGE_REPOS` admission list before checkout.
-A route failure fails the required job before any project code runs.
+The router's `linux` selection uses `ci-size` for the Linux leg even when
+`ci-platform=macos`, and returns the declared platform separately. A route failure
+fails the required aggregate without running project code.
 
 - **CI Image:** calls `standards check`, then `standards check-pr`. There is no
   standards installation, toolchain bootstrap or Docker daemon inside the job.
-- **Other runners:** installs the checksum-pinned `just` release, logs into GHCR
-  with the job token, then runs `just build`, `just check`, `just check-pr`.
-  Native macOS repositories provide native recipes for the parts requiring Xcode.
+- **Hosted/non-image Linux:** installs the checksum-pinned `just` release, logs
+  into GHCR with the job token, then runs `just build`, `just check`, `just check-pr`.
+  For macOS repositories only, the whole-tree command is `just exec standards check`
+  so the native repository's combined `just check` does not invoke SwiftLint on Linux.
+- **Native macOS:** only for `ci-platform=macos`, a parallel `standards-native` job
+  uses `RUNNERS.macos` (fallback `macos-26`), checks out with no persisted credential,
+  installs `just`, then runs `just setup-native` and `just check-native`. No Docker
+  login/build, image Checks, PR Checks or native tests run in this leg. The
+  read-only package token lets `setup-native` fetch shared config without Docker;
+  the repository owns its native toolchain setup. Native tests remain in `test-gate`.
+
+The execution job is named `standards-linux` for every repository. The sole job
+named `standards` is a Docker-free aggregate with `if: always()`: routing and
+`standards-linux` must succeed; `standards-native` must succeed for macOS and must
+be skipped for Linux. Failed, cancelled or unexpectedly skipped required legs fail
+the aggregate. This preserves the required result while adding a native leg only
+where declared. OpenTofu requires this workflow by path/ref, not a new status
+context per leg; no ruleset change is needed.
 
 Checkout uses full history and no persisted credential. PR Checks still run when
 whole-tree Checks fail, so one failure does not hide another. Fixer rewrites are
@@ -35,6 +52,7 @@ metadata. Hosted PR Checks copy the event JSON under `.cache/ci/` and write a
 container-visible summary there, then append it to the real Actions summary.
 The host's temporary event/summary paths are not assumed to be mounted.
 
-The job grants only `contents: read`, `packages: read`, `pull-requests: read` and
-`issues: read`. It cannot comment or publish. Editing a PR title/body does not
+The Linux job grants only `contents: read`, `packages: read`, `pull-requests: read`
+and `issues: read`. The native job grants only `contents: read` and `packages: read`;
+the aggregate has no token permissions. None can comment or publish. Editing a PR title/body does not
 rerun an injected ruleset workflow: push a commit or rerun its failed job.

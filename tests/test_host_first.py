@@ -289,7 +289,7 @@ class Contracts(unittest.TestCase):
     def test_hosted_checkouts_are_writable_by_the_non_root_image_user(self):
         for filename, job in (("test-gate.yml", "canonical-tests"),
                               ("workflow-validation.yml", "validate"),
-                              ("standards.yml", "standards")):
+                              ("standards.yml", "standards-linux")):
             with self.subTest(workflow=filename):
                 workflow = json.loads(subprocess.check_output(["yq", "-o=json", str(ROOT / ".github/workflows" / filename)], text=True))
                 steps = workflow["jobs"][job]["steps"]
@@ -323,7 +323,7 @@ class Contracts(unittest.TestCase):
     def test_hosted_check_pr_writes_token_free_context_and_preserves_summary_and_status(self):
         workflow = json.loads(subprocess.check_output(
             ["yq", "-o=json", str(ROOT / ".github/workflows/standards.yml")], text=True))
-        step = next(step for step in workflow["jobs"]["standards"]["steps"]
+        step = next(step for step in workflow["jobs"]["standards-linux"]["steps"]
                     if step.get("id") == "check-pr-hosted")
         for status in (0, 7):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:

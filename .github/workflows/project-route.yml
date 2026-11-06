@@ -4,10 +4,13 @@ name: project route (reusable)
   workflow_call:
     inputs:
       route:
-        description: "auto uses ci-platform/ci-size; capability jobs may select an explicit RUNNERS key"
+        description: "auto uses ci-platform/ci-size; linux uses ci-size for Linux-able checks; capability jobs may select a RUNNERS key"
         type: string
         default: auto
     outputs:
+      platform:
+        description: "Declared platform for auto/linux routes; capability platform otherwise"
+        value: ${{ jobs.route.outputs.platform }}
       runner:
         description: "JSON runs-on labels"
         value: ${{ jobs.route.outputs.runner }}
@@ -23,6 +26,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 5
     outputs:
+      platform: ${{ steps.route.outputs.platform }}
       runner: ${{ steps.route.outputs.runner }}
       ci-image: ${{ steps.route.outputs.ci-image }}
     steps:
@@ -49,21 +53,22 @@ jobs:
               throw new Error('CI_IMAGE_REPOS must be an array of positive integer repository IDs');
             }
             let route = process.env.ROUTE;
-            if (route === 'auto') {
+            let platform = route === 'macos' ? 'macos' : 'linux';
+            if (['auto', 'linux'].includes(route)) {
               let properties = context.payload.repository?.custom_properties;
               if (!properties || !Object.hasOwn(properties, 'ci-platform') || !Object.hasOwn(properties, 'ci-size')) {
                 const { data } = await github.request('GET /repos/{owner}/{repo}/properties/values', context.repo);
                 properties = Object.fromEntries(data.map(({ property_name, value }) => [property_name, value]));
               }
-              const platform = properties['ci-platform'] ?? 'linux';
+              platform = properties['ci-platform'] ?? 'linux';
               const size = properties['ci-size'] ?? 'small';
               if (!['linux', 'macos'].includes(platform) || !['small', 'medium'].includes(size)) {
                 throw new Error('Expected ci-platform=linux|macos and ci-size=small|medium');
               }
-              route = platform === 'macos' ? 'macos' : size;
+              route = route === 'auto' && platform === 'macos' ? 'macos' : size;
             }
             if (!Object.hasOwn(fallbacks, route)) {
-              throw new Error('route must be auto, small, medium, docker, kvm, arm, macos or vrt');
+              throw new Error('route must be auto, linux, small, medium, docker, kvm, arm, macos or vrt');
             }
             let runner = runners[route] || fallbacks[route];
             if (!Array.isArray(runner) || runner.length === 0 || runner.some(label => typeof label !== 'string' || !label.trim())) {
@@ -90,6 +95,7 @@ jobs:
               else if (runner[0] === `linux-x64-${route}`) runner = runners.docker || ['ubuntu-latest'];
               else if (runner[0] === 'ubuntu-slim') runner = ['ubuntu-latest'];
             }
+            core.setOutput('platform', platform);
             core.setOutput('runner', JSON.stringify(runner));
             core.setOutput('ci-image', String(image));
             core.info(`Project route: ${route}; CI Image: ${image}; runs-on: ${JSON.stringify(runner)}`);

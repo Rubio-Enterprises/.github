@@ -26,14 +26,14 @@ jobs:
     permissions:
       contents: read
     uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
-  standards:
-    name: standards
+    with:
+      route: linux
+  standards-linux:
+    name: standards-linux
     # This repository is not onboarded; its own pull requests would fail `test -f lefthook.yml`.
     needs: route
-    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
-    runs-on: >-
-      ${{ needs.route.result == 'success' && fromJSON(needs.route.outputs.runner)
-      || (fromJSON(vars.RUNNERS || '{}').medium || fromJSON('["ubuntu-latest"]')) }}
+    if: github.repository != 'Rubio-Enterprises/.github'
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 30
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
@@ -41,11 +41,6 @@ jobs:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
       TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
     steps:
-      - name: Require successful project routing
-        if: needs.route.result != 'success'
-        run: |
-          echo '::error::project runner routing did not succeed'
-          exit 1
       # Full history: check:pr scans BASE_SHA..HEAD_SHA, and on a fork `check` needs
       # origin/upstream and its merge-base. Measured on karakeep (94 MB): 4.7 s vs 2.2 s shallow.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -126,8 +121,14 @@ jobs:
       - id: check-hosted
         name: Every Check on every file (Hosted)
         if: needs.route.outputs.ci-image != 'true'
-        run: just check
+        run: |
+          if [ "$CI_PLATFORM" = macos ]; then
+            just exec standards check
+          else
+            just check
+          fi
         env:
+          CI_PLATFORM: ${{ needs.route.outputs.platform }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
 
@@ -169,3 +170,45 @@ jobs:
         run: |
           { echo '```'; git status --short; git diff --stat; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "::error::the Checks failed or a Fixer rewrote files; run 'just check' locally and commit the result"
+
+  standards-native:
+    name: standards-native
+    needs: route
+    if: github.repository != 'Rubio-Enterprises/.github' && needs.route.outputs.platform == 'macos'
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]') }}
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install just
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - name: Set up native Checks
+        run: just setup-native
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Native Checks
+        run: just check-native
+
+  standards:
+    name: standards
+    needs: [route, standards-linux, standards-native]
+    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Require all applicable Checks to succeed
+        env:
+          ROUTE_RESULT: ${{ needs.route.result }}
+          PLATFORM: ${{ needs.route.outputs.platform }}
+          LINUX_RESULT: ${{ needs.standards-linux.result }}
+          NATIVE_RESULT: ${{ needs.standards-native.result }}
+        run: |
+          test "$ROUTE_RESULT" = success && test "$LINUX_RESULT" = success &&
+            { { test "$PLATFORM" = macos && test "$NATIVE_RESULT" = success; } ||
+              { test "$PLATFORM" = linux && test "$NATIVE_RESULT" = skipped; }; }
