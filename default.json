@@ -292,6 +292,17 @@
       }
     },
     {
+      "description": "Host-first base and runner images follow :main for immediate standards delivery and rollback. Do not look up updates or pin these moving tags; explicit versioned Release Pins keep normal update policy.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "ghcr.io/rubio-enterprises/base",
+        "ghcr.io/rubio-enterprises/runner"
+      ],
+      "matchCurrentValue": "main",
+      "enabled": false,
+      "pinDigests": false
+    },
+    {
       "description": "Per-repository prebuilt Dev Container images deliberately float on :main. They are private packages unavailable to Renovate; do not look up versions or pin digests in any Docker-datasource manager.",
       "matchDatasources": ["docker"],
       "matchPackageNames": [

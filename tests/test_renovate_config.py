@@ -102,6 +102,12 @@ def _rule_matches(
         if value is None or not _selector_matches(rule[rule_field], value):
             return False
 
+    current_value = rule.get("matchCurrentValue")
+    if current_value is not None and not _selector_matches(
+        [current_value], dependency.get("currentValue", "")
+    ):
+        return False
+
     compare_version = (
         dependency.get("lockedVersion")
         or dependency.get("currentVersion")
@@ -316,6 +322,53 @@ class RenovateConfigContractTests(unittest.TestCase):
         })
         self.assertNotIn("enabled", resolved)
         self.assertTrue(resolved["automerge"])
+
+    def test_host_first_main_images_float_for_every_docker_manager(self) -> None:
+        for manager in ("dockerfile", "docker-compose", "devcontainer", "custom.regex"):
+            for name in ("base", "runner"):
+                for update in ("major", "minor", "patch", "digest", "pinDigest"):
+                    with self.subTest(manager=manager, name=name, update=update):
+                        package = f"ghcr.io/rubio-enterprises/{name}"
+                        resolved = _resolve_dependency({
+                            "manager": manager,
+                            "datasource": "docker",
+                            "depName": package,
+                            "packageName": package,
+                            "currentValue": "main",
+                            "currentVersion": "main",
+                            "updateType": update,
+                        }, {"pinDigests": True})
+                        self.assertFalse(resolved.get("enabled", True))
+                        self.assertFalse(resolved["pinDigests"])
+
+    def test_host_first_float_rule_preserves_release_pins_and_other_images(self) -> None:
+        dependency = {
+            "manager": "dockerfile",
+            "datasource": "docker",
+            "depName": "ghcr.io/rubio-enterprises/base",
+            "packageName": "ghcr.io/rubio-enterprises/base",
+            "currentValue": "main",
+            "currentVersion": "main",
+            "updateType": "pinDigest",
+        }
+        for changes in (
+            {"currentValue": "v5.0.5", "currentVersion": "5.0.5"},
+            {"currentValue": "main-backup"},
+            {"packageName": "ghcr.io/rubio-enterprises/base-extra"},
+            {"packageName": "ghcr.io/rubio-enterprises/runner-extra"},
+            {"packageName": "ghcr.io/rubio-enterprises/app"},
+            {"packageName": "ghcr.io/other/base"},
+            {"packageName": "ghcr.io/rubio-enterprises-x/base"},
+            {"packageName": "rubio-enterprises/base"},
+            {"packageName": "docker.io/library/ubuntu"},
+            {"datasource": "github-tags"},
+        ):
+            with self.subTest(changes=changes):
+                resolved = _resolve_dependency(
+                    {**dependency, **changes}, {"pinDigests": True}
+                )
+                self.assertTrue(resolved.get("enabled", True))
+                self.assertTrue(resolved["pinDigests"])
 
     def test_python_dev_tools_are_exact_pins_only_in_dev_groups(self) -> None:
         dependency = {
