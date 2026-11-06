@@ -320,6 +320,46 @@ class Contracts(unittest.TestCase):
         self.assertIn("steps['check-hosted'].outcome != 'skipped'", workflow)
         self.assertIn("!cancelled()", workflow)
 
+    def test_hosted_check_pr_writes_token_free_context_and_preserves_summary_and_status(self):
+        workflow = json.loads(subprocess.check_output(
+            ["yq", "-o=json", str(ROOT / ".github/workflows/standards.yml")], text=True))
+        step = next(step for step in workflow["jobs"]["standards"]["steps"]
+                    if step.get("id") == "check-pr-hosted")
+        for status in (0, 7):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                event = root / "runner-event.json"
+                event.write_text('{"pull_request":{"number":889}}')
+                expected = {
+                    "GITHUB_WORKFLOW": "standards", "GITHUB_EVENT_NAME": "pull_request",
+                    "GITHUB_EVENT_PATH": str(root / ".cache/ci/event.json"),
+                    "GITHUB_REPOSITORY": "Rubio-Enterprises/standards", "GITHUB_RUN_ID": "123",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_STEP_SUMMARY": str(root / ".cache/ci/summary.md"),
+                    "BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40,
+                    "PR_TITLE": "fix: keep '\" and $(touch injected)\na new line",
+                }
+                just = root / "just"
+                just.write_text("#!/bin/sh\nset -eu\n"
+                                'test "$1" = check-pr\n'
+                                'test -f "$GITHUB_WORKSPACE/.cache/ci/context.json"\n'
+                                'echo summary >"$GITHUB_STEP_SUMMARY"\n'
+                                f"exit {status}\n")
+                just.chmod(0o755)
+                env = {**os.environ, **expected, "GITHUB_WORKSPACE": str(root),
+                       "GITHUB_EVENT_PATH": str(event), "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                       "GH_TOKEN": "not-a-token", "GITHUB_TOKEN": "not-a-token",
+                       "PATH": str(root) + ":" + os.environ["PATH"]}
+                result = subprocess.run(["bash", "-euc", step["run"]], env=env, cwd=root,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                context = root / ".cache/ci/context.json"
+                self.assertEqual(json.loads(context.read_text()), expected)
+                self.assertNotIn("not-a-token", context.read_text())
+                self.assertEqual((root / ".cache/ci/event.json").read_bytes(), event.read_bytes())
+                self.assertEqual((root / "summary").read_text(), "summary\n")
+                self.assertFalse((root / "injected").exists())
+
     def test_bootstrap_compose_uses_host_paths_external_caches_and_no_image_symlinks(self):
         compose = (ROOT / "compose.yaml").read_text()
         dockerfile = (ROOT / "Dockerfile").read_text()
