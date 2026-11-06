@@ -147,6 +147,23 @@ def test_invalid_policy_fails_without_an_opt_out_output(tmp_path, policy):
     assert '::error::invalid .github/standards.toml' in result.stderr
 
 
+def test_ci_policy_reader_selects_the_base_interpreter_not_repository_pins(tmp_path):
+    binary = tmp_path / 'bin'
+    binary.mkdir()
+    python = binary / 'python3'
+    python.write_text(
+        '#!/bin/sh\n'
+        'test "$MISE_OVERRIDE_CONFIG_FILENAMES" = /opt/standards/mise/standards.toml || exit 31\n'
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    python.chmod(0o755)
+    result, output = run_shell('Check Test Gate policy', tmp_path, CI_IMAGE='true',
+                              MISE_OVERRIDE_CONFIG_FILENAMES='/etc/mise/config.toml',
+                              PATH=f'{binary}:{os.environ["PATH"]}')
+    assert result.returncode == 0, result.stderr
+    assert output == 'opted-out=false\n'
+
+
 def scripts(root, *, empty_test=False, fail=None):
     (root / 'bin').mkdir()
     for name in ('test', 'typecheck', 'e2e', 'package'):

@@ -105,6 +105,9 @@ jobs:
         id: policy
         shell: bash
         run: |
+          if [ "${CI_IMAGE:-false}" = true ]; then
+            export MISE_OVERRIDE_CONFIG_FILENAMES=/opt/standards/mise/standards.toml
+          fi
           python3 - <<'PY'
           import os
           import sys

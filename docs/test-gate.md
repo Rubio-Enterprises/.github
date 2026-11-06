@@ -50,7 +50,8 @@ off = "The base publisher is not an App Image"
 The gate validates both exception value types, honors only `test-gate.off`, and
 reports an Opt-out notice without running setup/tests. Empty/non-string reasons,
 non-table sections and malformed TOML fail. The policy reader needs Python 3.11+
-when this file exists; JUnit validation uses only the Python XML standard library.
+when this file exists; CI Images select the Base Image's interpreter independently
+of older repository pins. JUnit validation uses only the Python XML standard library.
 The package and org audit own the other policy readers. Retired workflow comments
 do not opt out.
 
