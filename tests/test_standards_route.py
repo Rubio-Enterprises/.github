@@ -68,17 +68,24 @@ class StandardsRouteTests(unittest.TestCase):
         self.assertEqual(native['runs-on'],
                          '${{ fromJSON(vars.RUNNERS || \'{}\').macos || fromJSON(\'["macos-26"]\') }}')
         self.assertEqual(native['permissions'], {'contents': 'read', 'packages': 'read'})
-        self.assertEqual([step['run'] for step in native['steps'] if 'run' in step],
+        self.assertEqual([step['run'] for step in native['steps'][-2:]],
                          ['just setup-native', 'just check-native'])
         self.assertEqual(native['steps'][1]['uses'],
                          'Rubio-Enterprises/.github/actions/setup-just@main')
         self.assertFalse(native['steps'][0]['with']['persist-credentials'])
-        setup = native['steps'][2]
+        setup = next(step for step in native['steps'] if step.get('name') == 'Set up native Checks')
         self.assertEqual(setup['env']['NODE_AUTH_TOKEN'], '${{ secrets.GITHUB_TOKEN }}')
         self.assertNotIn('docker', json.dumps(native).lower())
         for name, job in self.jobs.items():
             if name != 'standards-linux':
                 self.assertNotIn('check-pr', json.dumps(job))
+
+    def test_native_checkout_preserves_fork_scope_with_the_linux_history_contract(self):
+        linux = self.jobs['standards-linux']['steps'][0]
+        native = self.jobs['standards-native']['steps'][0]
+        self.assertEqual(native, linux)
+        self.assertEqual(native['with'], {'persist-credentials': False, 'fetch-depth': 0})
+        self.assertEqual(WORKFLOW.count('# origin/upstream and its merge-base.'), 2)
 
     def test_one_required_context_aggregates_all_applicable_legs_fail_closed(self):
         aggregate = self.jobs['standards']
