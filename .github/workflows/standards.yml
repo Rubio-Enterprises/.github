@@ -137,6 +137,18 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/.cache/ci"
           cp "$GITHUB_EVENT_PATH" "$GITHUB_WORKSPACE/.cache/ci/event.json"
+          jq -n \
+            --arg GITHUB_WORKFLOW "$GITHUB_WORKFLOW" \
+            --arg GITHUB_EVENT_NAME "$GITHUB_EVENT_NAME" \
+            --arg GITHUB_EVENT_PATH "$GITHUB_WORKSPACE/.cache/ci/event.json" \
+            --arg GITHUB_REPOSITORY "$GITHUB_REPOSITORY" \
+            --arg GITHUB_RUN_ID "$GITHUB_RUN_ID" \
+            --arg GITHUB_SERVER_URL "$GITHUB_SERVER_URL" \
+            --arg GITHUB_STEP_SUMMARY "$GITHUB_WORKSPACE/.cache/ci/summary.md" \
+            --arg BASE_SHA "$BASE_SHA" \
+            --arg HEAD_SHA "$HEAD_SHA" \
+            --arg PR_TITLE "$PR_TITLE" \
+            '$ARGS.named' >"$GITHUB_WORKSPACE/.cache/ci/context.json"
           status=0
           GITHUB_EVENT_PATH="$GITHUB_WORKSPACE/.cache/ci/event.json" \
             GITHUB_STEP_SUMMARY="$GITHUB_WORKSPACE/.cache/ci/summary.md" just check-pr || status=$?
