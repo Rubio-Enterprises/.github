@@ -225,24 +225,20 @@ jobs:
             if [ "$CI_IMAGE" = true ]; then "$script"; else just "$step"; fi
             echo '::endgroup::'
           done
-      - name: Require JUnit evidence
-        if: ${{ !cancelled() && inputs.qualification-repository == '' && steps.lifecycle.outcome != 'skipped' }}
-        uses: Rubio-Enterprises/.github/actions/junit-gate@main
-        with:
-          concerns: ${{ steps.lifecycle.outputs.concerns }}
-          suite-outcome: ${{ steps.lifecycle.outcome }}
-      - name: Check out candidate central action for qualification
-        if: ${{ !cancelled() && inputs.qualification-repository != '' && steps.lifecycle.outcome != 'skipped' }}
+      # The runner loads remote action manifests before evaluating step conditions
+      # A local central checkout lets Release Check test an action absent from main
+      - name: Check out central JUnit action
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/.github
-          ref: ${{ inputs.qualification-central-ref }}
+          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
           path: .cache/central-test-gate
           persist-credentials: false
           sparse-checkout: actions/junit-gate
-      - name: Require candidate JUnit evidence
-        if: ${{ !cancelled() && inputs.qualification-repository != '' && steps.lifecycle.outcome != 'skipped' }}
-        uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] reviewed central candidate, not representative code
+      - name: Require JUnit evidence
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
         with:
           concerns: ${{ steps.lifecycle.outputs.concerns }}
           suite-outcome: ${{ steps.lifecycle.outcome }}

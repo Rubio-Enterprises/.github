@@ -82,7 +82,10 @@ real property routing is separately covered by contract tests and injection cana
 
 For an unmerged central change, point the workflow ref and
 `qualification-central-ref` at its branch. The latter checks out only the candidate
-JUnit action for a local composite call; production always uses `junit-gate@main`.
+JUnit action for a local composite call; production checks out the same action from
+central main. A conditional remote action reference would still load its manifest
+before the runner evaluates the condition, breaking pre-merge qualification when
+the action does not exist on main yet.
 The source repository keeps an independent bootstrap test gate so its consumer
 no-op guard cannot qualify a broken central implementation.
 
