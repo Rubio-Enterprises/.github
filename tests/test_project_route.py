@@ -130,6 +130,32 @@ class ProjectRouteTests(unittest.TestCase):
                     'args': {'owner': 'Rubio-Enterprises', 'repo': 'org-ops'},
                 }])
 
+    def test_linux_selection_preserves_auto_linux_execution(self):
+        for size in ('small', 'medium'):
+            for overrides in ({}, {'admitted': []}, {'runners': {}},
+                              {'repository': {'private': False}},
+                              {'runners': {size: ['ubuntu-latest']}},
+                              {'runners': {size: ['self-hosted', f'linux-x64-{size}', 'custom']}}):
+                repository = {'custom_properties': {'ci-platform': 'linux', 'ci-size': size},
+                              **overrides.get('repository', {})}
+                kwargs = {**overrides, 'repository': repository}
+                with self.subTest(size=size, overrides=overrides):
+                    self.assertEqual(run_route(route='auto', **kwargs), run_route(route='linux', **kwargs))
+
+    def test_linux_checks_route_reads_platform_and_size_from_the_api(self):
+        result = self.assert_route([f'ci-{ID}-org-ops-medium'], image=True, route='linux',
+                                  repository={'custom_properties': None}, properties=[
+                                      {'property_name': 'ci-platform', 'value': 'macos'},
+                                      {'property_name': 'ci-size', 'value': 'medium'},
+                                  ])
+        self.assertEqual(result['output']['platform'], 'macos')
+        self.assertEqual(len(result['calls']), 1)
+
+    def test_linux_checks_metadata_failure_emits_no_outputs(self):
+        code, result = run_route(route='linux', repository={'custom_properties': None}, api_error=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(result['output'], {})
+
     def test_schema_defaults_apply_when_no_values_are_returned(self):
         self.assert_route([f'ci-{ID}-org-ops-small'], image=True,
                           repository={'custom_properties': None}, properties=[])
@@ -175,6 +201,7 @@ class ProjectRouteTests(unittest.TestCase):
         self.assertNotIn('checkout@', WORKFLOW)
         self.assertNotIn('run: mise', WORKFLOW)
         self.assertNotIn('${{', SCRIPT)
+        self.assertIn("value: ${{ jobs.route.outputs.platform }}", WORKFLOW)
         self.assertIn("value: ${{ jobs.route.outputs.runner }}", WORKFLOW)
         self.assertIn("value: ${{ jobs.route.outputs.ci-image }}", WORKFLOW)
         self.assertNotIn("hosted-image", WORKFLOW)

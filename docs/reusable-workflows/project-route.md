@@ -23,6 +23,12 @@ not inferred from project files. When either property is missing from the event,
 the base repository's properties API. API errors fail the route rather than silently selecting small.
 Missing property values use their organization schema defaults, `linux` and `small`.
 
+The `linux` input selects `ci-size` regardless of `ci-platform`, with the same
+admission and fallback logic as a Linux repository. It still reads and validates
+both declarations and returns `platform` so a caller can schedule a separate native
+leg. The injected Standards Check uses this selection; default `auto` callers
+retain their native macOS route.
+
 A capability job can explicitly select `small`, `medium`, `docker`, `kvm`, `arm`, `macos` or `vrt`.
 The explicit choice overrides auto selection. Keep existing Docker/KVM/ARM/macOS/VRT jobs on their
 capability routes; they never select a CI Image. Existing bespoke labels and service topologies
@@ -30,6 +36,8 @@ remain repository-owned, not replaced by the router.
 
 Outputs:
 
+- `platform`: declared `linux` or `macos` for `auto`/`linux`; for explicit capability
+  routes, `macos` for the macOS capability and `linux` otherwise.
 - `runner`: JSON label array for `runs-on: fromJSON(...)`.
 - `ci-image`: the string `true` only for a repository-specific CI Image runner; otherwise `false`.
 
