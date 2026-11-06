@@ -20,9 +20,6 @@
   "copier": {
     "enabled": false
   },
-  "devcontainer": {
-    "managerFilePatterns": ["/^\\.github/\\.devcontainer/devcontainer\\.json$/"]
-  },
   "packageRules": [
     {
       "description": "Biome is owned only by the standards mise floor. Freeze npm manifest copies (including upstream fork pins) without disabling custom.regex floor/schema bumps in standards.",

@@ -1271,23 +1271,22 @@ class FirstPartyReleaseFastLaneTests(unittest.TestCase):
     """Org-published releases skip the third-party soak; look-alikes do not."""
 
     BASELINE = {
-        "manager": "devcontainer",
+        "manager": "dockerfile",
         "datasource": "docker",
-        "depName": "ghcr.io/rubio-enterprises/devcontainer-features/baseline",
-        "packageName": "ghcr.io/rubio-enterprises/devcontainer-features/baseline",
-        "fileName": ".devcontainer/devcontainer.json",
-        "depType": "feature",
+        "depName": "ghcr.io/rubio-enterprises/base",
+        "packageName": "ghcr.io/rubio-enterprises/base",
+        "fileName": "Dockerfile",
         "repository": "Rubio-Enterprises/todoist-classify",
     }
 
-    def test_own_devcontainer_feature_major_skips_soak_but_stays_held(self) -> None:
+    def test_own_base_image_major_skips_soak_but_stays_held(self) -> None:
         resolved = _resolve_dependency(
             {**self.BASELINE, "updateType": "major", "currentVersion": "2.0.0"}
         )
         self.assertIsNone(resolved["minimumReleaseAge"])
         self.assertEqual({key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE)
 
-    def test_own_devcontainer_feature_patch_skips_soak(self) -> None:
+    def test_own_base_image_patch_skips_soak(self) -> None:
         resolved = _resolve_dependency(
             {**self.BASELINE, "updateType": "patch", "currentVersion": "3.0.0"}
         )
@@ -1316,7 +1315,7 @@ class FirstPartyReleaseFastLaneTests(unittest.TestCase):
     def test_look_alikes_and_unowned_namespaces_keep_the_soak(self) -> None:
         for datasource, package in (
             # Docker Hub namespace: first-come, not provably the org's.
-            ("docker", "rubio-enterprises/devcontainer-features/baseline"),
+            ("docker", "rubio-enterprises/base"),
             ("docker", "docker.io/rubio-enterprises/image"),
             # Another registry, and a look-alike GHCR owner.
             ("docker", "ghcr.io/rubio-enterprises-x/image"),
@@ -1371,18 +1370,6 @@ if __name__ == "__main__":
 
 
 class DevcontainerPrebuildTests(unittest.TestCase):
-    def test_additional_build_definition_pattern_is_exact(self) -> None:
-        patterns = CONFIG["devcontainer"]["managerFilePatterns"]
-        self.assertEqual(len(patterns), 1)
-        for filename, expected in (
-            (".github/.devcontainer/devcontainer.json", True),
-            ("x/.github/.devcontainer/devcontainer.json", False),
-            (".github/.devcontainer/devcontainer.json.bak", False),
-            ("xgithub/.devcontainer/devcontainer.json", False),
-        ):
-            with self.subTest(filename=filename):
-                self.assertEqual(_selector_matches(patterns, filename), expected)
-
     def test_floating_images_are_disabled_for_all_docker_managers(self) -> None:
         for manager in ("devcontainer", "dockerfile", "docker-compose"):
             for update in ("major", "minor", "patch", "digest", "pinDigest"):
@@ -1402,7 +1389,7 @@ class DevcontainerPrebuildTests(unittest.TestCase):
 
     def test_features_and_other_images_remain_managed(self) -> None:
         for package in (
-            "ghcr.io/rubio-enterprises/devcontainer-features/baseline",
+            "ghcr.io/devcontainers/features/node",
             "ghcr.io/rubio-enterprises/agent-workspace",
             "ghcr.io/rubio-enterprises/bookmark-scraper/devcontainer-extra",
             "ghcr.io/rubio-enterprises-other/repo/devcontainer",
