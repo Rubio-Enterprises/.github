@@ -17,7 +17,7 @@ HTML comments are excluded, link text and code count, and link URLs do not.
 
 ## Why?
 
-<!-- Why is this change needed? Explain the user, business, or engineering problem it addresses. Link any related issues, tickets, design documents, or prior discussions. -->
+<!-- Why is this change needed? Explain the user, business, or engineering problem it addresses. Link any related issues, tickets, design documents, or prior discussions, using only sources reviewers can open (GitHub links, Knowledge documents, attachments), not local paths. -->
 
 ## How?
 

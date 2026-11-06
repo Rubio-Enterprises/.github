@@ -89,7 +89,7 @@ body:
     id: context
     attributes:
       label: "Context links"
-      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance."
+      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance. Use only sources readers can open (GitHub links, Knowledge documents, attachments), not local paths."
       placeholder: |
         Link to the inventory consumer that currently parses the table, plus an example of the nested records it needs.
     validations:

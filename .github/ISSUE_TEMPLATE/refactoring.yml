@@ -88,7 +88,7 @@ body:
     id: context
     attributes:
       label: "Context links"
-      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance."
+      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance. Use only sources readers can open (GitHub links, Knowledge documents, attachments), not local paths."
       placeholder: |
         Link to the two current implementations and the regression tests that capture their existing behavior.
     validations:

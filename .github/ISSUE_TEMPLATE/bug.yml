@@ -100,7 +100,7 @@ body:
     id: context
     attributes:
       label: "Additional context"
-      description: "Optional: link related issues or attach sanitized screenshots and other useful evidence."
+      description: "Optional: link related issues or attach sanitized screenshots and other useful evidence. Use only sources readers can open (GitHub links, Knowledge documents, attachments), not local paths."
       placeholder: |
         The previous release produced parseable output with the same input. Attach the two short output samples.
     validations:
