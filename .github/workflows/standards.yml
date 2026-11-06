@@ -117,6 +117,17 @@ jobs:
       - name: Build dev image
         if: needs.route.outputs.ci-image != 'true'
         run: just build
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Set up Bundler-based Checks (Hosted)
+        if: needs.route.outputs.ci-image != 'true'
+        run: |
+          if [ -f Gemfile ]; then
+            just exec bin/setup.sh
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - id: check-hosted
         name: Every Check on every file (Hosted)

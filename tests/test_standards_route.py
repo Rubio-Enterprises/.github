@@ -130,6 +130,40 @@ class StandardsRouteTests(unittest.TestCase):
                 expected = 'exec standards check' if platform == 'macos' else 'check'
                 self.assertEqual((root / 'calls').read_text().strip(), expected)
 
+    def test_hosted_build_uses_job_token_only_in_the_hosted_step(self):
+        steps = self.jobs['standards-linux']['steps']
+        build = next(step for step in steps if step.get('name') == 'Build dev image')
+        self.assertEqual(build['env'], {'GH_TOKEN': '${{ github.token }}'})
+        self.assertEqual(build['if'], "needs.route.outputs.ci-image != 'true'")
+        self.assertNotIn('GH_TOKEN', self.jobs['standards-linux']['env'])
+
+    def test_hosted_bundle_setup_is_detected_portable_and_fail_closed(self):
+        steps = self.jobs['standards-linux']['steps']
+        setup = next(step for step in steps
+                     if step.get('name') == 'Set up Bundler-based Checks (Hosted)')
+        self.assertEqual(setup['if'], "needs.route.outputs.ci-image != 'true'")
+        self.assertEqual(setup['env'], {'GH_TOKEN': '${{ github.token }}'})
+        self.assertLess(steps.index(next(step for step in steps
+                                        if step.get('name') == 'Build dev image')), steps.index(setup))
+        self.assertLess(steps.index(setup), steps.index(next(step for step in steps
+                                                            if step.get('id') == 'check-hosted')))
+        for gemfile, status in product((True, False), (0, 7)):
+            with self.subTest(gemfile=gemfile, status=status), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                if gemfile:
+                    (root / 'Gemfile').touch()
+                just = root / 'just'
+                just.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >"$CALLS"\nexit ' + str(status) + '\n')
+                just.chmod(0o755)
+                calls = root / 'calls'
+                result = subprocess.run(['bash', '-euc', setup['run']], cwd=root, capture_output=True,
+                                        env={**os.environ, 'CALLS': str(calls),
+                                             'PATH': str(root) + ':' + os.environ['PATH']})
+                self.assertEqual(result.returncode, status if gemfile else 0)
+                self.assertEqual(calls.exists(), gemfile)
+                if gemfile:
+                    self.assertEqual(calls.read_text().strip(), 'exec bin/setup.sh')
+
     def test_ci_image_and_hosted_legs_run_standards_checks(self):
         linux = json.dumps(self.jobs['standards-linux'])
         for command in ('standards check', 'standards check-pr', 'just build',
