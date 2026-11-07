@@ -81,6 +81,7 @@ jobs:
           BUILD_FILE: ${{ inputs.file }}
           BUILD_TARGET: ${{ inputs.target }}
           BUILD_CONTEXT: ${{ inputs.context }}
+          EXPECTED_BASE_DIGEST: ${{ github.event.inputs['base-digest'] || '' }}
           REGISTRY_TOKEN: ${{ github.token }}
         with:
           operation: build
@@ -98,6 +99,14 @@ jobs:
           REGISTRY_TOKEN: ${{ github.token }}
         with:
           operation: publish
+      - name: Record verified image admission
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: repository-image-admission
+          path: ${{ runner.temp }}/repository-image-admission.json
+          retention-days: 30
+          overwrite: true
+          if-no-files-found: error
       - name: Remove job credentials
         if: always()
         shell: bash
