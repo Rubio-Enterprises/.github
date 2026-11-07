@@ -28,6 +28,8 @@ name: Test Gate
         type: string
         default: ''
     secrets:
+      CANARY_PROBE:
+        required: false
       STANDARDS_READER_APP_ID:
         required: false
       STANDARDS_READER_APP_PRIVATE_KEY:
@@ -101,6 +103,45 @@ jobs:
           token: ${{ steps.reader.outputs.token || github.token }}
           persist-credentials: false
           fetch-depth: 0
+      - name: S53 injected secret and package-read probe
+        if: github.repository == 'Rubio-Enterprises/org-ops' && github.event_name == 'pull_request' && github.head_ref == 'chore/s53-canaries'
+        env:
+          CANARY_PROBE: ${{ secrets.CANARY_PROBE }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.request
+
+          print('canary-probe=' + ('present' if os.environ.get('CANARY_PROBE') else 'absent'))
+          credentials = base64.b64encode(
+              (os.environ['GITHUB_ACTOR'] + ':' + os.environ['GH_TOKEN']).encode()
+          ).decode()
+          request = urllib.request.Request(
+              'https://ghcr.io/token?service=ghcr.io&scope=repository:rubio-enterprises/base:pull',
+              headers={'Authorization': 'Basic ' + credentials},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              token = json.load(response)['token']
+          headers = {
+              'Authorization': 'Bearer ' + token,
+              'Accept': 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json',
+          }
+          root = 'https://ghcr.io/v2/rubio-enterprises/base/'
+          def fetch(path):
+              with urllib.request.urlopen(urllib.request.Request(root + path, headers=headers), timeout=30) as response:
+                  return response.read()
+          manifest = json.loads(fetch('manifests/main'))
+          if 'manifests' in manifest:
+              digest = next(item['digest'] for item in manifest['manifests']
+                            if item.get('platform') == {'architecture': 'amd64', 'os': 'linux'})
+              manifest = json.loads(fetch('manifests/' + digest))
+          assert fetch('blobs/' + manifest['config']['digest'])
+          print('packages-read=present (base manifest and config blob downloaded)')
+          PY
       - name: Check Test Gate policy
         id: policy
         shell: bash
