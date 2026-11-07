@@ -120,13 +120,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Set up Bundler-based Checks (Hosted)
+      - name: Set up dependencies (Hosted)
         if: needs.route.outputs.ci-image != 'true'
         run: |
-          if [ -f Gemfile ]; then
-            just exec bin/setup.sh
+          if [ "$CI_PLATFORM" = macos ]; then
+            if [ -f Gemfile ]; then
+              just exec bin/setup.sh
+            fi
+          else
+            just setup
           fi
         env:
+          CI_PLATFORM: ${{ needs.route.outputs.platform }}
           GH_TOKEN: ${{ github.token }}
 
       - id: check-hosted
