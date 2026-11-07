@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -64,7 +63,7 @@ elif [[ "$1" = digest ]]; then
     */runner:*) echo "${STAGED_RUNNER_DIGEST:-$RUNNER_DIGEST}" ;;
     *) echo "${REGISTRY_DIGEST:-$DIGEST}" ;;
   esac
-elif [[ "$1" = config ]]; then printf '{"os":"linux","architecture":"%s"}\n' "${CONFIG_ARCH:-amd64}"; fi
+elif [[ "$1" = config ]]; then printf '{"os":"linux","architecture":"%s","config":{"Labels":{"org.opencontainers.image.base.digest":"%s"}}}\n' "${CONFIG_ARCH:-amd64}" "$BASE_DIGEST"; fi
 ''')
         self.stub("gh", 'printf "HTTP/2.0 200 OK\\n\\n%s\\n" "${VISIBILITY:-private}"\n')
         self.stub("docker", r'''echo "docker $*" >> "$RUNNER_TEMP/calls"
@@ -133,6 +132,8 @@ fi
             self.assertLess(calls.index(copy), calls.index(verify))
             self.assertLess(calls.index(verify), calls.index("docker buildx build"))
             self.assertIn(f"--build-context {upstream}=docker-image://{self.env['STAGING']}/{name}@{digest}", calls)
+        self.assertIn("--label org.opencontainers.image.base.name=" + BASE, calls)
+        self.assertIn("--label org.opencontainers.image.base.digest=" + BASE_DIGEST, calls)
         self.assertIn("--output type=image,name=" + self.env["STAGING"] + "/ci:run-1,push=true,compression=zstd,compression-level=9,oci-mediatypes=true", calls)
         for removed in ("--secret", "pins=", "expected=", "source.tar"):
             self.assertNotIn(removed, calls)
@@ -202,6 +203,16 @@ fi
         self.assertNotIn(BASE_DIGEST + "@", calls)
         self.assertIn(f"--build-context {pinned}=docker-image://", calls)
 
+    def test_dispatched_digest_is_defensive_and_cannot_build_another_base(self):
+        for expected, status in ((BASE_DIGEST, 0), (OTHER, 1), ("$(touch injected)", 1)):
+            with self.subTest(expected=expected):
+                calls = self.root / "calls"
+                calls.unlink(missing_ok=True)
+                result = self.run_script("build", EXPECTED_BASE_DIGEST=expected)
+                self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                self.assertEqual("docker buildx build" in calls.read_text(), status == 0)
+                self.assertFalse((self.repo / "injected").exists())
+
     def test_each_build_resolves_bases_afresh(self):
         for digest in (BASE_DIGEST, OTHER):
             result = self.run_script("build", BASE_DIGEST=digest)
@@ -251,6 +262,9 @@ fi
         self.assertIn("crane copy " + self.env["REF"], calls)
         self.assertIn("--prefer-index=true --tag " + self.env["IMAGE"] + ":main", calls)
         self.assertLess(calls.index("crane copy"), calls.index("imagetools create"))
+        admission = json.loads((self.root / "repository-image-admission.json").read_text())
+        self.assertEqual(admission, {"repository": self.env["GITHUB_REPOSITORY"], "image": self.env["IMAGE"] + ":main",
+                                     "revision": self.env["GITHUB_SHA"], "baseDigest": BASE_DIGEST, "imageDigest": DIGEST})
 
     def test_public_destination_and_wrong_architecture_are_refused_before_any_copy(self):
         for overrides in ({"VISIBILITY": "public"}, {"CONFIG_ARCH": "arm64"}):
@@ -374,21 +388,42 @@ class Contracts(unittest.TestCase):
                 self.assertIn("-T", line)
                 self.assertIn("</dev/null", line)
 
-    def test_fleet_dispatch_reads_canonical_inventory_and_fails_after_dispatch_errors(self):
+    def test_fleet_record_uses_native_download_and_removes_transient_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub = root / "gh"
+            stub.write_text('''#!/bin/sh
+set -eu
+test "$GH_TOKEN" = not-a-token
+test "$1 $2 $3" = 'run download 100'
+while [ "$1" != --dir ]; do shift; done
+printf '{"version":1}' > "$2/fleet-dispatches.json"
+''')
+            stub.chmod(0o755)
+            script = '''
+import { GitHub } from './scripts/fleet-ci-image-rebuild.mjs';
+const github = new GitHub('not-a-token');
+github.list = async () => [{id:42, name:'fleet-dispatches', size_in_bytes:100}];
+console.log(JSON.stringify(await github.ledger({id:100}, process.env.TEST_TEMP)));
+'''
+            result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                                    env={**os.environ, "PATH": tmp + ":" + os.environ["PATH"], "TEST_TEMP": tmp},
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {"version": 1})
+            self.assertEqual(list(root.iterdir()), [stub])
+
+    def test_fleet_dispatch_coalescing_contract(self):
         workflow = (ROOT / ".github/workflows/fleet-ci-image-rebuild.yml").read_text()
-        self.assertIn("mac-dev-playbook/contents/cue/incus/ci-image-inventory.json", workflow)
         self.assertNotIn("continue-on-error", workflow)
-        self.assertNotIn("GH_DISPATCH_TOKEN", workflow)
         self.assertIn("permission-actions: write", workflow)
-        body = workflow.split("      - name: Dispatch admitted repositories at a paced rate", 1)[1]
-        body = textwrap.dedent(body.split("        run: |\n", 1)[1])
-        for fail in (False, True):
-            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
-                (root / "ci-image-inventory.json").write_text(json.dumps({"entries": [{"repository": "Rubio-Enterprises/one"}, {"repository": "Rubio-Enterprises/one"}, {"repository": "Rubio-Enterprises/two"}]}))
-                for name, script in {"gh": '#!/bin/sh\necho "$*" >> "$RUNNER_TEMP/calls"\nexit ' + str(int(fail)) + '\n', "sleep": '#!/bin/sh\necho "$*" >> "$RUNNER_TEMP/sleeps"\n'}.items():
-                    p = root / name; p.write_text(script); p.chmod(0o755)
-                result = subprocess.run(["bash", "-euc", body], env={**os.environ, "RUNNER_TEMP": str(root), "PATH": str(root) + ":" + os.environ["PATH"]}, capture_output=True, text=True)
-                self.assertEqual(result.returncode != 0, fail, result.stderr)
-                self.assertEqual(len((root / "calls").read_text().splitlines()), 2)
-                self.assertEqual((root / "sleeps").read_text().splitlines(), ["15", "15"])
+        self.assertIn("cancel-in-progress: true", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("if: always()", workflow)
+        self.assertIn("fleet-dispatches.json", workflow)
+        self.assertIn("github.event.client_payload['base-digest']", workflow)
+        builder = (ROOT / ".github/workflows/repository-image.yml").read_text()
+        self.assertIn("github.event.inputs['base-digest'] || ''", builder)
+        result = subprocess.run(["node", "--test", str(ROOT / "tests/fleet-rebuild.test.mjs")],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

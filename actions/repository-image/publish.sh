@@ -16,7 +16,10 @@ if [[ "$status" = 0 ]]; then
 else
   [[ "$(head -n 1 "$reply" | awk '{print $2}')" = 404 ]] || { echo '::error::cannot verify CI package visibility'; exit 1; }
 fi
-crane config "$REF" | jq -e '.os == "linux" and .architecture == "amd64"' >/dev/null
+config="$RUNNER_TEMP/build-service/ci-config.json"
+crane config "$REF" > "$config"
+jq -e '.os == "linux" and .architecture == "amd64"' "$config" >/dev/null
+base_digest=$(jq -er '.config.Labels["org.opencontainers.image.base.digest"] | select(test("^sha256:[a-f0-9]{64}$"))' "$config")
 export DOCKER_CONFIG="$RUNNER_TEMP/build-service/docker-publish"
 printf '%s' "${REGISTRY_TOKEN:?}" | crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 target="$IMAGE:sha-$GITHUB_SHA-amd64"
@@ -25,3 +28,9 @@ crane copy "$REF" "$target"
 unset BUILDX_BUILDER
 docker buildx imagetools create --prefer-index=true --tag "$IMAGE:main" --tag "$IMAGE:sha-$GITHUB_SHA" "$target"
 [[ "$(crane digest --platform linux/amd64 "$IMAGE:main")" = "$digest" ]]
+image_digest=$(crane digest "$IMAGE:main")
+[[ "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+jq -n --arg repository "$GITHUB_REPOSITORY" --arg image "$IMAGE:main" \
+  --arg revision "$GITHUB_SHA" --arg baseDigest "$base_digest" --arg imageDigest "$image_digest" \
+  '{repository:$repository,image:$image,revision:$revision,baseDigest:$baseDigest,imageDigest:$imageDigest}' \
+  > "$RUNNER_TEMP/repository-image-admission.json"

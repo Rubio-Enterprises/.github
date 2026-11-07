@@ -14,7 +14,7 @@ done
 test -f "$workspace/$file"
 test -d "$workspace/$context"
 # Only literal image refs are supported so a Release Pin cannot fall back to main
-declare -A upstreams
+declare -A upstreams digests
 upstreams[base]=$(awk 'tolower($1) == "from" { i = 2; if ($i ~ /^--platform=/) i++; print $i; exit }' "$workspace/$file")
 upstreams[runner]=$(awk 'tolower($1) == "copy" { for (i = 2; i <= NF; i++) if ($i ~ /^--from=ghcr.io\/rubio-enterprises\/runner[:@]/) print substr($i, 8) }' "$workspace/$file" | sort -u)
 for name in base runner; do
@@ -34,6 +34,11 @@ for name in base runner; do
   upstream="${upstreams[$name]}"
   digest=$(crane digest --platform linux/amd64 "$upstream")
   [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+  digests[$name]="$digest"
+  if [[ "$name" = base && -n "${EXPECTED_BASE_DIGEST:-}" && "$EXPECTED_BASE_DIGEST" != "$digest" ]]; then
+    echo '::error::dispatched base digest is superseded or differs from the Dockerfile Release Pin'
+    exit 1
+  fi
   staged="$STAGING/$name:$STAGING_TAG"
   crane copy "${upstream%@*}@$digest" "$staged"
   [[ "$(crane digest "$staged")" = "$digest" ]] || { echo "::error::staged $name digest differs from resolved image"; exit 1; }
@@ -48,6 +53,8 @@ retry_unavailable docker buildx build --platform linux/amd64 --file "$workspace/
   --provenance=false --sbom=false --metadata-file "$metadata" \
   --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
   --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+  --label "org.opencontainers.image.base.name=${upstreams[base]}" \
+  --label "org.opencontainers.image.base.digest=${digests[base]}" \
   --label "org.rubio-enterprises.image.built-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --output "type=image,name=$staged,push=true,compression=zstd,compression-level=9,oci-mediatypes=true" "$workspace/$context"
 digest=$(jq -er '."containerimage.digest"' "$metadata")
