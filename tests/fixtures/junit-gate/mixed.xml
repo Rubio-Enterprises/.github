@@ -1,0 +1,1 @@
+<testsuite tests="3" skipped="2"><testcase name="executed"/><testcase name="skip"><skipped/></testcase><testcase name="skip2"><skipped message="not today"/></testcase></testsuite>

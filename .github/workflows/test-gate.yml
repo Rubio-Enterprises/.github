@@ -1,76 +1,254 @@
-name: test-gate
-# Repository-local test gate for THIS repo's own contract tests under tests/
-# (the ones that pin the hosted workflows' shape). It proves the suite actually
-# EXECUTED (non-zero test count), not merely that a command exited 0. It is not
-# a reusable: repositories run their own starter test-gate.yml.
-# workflow-validation.yml keeps actionlint
+name: Test Gate
+
 "on":
   pull_request:
   merge_group:
+  workflow_call:
+    inputs:
+      qualification-repository:
+        description: "Release Check only: representative basename in Rubio-Enterprises"
+        type: string
+        default: ''
+      qualification-ref:
+        type: string
+        default: ''
+      qualification-runner:
+        description: "Release Check only: explicit runs-on JSON for the representative kind"
+        type: string
+        default: ''
+      qualification-ci-image:
+        type: boolean
+        default: false
+      qualification-central-ref:
+        description: "Candidate central source ref for the qualification's local JUnit action"
+        type: string
+        default: main
+      candidate-base-artifact:
+        description: "Optional Release Check artifact containing base-candidate.tar.gz and source.tar.gz"
+        type: string
+        default: ''
+    secrets:
+      STANDARDS_READER_APP_ID:
+        required: false
+      STANDARDS_READER_APP_PRIVATE_KEY:
+        required: false
+
 permissions:
   contents: read
   packages: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
-# Job timeouts cap execution only, never queue time. The 120-minute ceiling bounds
-# a wedged self-hosted runner (mac-dev-playbook#917) above the measured 47-minute
-# org maximum; any tighter timeout in this file is deliberate.
+  group: test-gate-${{ github.event.pull_request.number || github.run_id }}-${{ inputs.qualification-repository }}-${{ inputs.qualification-runner }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   dependency-review:
-    if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
+    if: github.repository != 'Rubio-Enterprises/.github' && inputs.qualification-repository == '' && github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
-  canonical-tests:
-    name: canonical tests
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
-    timeout-minutes: 120
-    outputs:
-      tests_ran: ${{ steps.test.outputs.tests_ran }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+  route:
+    if: github.repository != 'Rubio-Enterprises/.github' && inputs.qualification-repository == ''
+    permissions:
+      contents: read
+    uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
+    with:
+      route: test
+
+  test-gate:
+    name: test-gate
+    needs: route
+    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
+    runs-on: >-
+      ${{ inputs.qualification-repository != '' && fromJSON(inputs.qualification-runner)
+          || needs.route.result == 'success' && fromJSON(needs.route.outputs.runner)
+          || fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 30
+    env:
+      CI_IMAGE: ${{ inputs.qualification-repository != '' && inputs.qualification-ci-image || needs.route.outputs.ci-image == 'true' }}
+    steps:
+      - name: Require successful project routing or an authorized Release Check
+        env:
+          QUALIFICATION_REPOSITORY: ${{ inputs.qualification-repository }}
+          ROUTE_RESULT: ${{ needs.route.result }}
+        run: |
+          if [ -n "$QUALIFICATION_REPOSITORY" ]; then
+            test "$GITHUB_REPOSITORY" = Rubio-Enterprises/standards
+            [[ "$QUALIFICATION_REPOSITORY" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]
+          elif [ "$ROUTE_RESULT" != success ]; then
+            echo '::error::project runner routing did not succeed'
+            exit 1
+          fi
+      - id: reader
+        if: inputs.qualification-repository != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: Rubio-Enterprises
+          repositories: ${{ inputs.qualification-repository }}
+          permission-contents: read
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ inputs.qualification-repository != '' && format('Rubio-Enterprises/{0}', inputs.qualification-repository) || github.repository }}
+          ref: ${{ inputs.qualification-ref }}
+          token: ${{ steps.reader.outputs.token || github.token }}
           persist-credentials: false
-      - uses: ./actions/setup-just # zizmor: ignore[self-repository] actionlint 1.7.12 rejects the $/ form; the action lands with this commit
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+          fetch-depth: 0
+      - name: Check Test Gate policy
+        id: policy
+        shell: bash
+        run: |
+          if [ "${CI_IMAGE:-false}" = true ]; then
+            export MISE_OVERRIDE_CONFIG_FILENAMES=/opt/standards/mise/standards.toml
+          fi
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          policy = Path('.github/standards.toml')
+          reason = None
+          if policy.exists() or policy.is_symlink():
+              import tomllib
+              try:
+                  with policy.open('rb') as stream:
+                      document = tomllib.load(stream)
+                  for name in ('test-gate', 'app-image'):
+                      section = document.get(name, {})
+                      if not isinstance(section, dict):
+                          raise ValueError(f'{name} must be a table')
+                      if 'off' in section:
+                          value = section['off']
+                          if not isinstance(value, str) or not value.strip():
+                              raise ValueError(f'{name}.off must be a non-empty reason string')
+                  reason = document.get('test-gate', {}).get('off')
+              except (OSError, ValueError) as error:
+                  sys.exit(f'::error::invalid .github/standards.toml: {error}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write(f'opted-out={str(reason is not None).lower()}\n')
+          if reason is not None:
+              print('::notice::Test Gate opted out in .github/standards.toml (reason recorded in policy)')
+          PY
+      - name: Install just
+        if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true'
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - name: Install mise if missing on native macOS
+        if: steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v mise >/dev/null 2>&1; then exit 0; fi
+          case "$(uname -s):$(uname -m)" in
+            Darwin:arm64) ;;
+            *) echo '::error::unsupported mise platform'; exit 1 ;;
+          esac
+          version=2026.11.1
+          checksum=e1eaf20469e586f65849256a0be6a58dd7a3e93ae8db68bc74dd7af5ca0fe7f6
+          work=$(mktemp -d "$RUNNER_TEMP/mise.XXXXXX")
+          trap 'rm -rf "$work"' EXIT
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
+            "https://github.com/jdx/mise/releases/download/v$version/mise-v$version-macos-arm64.tar.gz" -o "$work/mise.tar.gz"
+          printf '%s  %s\n' "$checksum" "$work/mise.tar.gz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/mise/bin"
+          tar -xzf "$work/mise.tar.gz" -C "$RUNNER_TEMP" mise/bin/mise
+          printf '%s\n' "$RUNNER_TEMP/mise/bin" >> "$GITHUB_PATH"
+      - name: Log in to GHCR for dev image builds
+        if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.os == 'Linux'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Prepare container-writable hosted checkout
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        if: steps.policy.outputs.opted-out != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
-      - run: just build && just setup
-      - id: test
-        name: Run canonical non-E2E tests
-        env:
-          RUBIO_TEST_GATE_COUNT_OUTPUT: ${{ runner.temp }}/test-gate-count
+      - name: Download candidate base and source for qualification
+        if: steps.policy.outputs.opted-out != 'true' && inputs.qualification-repository != '' && inputs.candidate-base-artifact != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.candidate-base-artifact }}
+          path: ${{ runner.temp }}/gate-candidate
+      - name: Select candidate base or native config
+        if: steps.policy.outputs.opted-out != 'true' && inputs.qualification-repository != '' && inputs.candidate-base-artifact != ''
         run: |
-          set -euo pipefail
-          rm -f "$RUBIO_TEST_GATE_COUNT_OUTPUT"
-          just test
-          awk '/<testsuite /{match($0,/tests="[0-9]+"/);n+=substr($0,RSTART+7,RLENGTH-8)}END{print n+0}' reports/test/junit.xml > "$RUBIO_TEST_GATE_COUNT_OUTPUT"
-          test -s "$RUBIO_TEST_GATE_COUNT_OUTPUT"
-          test "$(cat "$RUBIO_TEST_GATE_COUNT_OUTPUT")" -gt 0
-          echo "tests_ran=true" >> "$GITHUB_OUTPUT"
-
-  aggregate:
-    name: test-gate
-    if: ${{ always() }}
-    needs: [canonical-tests]
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
-    timeout-minutes: 120
-    env:
-      NEEDS_JSON: ${{ toJSON(needs) }}
-    steps:
-      - name: Require successful non-empty test execution
-        run: >-
-          jq -e 'length > 0 and all(.[]; .result == "success" and
-          .outputs.tests_ran == "true")' <<<"$NEEDS_JSON"
+          if [ "$RUNNER_OS" = macOS ]; then
+            mkdir -p "$RUNNER_TEMP/gate-source"
+            tar -xzf "$RUNNER_TEMP/gate-candidate/source.tar.gz" -C "$RUNNER_TEMP/gate-source"
+            echo "STANDARDS_NATIVE_CONFIG=$RUNNER_TEMP/gate-source/config" >> "$GITHUB_ENV"
+          else
+            test "$CI_IMAGE" != true
+            test "$(uname -m)" = x86_64
+            docker load < "$RUNNER_TEMP/gate-candidate/base-candidate.tar.gz"
+            perl -pi -e 's{^FROM ghcr.io/rubio-enterprises/base:\S+ AS dev.*}
+              {FROM ghcr.io/rubio-enterprises/base:candidate AS dev}' Dockerfile
+            # just build --pull must not replace the unpublished candidate
+            perl -pi -e 's/docker compose build --pull dev/docker compose build dev/' justfile
+          fi
+      - name: Set up dependencies
+        if: steps.policy.outputs.opted-out != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            just setup-native
+          elif [ "$CI_IMAGE" = true ]; then
+            bin/setup.sh
+          else
+            just build
+            just setup
+          fi
+      - name: Run Lifecycle Scripts
+        id: lifecycle
+        if: steps.policy.outputs.opted-out != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          concerns=''
+          for step in test e2e; do
+            if [ "$RUNNER_OS" = macOS ] && [ "$step" != test ]; then continue; fi
+            if [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then concerns="$concerns $step"; fi
+          done
+          echo "concerns=$concerns" >> "$GITHUB_OUTPUT"
+          for step in test typecheck e2e package; do
+            if [ "$RUNNER_OS" = macOS ] && [ "$step" != test ]; then continue; fi
+            script="bin/$step.sh"
+            if [ ! -e "$script" ] && [ ! -L "$script" ]; then continue; fi
+            test -f "$script" && test -x "$script"
+            case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
+            echo "::group::$script"
+            if [ "$CI_IMAGE" = true ]; then "$script"; else just "$step"; fi
+            echo '::endgroup::'
+          done
+      # The runner loads remote action manifests before evaluating step conditions
+      # A local central checkout lets Release Check test an action absent from main
+      - name: Check out central JUnit action
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/junit-gate
+      - name: Require JUnit evidence
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+        with:
+          concerns: ${{ steps.lifecycle.outputs.concerns }}
+          suite-outcome: ${{ steps.lifecycle.outcome }}
+      - name: Clean up dependency volumes and services
+        if: ${{ always() && steps.policy.outputs.opted-out == 'false' && env.CI_IMAGE != 'true' && runner.os == 'Linux' }}
+        run: |
+          export REPO_DIR="$GITHUB_WORKSPACE"
+          GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
+          export GIT_COMMON_DIR
+          docker compose down --volumes --remove-orphans

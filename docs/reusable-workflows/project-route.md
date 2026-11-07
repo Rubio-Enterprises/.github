@@ -29,6 +29,13 @@ both declarations and returns `platform` so a caller can schedule a separate nat
 leg. The injected Standards Check uses this selection; default `auto` callers
 retain their native macOS route.
 
+The `test` input follows auto selection unless the optional `ci-test-route` property
+is set to `small`, `medium`, `docker`, `arm` or `macos`. A missing override in event
+metadata triggers a base-repository properties API read. Missing/null/empty values
+mean no override; other values fail closed. The effective route determines the
+returned platform. `auto` and `linux` ignore this test-only override, so Standards
+routing remains independent. Public `test` routes always use hosted fallback labels.
+
 A capability job can explicitly select `small`, `medium`, `docker`, `kvm`, `arm`, `macos` or `vrt`.
 The explicit choice overrides auto selection. Keep existing Docker/KVM/ARM/macOS/VRT jobs on their
 capability routes; they never select a CI Image. Existing bespoke labels and service topologies
@@ -36,7 +43,7 @@ remain repository-owned, not replaced by the router.
 
 Outputs:
 
-- `platform`: declared `linux` or `macos` for `auto`/`linux`; for explicit capability
+- `platform`: declared `linux` or `macos` for `auto`/`linux`, effective platform for `test`; for explicit capability
   routes, `macos` for the macOS capability and `linux` otherwise.
 - `runner`: JSON label array for `runs-on: fromJSON(...)`.
 - `ci-image`: the string `true` only for a repository-specific CI Image runner; otherwise `false`.

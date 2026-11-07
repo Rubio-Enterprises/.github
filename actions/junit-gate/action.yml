@@ -1,0 +1,17 @@
+name: JUnit gate
+description: Require executed, successful JUnit cases for every selected Lifecycle concern
+inputs:
+  concerns:
+    description: "Space-separated required concerns: test and/or e2e; empty means no test surface"
+    required: true
+  suite-outcome:
+    description: "Outcome of the Lifecycle step, which must be success even without test surfaces"
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        JUNIT_CONCERNS: ${{ inputs.concerns }}
+        SUITE_OUTCOME: ${{ inputs.suite-outcome }}
+      run: python3 "$GITHUB_ACTION_PATH/validate.py"

@@ -301,7 +301,7 @@ fi
 
 class Contracts(unittest.TestCase):
     def test_hosted_checkouts_are_writable_by_the_non_root_image_user(self):
-        for filename, job in (("test-gate.yml", "canonical-tests"),
+        for filename, job in (("bootstrap-test-gate.yml", "canonical-tests"),
                               ("workflow-validation.yml", "validate"),
                               ("standards.yml", "standards-linux")):
             with self.subTest(workflow=filename):
