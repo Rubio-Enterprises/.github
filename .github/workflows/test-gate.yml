@@ -69,7 +69,7 @@ jobs:
       ${{ inputs.qualification-repository != '' && fromJSON(inputs.qualification-runner)
           || needs.route.result == 'success' && fromJSON(needs.route.outputs.runner)
           || fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       CI_IMAGE: ${{ inputs.qualification-repository != '' && inputs.qualification-ci-image || needs.route.outputs.ci-image == 'true' }}
     steps:
