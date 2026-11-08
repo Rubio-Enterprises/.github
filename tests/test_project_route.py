@@ -18,7 +18,6 @@ RUNNERS = {
     'kvm': ['linux-x64-large'],
     'arm': ['linux-arm64'],
     'macos': ['macos-arm64'],
-    'vrt': ['linux-x64-medium'],
 }
 HARNESS = '''
 const fs = require('node:fs');
@@ -97,7 +96,6 @@ class ProjectRouteTests(unittest.TestCase):
         for route, expected in {
             'small': 'ubuntu-latest', 'medium': 'ubuntu-latest', 'docker': 'ubuntu-latest',
             'kvm': 'ubuntu-latest', 'arm': 'ubuntu-24.04-arm', 'macos': 'macos-26',
-            'vrt': 'linux-x64-medium',
         }.items():
             with self.subTest(route=route):
                 self.assert_route([expected], route=route, runners={}, repository={'private': False})
@@ -108,9 +106,17 @@ class ProjectRouteTests(unittest.TestCase):
                 self.assert_route(labels, runners={'small': labels})
 
     def test_capability_routes_never_select_a_ci_image(self):
-        for route in ('docker', 'kvm', 'arm', 'macos', 'vrt'):
+        for route in ('docker', 'kvm', 'arm', 'macos'):
             with self.subTest(route=route):
                 self.assert_route(RUNNERS[route], route=route)
+
+    def test_retired_vrt_route_is_rejected_even_with_a_stale_map(self):
+        for runners in ({}, {**RUNNERS, 'vrt': ['linux-x64-medium']}):
+            with self.subTest(runners=runners):
+                code, result = run_route(route='vrt', runners=runners)
+                self.assertNotEqual(code, 0)
+                self.assertIn('route must be', result['error'])
+                self.assertEqual(result['output'], {})
 
     def test_auto_macos_wins_over_the_size(self):
         self.assert_route(['macos-arm64'], repository={
