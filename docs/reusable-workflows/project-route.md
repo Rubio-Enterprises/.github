@@ -36,8 +36,8 @@ mean no override; other values fail closed. The effective route determines the
 returned platform. `auto` and `linux` ignore this test-only override, so Standards
 routing remains independent. Public `test` routes always use hosted fallback labels.
 
-A capability job can explicitly select `small`, `medium`, `docker`, `kvm`, `arm`, `macos` or `vrt`.
-The explicit choice overrides auto selection. Keep existing Docker/KVM/ARM/macOS/VRT jobs on their
+A capability job can explicitly select `small`, `medium`, `docker`, `kvm`, `arm` or `macos`.
+The explicit choice overrides auto selection. Keep existing Docker/KVM/ARM/macOS jobs on their
 capability routes; they never select a CI Image. Existing bespoke labels and service topologies
 remain repository-owned, not replaced by the router.
 

@@ -134,7 +134,6 @@ route has its own hosted fallback for public callers:
 | `docker`, `kvm` | `linux-x64-large` | `ubuntu-latest` |
 | `image` | `linux-x64-image` | self-only `linux-x64-image` |
 | `arm` | `linux-arm64` | `ubuntu-24.04-arm` |
-| `vrt` | `linux-x64-medium` | self-only `linux-x64-medium` |
 | `macos` | `macos-arm64` | `macos-26` |
 
 The project router keeps admitted private CI Image labels and native macOS routes.

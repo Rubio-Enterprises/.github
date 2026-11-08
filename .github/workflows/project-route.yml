@@ -42,7 +42,6 @@ jobs:
               small: ['ubuntu-slim'], medium: ['ubuntu-latest'],
               docker: ['ubuntu-latest'], kvm: ['ubuntu-latest'],
               arm: ['ubuntu-24.04-arm'], macos: ['macos-26'],
-              vrt: ['linux-x64-medium'],
             };
             const runners = JSON.parse(process.env.RUNNERS);
             const admitted = JSON.parse(process.env.CI_IMAGE_REPOS);
@@ -75,7 +74,7 @@ jobs:
               if (testRoute) platform = route === 'macos' ? 'macos' : 'linux';
             }
             if (!Object.hasOwn(fallbacks, route)) {
-              throw new Error('route must be auto, linux, test, small, medium, docker, kvm, arm, macos or vrt');
+              throw new Error('route must be auto, linux, test, small, medium, docker, kvm, arm or macos');
             }
             const repository = context.payload.repository;
             let runner = testRoute && repository?.private !== true

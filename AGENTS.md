@@ -113,7 +113,6 @@ release for this repository. Recover regressions through reviewed reverts.
   | `image` | `linux-x64-image` | `linux-x64-image` (self-only) | Build Service client jobs (Dev Container Images) |
   | `kvm` | `linux-x64-large` | `ubuntu-latest` | nested x86 virtualization |
   | `arm` | `linux-arm64` | `ubuntu-24.04-arm` | ARM builds, VMs, Playwright |
-  | `vrt` | `linux-x64-medium` | `linux-x64-medium` (self-only) | pinned visual rendering |
   | `macos` | `macos-arm64` | `macos-26` | Xcode and signing |
 
   Project workflows use the shared router. Small/medium jobs outside a CI Image need Docker: generic self-hosted routes use the `docker` route, and `ubuntu-slim` becomes `ubuntu-latest`. Native macOS projects retain `macos` for Xcode.
