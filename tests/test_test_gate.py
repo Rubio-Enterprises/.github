@@ -250,7 +250,7 @@ def test_injected_identity_routes_fail_closed_and_retains_arms_label():
     assert "github.repository != 'Rubio-Enterprises/.github'" in gate['if']
     assert 'fromJSON(needs.route.outputs.runner)' in gate['runs-on']
     assert '.docker' not in gate['runs-on']
-    assert gate['timeout-minutes'] == 60
+    assert gate['timeout-minutes'] == 120
     dependency = jobs['dependency-review']
     assert 'needs' not in dependency
     assert dependency['timeout-minutes'] == 10
