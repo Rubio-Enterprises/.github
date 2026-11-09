@@ -272,7 +272,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             ),
         )
 
-    def test_python_minor_bumps_are_manual_and_patch_bumps_automerge(self) -> None:
+    def test_python_minor_bumps_are_manual_and_legacy_patch_pins_automerge(self) -> None:
         pins = (
             ("mise", "image/mise.toml"),
             ("asdf", ".tool-versions"),
@@ -293,7 +293,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertFalse(minor["automerge"])
                 self.assertFalse(minor["platformAutomerge"])
                 patch = _resolve_dependency({**dependency, "updateType": "patch"})
-                self.assertTrue(patch["automerge"])
+                self.assertEqual(patch["automerge"], manager != "mise")
                 self.assertFalse(patch["platformAutomerge"])
 
         # Other runtimes, and other Python-named dependencies, keep the standing lane.
@@ -310,18 +310,59 @@ class RenovateConfigContractTests(unittest.TestCase):
                 })
                 self.assertTrue(resolved["automerge"])
 
-    def test_mise_manager_updates_repository_runtime_pins(self) -> None:
-        resolved = _resolve_dependency({
-            "repository": "Rubio-Enterprises/org-ops",
-            "manager": "mise",
-            "depName": "node",
-            "packageName": "node",
-            "fileName": "image/mise.toml",
-            "currentVersion": "24.1.0",
-            "updateType": "minor",
-        })
-        self.assertNotIn("enabled", resolved)
-        self.assertTrue(resolved["automerge"])
+    def test_image_mise_updates_remain_enabled_but_require_human_merge(self) -> None:
+        for name, version in (
+            ("rust", "1.95.0"),
+            ("node", "24.1.0"),
+            ("python", "3.14.6"),
+            ("go", "1.25.0"),
+            ("pnpm", "10.0.0"),
+        ):
+            for update in ("major", "minor", "patch", "pin", "digest", "pinDigest"):
+                with self.subTest(name=name, update=update):
+                    resolved = _resolve_dependency({
+                        "manager": "mise",
+                        "depName": name,
+                        "packageName": name,
+                        "fileName": "image/mise.toml",
+                        "currentVersion": version,
+                        "updateType": update,
+                    })
+                    self.assertNotIn("enabled", resolved)
+                    self.assertFalse(resolved["automerge"])
+                    self.assertFalse(resolved["platformAutomerge"])
+
+    def test_image_mise_guard_is_scoped_and_follows_automerge_rules(self) -> None:
+        rules = CONFIG["packageRules"]
+        guards = [
+            (index, rule)
+            for index, rule in enumerate(rules)
+            if rule.get("matchManagers") == ["mise"]
+            and rule.get("matchFileNames") == ["image/mise.toml"]
+        ]
+        self.assertEqual(len(guards), 1)
+        index, guard = guards[0]
+        self.assertIn(
+            "https://github.com/Rubio-Enterprises/standards/issues/945",
+            guard["description"],
+        )
+        self.assertFalse(any(rule.get("automerge") for rule in rules[index + 1:]))
+
+        for manager, file_name in (
+            ("mise", "mise.toml"),
+            ("mise", "other/image/mise.toml"),
+            ("npm", "image/mise.toml"),
+        ):
+            with self.subTest(manager=manager, file=file_name):
+                resolved = _resolve_dependency({
+                    "manager": manager,
+                    "depName": "node",
+                    "packageName": "node",
+                    "fileName": file_name,
+                    "currentVersion": "24.1.0",
+                    "updateType": "patch",
+                })
+                self.assertTrue(resolved["automerge"])
 
     def test_host_first_main_images_float_for_every_docker_manager(self) -> None:
         for manager in ("dockerfile", "docker-compose", "devcontainer", "custom.regex"):
