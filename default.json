@@ -302,6 +302,13 @@
       "pinDigests": false
     },
     {
+      "description": "Require human merges for image/mise.toml toolchain updates until https://github.com/Rubio-Enterprises/standards/issues/945 makes the Standards Check and Test Gate use the PR-built image. aw-server-rust rust 1.99.1 passed on the old image and broke main after the rebuild. Keep this guard after every automerge-enabling rule.",
+      "matchManagers": ["mise"],
+      "matchFileNames": ["image/mise.toml"],
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
       "description": "Majors and pre-1.0 updates are held drafts, never auto-merged. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher.",
       "matchJsonata": [
         "updateType = 'major' or $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/)"
