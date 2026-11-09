@@ -35,7 +35,7 @@ class StandardsCacheTests(unittest.TestCase):
         self.assertEqual(steps(INJECTED, 'actions/cache'), [])
         self.assertEqual(steps(INJECTED, 'actions/cache/save'), [])
         restores = steps(INJECTED, 'actions/cache/restore')
-        self.assertEqual(len(restores), 2)
+        self.assertEqual(len(restores), 1)
         for fields in restores:
             self.assertEqual(fields['restore-keys'], fields['key'].rsplit('${{ steps.week', 1)[0])
         self.assertNotIn("mise-action", INJECTED)
@@ -85,31 +85,31 @@ class StandardsCacheTests(unittest.TestCase):
         self.assertIn('chmod -R a+rwX "$GITHUB_WORKSPACE"', step)
         self.assertLess(WARMER.index(step), WARMER.index('name: Download the trivy'))
 
-    def test_only_successfully_filled_caches_are_saved_independently(self):
-        for name, cache in [('trivy vulnerability database', 'trivy'),
-                            ("PR conventions' npm cache", 'npm')]:
-            step = extract_step(WARMER, 'Save the ' + name)
-            self.assertIn(f"if: steps.{cache}-warm.outputs.ready == 'true'", step)
+    def test_only_a_successfully_filled_cache_is_saved(self):
+        step = extract_step(WARMER, 'Save the trivy vulnerability database')
+        self.assertIn("if: steps.trivy-warm.outputs.ready == 'true'", step)
         self.assertNotIn('continue-on-error', WARMER)
+
+    def test_nothing_warms_the_tools_baked_into_the_image(self):
+        # The image bakes the PR conventions' node_modules at build time and the Checks never
+        # reinstall them. The entrypoint runs as the workspace owner (uid 1001 on hosted
+        # runners), which cannot write the image's /opt/standards tree.
+        for workflow in (INJECTED, WARMER):
+            self.assertNotIn('standards-npm', workflow)
+            self.assertNotIn('npm ci', workflow)
+        self.assertNotIn('/opt/standards', WARMER)
 
 
 class WarmerExecutionTests(unittest.TestCase):
-    def run_warmer(self, cache, *, ci_image=True, tool=True, lock=True, failure=False):
-        names = {'trivy': 'Download the trivy vulnerability database',
-                 'npm': "Fill the PR conventions' npm cache"}
-        step = extract_step(WARMER, names[cache])
-        self.assertIn(f"if: steps.{cache}.outputs.cache-hit != 'true'", step)
+    def run_warmer(self, *, ci_image=True, tool=True, failure=False):
+        step = extract_step(WARMER, 'Download the trivy vulnerability database')
+        self.assertIn("if: steps.trivy.outputs.cache-hit != 'true'", step)
         script = textwrap.dedent(step.split('run: |\n', 1)[1])
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             tools = root / 'bin'
             tools.mkdir()
-            conventions = root / 'pr-conventions'
-            conventions.mkdir()
-            if lock:
-                (conventions / 'package-lock.json').write_text('{}')
-            script = script.replace('/opt/standards/pr-conventions', str(conventions))
-            executable = tools / (cache if ci_image else 'just')
+            executable = tools / ('trivy' if ci_image else 'just')
             if tool:
                 executable.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >>"$CALLS"\n'
                                       + ('exit 7\n' if failure else ''))
@@ -124,41 +124,33 @@ class WarmerExecutionTests(unittest.TestCase):
                                     capture_output=True, text=True)
             return result, output.read_text(), calls.read_text() if calls.exists() else ''
 
-    def test_stale_images_skip_only_the_missing_tool_without_saving_an_empty_cache(self):
-        for cache, tool, lock in [('trivy', False, True), ('npm', False, True), ('npm', True, False)]:
-            with self.subTest(cache=cache, tool=tool, lock=lock):
-                result, output, calls = self.run_warmer(cache, tool=tool, lock=lock)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn('::notice::CI image has no', result.stdout)
-                self.assertEqual(output, '')
-                self.assertEqual(calls, '')
+    def test_stale_images_skip_the_missing_tool_without_saving_an_empty_cache(self):
+        result, output, calls = self.run_warmer(tool=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('::notice::CI image has no', result.stdout)
+        self.assertEqual(output, '')
+        self.assertEqual(calls, '')
 
     def test_capable_images_warm_even_when_the_repository_revision_changed(self):
-        for cache in ['trivy', 'npm']:
-            with self.subTest(cache=cache):
-                result, output, calls = self.run_warmer(cache)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(output, 'ready=true\n')
-                self.assertNotIn('::notice::', result.stdout)
-                self.assertIn('--cache', calls)
-                self.assertNotIn('build', calls)
+        result, output, calls = self.run_warmer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, 'ready=true\n')
+        self.assertNotIn('::notice::', result.stdout)
+        self.assertIn('--cache-dir', calls)
+        self.assertNotIn('build', calls)
 
-    def test_real_download_and_install_failures_are_not_hidden(self):
-        for cache in ['trivy', 'npm']:
-            with self.subTest(cache=cache):
-                result, output, calls = self.run_warmer(cache, failure=True)
-                self.assertEqual(result.returncode, 7, result.stderr)
-                self.assertEqual(output, '')
-                self.assertNotEqual(calls, '')
+    def test_real_download_failures_are_not_hidden(self):
+        result, output, calls = self.run_warmer(failure=True)
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertEqual(output, '')
+        self.assertNotEqual(calls, '')
 
     def test_hosted_jobs_build_and_execute_inside_the_dev_image(self):
-        for cache in ['trivy', 'npm']:
-            with self.subTest(cache=cache):
-                result, output, calls = self.run_warmer(cache, ci_image=False)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(output, 'ready=true\n')
-                self.assertEqual(calls.splitlines()[0], 'build')
-                self.assertTrue(calls.splitlines()[1].startswith('exec ' + cache + ' '))
+        result, output, calls = self.run_warmer(ci_image=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, 'ready=true\n')
+        self.assertEqual(calls.splitlines()[0], 'build')
+        self.assertTrue(calls.splitlines()[1].startswith('exec trivy '))
 
 
 if __name__ == '__main__':

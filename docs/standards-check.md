@@ -39,11 +39,12 @@ summarized on failure. `.github` itself is a bootstrap repository and is skipped
 
 ## Caches and environment
 
-`standards-cache.yml` writes the weekly `standards-trivy-db-<OS>-<ISO week>` and
-`standards-npm-<OS>-<ISO week>` entries on the repository's default branch. The
-injected job restores them but never saves PR-scoped entries. Both cache paths
-are under the gitignored workspace `.cache/`, visible at the same host path inside
-Compose. A restored trivy database younger than eight days disables DB updates.
+`standards-cache.yml` writes the weekly `standards-trivy-db-<OS>-<ISO week>` entry
+on the repository's default branch. The injected job restores it but never saves
+PR-scoped entries. The cache path is under the gitignored workspace `.cache/`,
+visible at the same host path inside Compose. The PR conventions' npm packages
+are baked into the image, so there is no npm cache to warm, and nothing writes
+to `/opt/standards`, which the workspace-owner remap leaves read-only. A restored trivy database younger than eight days disables DB updates.
 This accepts advisory lag until the next weekly cache refresh.
 
 Compose passes `CI`, `BASE_SHA`, `HEAD_SHA`, `PR_TITLE`, `GH_TOKEN`, `GITHUB_TOKEN`,

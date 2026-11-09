@@ -55,7 +55,7 @@ jobs:
         name: Name this week's cache keys
         run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
       # Restore only. A pull request's own save is scoped to its merge ref, so no other pull request
-      # could restore it. The caller standards-cache.yml writes these keys on the default branch.
+      # could restore it. The caller standards-cache.yml writes this key on the default branch.
       - id: trivy-db
         name: Restore the trivy vulnerability database
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -63,12 +63,6 @@ jobs:
           path: .cache/trivy/db
           key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
           restore-keys: standards-trivy-db-${{ runner.os }}-
-      - name: Restore the PR conventions' npm cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: .cache/standards-npm
-          key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
-          restore-keys: standards-npm-${{ runner.os }}-
       # trivy replaces a database older than a day (metadata.json NextUpdate), which would make the
       # weekly cache useless. A restored one under 8 days old is used as it is.
       - name: Use the restored trivy database without updating it
