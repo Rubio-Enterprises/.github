@@ -32,24 +32,18 @@ jobs:
           path: .cache/trivy/db
           key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
           lookup-only: true
-      - id: npm
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: .cache/standards-npm
-          key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
-          lookup-only: true
       - name: Install just
-        if: needs.route.outputs.ci-image != 'true' && (steps.trivy.outputs.cache-hit != 'true' || steps.npm.outputs.cache-hit != 'true')
+        if: needs.route.outputs.ci-image != 'true' && steps.trivy.outputs.cache-hit != 'true'
         uses: Rubio-Enterprises/.github/actions/setup-just@main
       - name: Log in to GHCR
-        if: needs.route.outputs.ci-image != 'true' && (steps.trivy.outputs.cache-hit != 'true' || steps.npm.outputs.cache-hit != 'true')
+        if: needs.route.outputs.ci-image != 'true' && steps.trivy.outputs.cache-hit != 'true'
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Prepare container-writable hosted checkout
-        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && (steps.trivy.outputs.cache-hit != 'true' || steps.npm.outputs.cache-hit != 'true')
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && steps.trivy.outputs.cache-hit != 'true'
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
       - name: Download the trivy vulnerability database
         id: trivy-warm
@@ -68,32 +62,9 @@ jobs:
             just exec trivy fs --download-db-only --no-progress --quiet --cache-dir "$TRIVY_CACHE_DIR"
           fi
           echo 'ready=true' >>"$GITHUB_OUTPUT"
-      - name: Fill the PR conventions' npm cache
-        id: npm-warm
-        if: steps.npm.outputs.cache-hit != 'true'
-        env:
-          CI_IMAGE: ${{ needs.route.outputs.ci-image }}
-        run: |
-          if [ "$CI_IMAGE" = true ]; then
-            if ! command -v npm >/dev/null || [ ! -f /opt/standards/pr-conventions/package-lock.json ]; then
-              echo '::notice::CI image has no PR conventions tool set yet; leave the npm cache for the next refresh.'
-              exit 0
-            fi
-            npm ci --prefix /opt/standards/pr-conventions --ignore-scripts --no-audit --no-fund --cache "$XDG_CACHE_HOME/standards-npm"
-          else
-            just build
-            just exec npm ci --prefix /opt/standards/pr-conventions --ignore-scripts --no-audit --no-fund --cache "$XDG_CACHE_HOME/standards-npm"
-          fi
-          echo 'ready=true' >>"$GITHUB_OUTPUT"
       - name: Save the trivy vulnerability database
         if: steps.trivy-warm.outputs.ready == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/trivy/db
           key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
-      - name: Save the PR conventions' npm cache
-        if: steps.npm-warm.outputs.ready == 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: .cache/standards-npm
-          key: standards-npm-${{ runner.os }}-${{ steps.week.outputs.week }}
