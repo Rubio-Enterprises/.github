@@ -10,8 +10,13 @@ case "$(uname -s):$(uname -m)" in
 esac
 work=$(mktemp -d "$RUNNER_TEMP/just.XXXXXX")
 trap 'rm -rf "$work"' EXIT
-curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
-  "https://github.com/casey/just/releases/download/$version/just-$version-$triple.tar.gz" -o "$work/just.tar.gz"
+if [ -n "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
+  gh release download --repo casey/just "$version" \
+    --pattern "just-$version-$triple.tar.gz" --output "$work/just.tar.gz"
+else
+  curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
+    "https://github.com/casey/just/releases/download/$version/just-$version-$triple.tar.gz" -o "$work/just.tar.gz"
+fi
 printf '%s  %s\n' "$checksum" "$work/just.tar.gz" | shasum -a 256 -c -
 mkdir -p "$RUNNER_TEMP/bin"
 tar -xzf "$work/just.tar.gz" -C "$RUNNER_TEMP/bin" just
