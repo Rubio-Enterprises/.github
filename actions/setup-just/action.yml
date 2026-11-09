@@ -1,7 +1,13 @@
 name: Set up just
 description: Install the checksum-pinned just release for Linux or macOS
+inputs:
+  token:
+    description: GitHub token used to download the pinned release
+    default: ${{ github.token }}
 runs:
   using: composite
   steps:
     - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
       run: bash "$GITHUB_ACTION_PATH/install.sh"
