@@ -2,7 +2,7 @@ name: Bug
 description: Report behavior that does not match expectations.
 type: bug
 labels:
-  - needs-triage
+  - intent:draft
 body:
   - type: markdown
     attributes:

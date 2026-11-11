@@ -2,17 +2,23 @@ name: Refactoring
 description: Change internal structure while preserving behavior.
 type: task
 labels:
-  - needs-triage
+  - intent:draft
 body:
   - type: markdown
     attributes:
       value: |
-        Use this form to improve code structure without changing its intended behavior.
-        Examples: consolidate duplicated configuration loaders; split a module along an existing boundary.
-
-        Keep answers concise. Context links are optional; other sections are required.
-        If a section genuinely does not apply, explain why rather than inventing content.
-        Examples are illustrative, not reports about this repository. Do not include secrets.
+        This form captures the Intent—what is asked and why—for structural improvements that preserve behavior.
+        Decisions, scope and acceptance criteria are added later in Refinement.
+        Filing does not mean approval; keep answers concise and leave out secrets.
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem"
+      description: "Describe the current structure and the specific problem it causes."
+      placeholder: |
+        The CLI and worker each contain a load_settings implementation with the same precedence rules.
+    validations:
+      required: true
   - type: textarea
     id: outcome
     attributes:
@@ -23,72 +29,34 @@ body:
     validations:
       required: true
   - type: textarea
-    id: problem
+    id: constraints
     attributes:
-      label: "Problem / motivation"
-      description: "Describe the current structure and the specific problem it causes."
+      label: "Constraints"
+      description: 'Optional: name behavior that must not change and limits on any solution. "None" is a valid answer.'
       placeholder: |
-        The CLI and worker each contain a load_settings implementation with the same precedence rules.
-    validations:
-      required: true
-  - type: textarea
-    id: in-scope
-    attributes:
-      label: "In scope"
-      description: "Name the transformation, its target, affected callers, and behavior that must remain unchanged."
-      placeholder: |
-        - Extract one shared load_settings function.
-        - Update the CLI and worker callers to use it.
         - Preserve environment-variable and file precedence.
+        - Keep the same defaults, accepted inputs and error messages for both callers.
     validations:
-      required: true
+      required: false
   - type: textarea
-    id: out-of-scope
+    id: open-questions
     attributes:
-      label: "Out of scope"
-      description: "Name related work that is deliberately excluded."
+      label: "Open questions"
+      description: >-
+        Include a question only if its answer would change the Outcome, scope or a constraint,
+        or if it is a decision you want to be asked about.
+        For example: "Must the shared loader remain usable without the CLI's dependencies?"
+        and "New module or an existing one? I have a view."
+        Leaving this empty is normal.
       placeholder: |
-        - New configuration keys.
-        - Changes to error messages, defaults, or accepted inputs.
+        Must callers outside this repository keep using the existing import paths?
     validations:
-      required: true
+      required: false
   - type: textarea
-    id: done-when
+    id: references
     attributes:
-      label: "Done when"
-      description: "Include both structural completion and preserved behavior. Passing old tests alone does not prove the refactor happened."
-      placeholder: |
-        - [ ] One configuration parser implementation remains and both callers use it.
-        - [ ] The same inputs produce the same settings and errors.
-        - [ ] Existing precedence and default behavior are preserved.
-    validations:
-      required: true
-  - type: textarea
-    id: verification
-    attributes:
-      label: "Verification"
-      description: "Give checks for the new structure as well as regression checks for preserved behavior. Use actual repository commands."
-      placeholder: |
-        mise run test — configuration and caller tests pass, including precedence and error cases.
-        Inspect both call sites and search for load_settings definitions; both use the single shared implementation.
-    validations:
-      required: true
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: "Alternatives considered"
-      description: "Describe actual alternatives and why they were rejected. Use N/A only with a concrete reason no meaningful choice existed—not because alternatives were not investigated."
-      placeholder: |
-        Leave the duplication — rejected because fixes regularly need to be made twice.
-        Share only small parsing helpers — rejected because the precedence logic would remain duplicated.
-        Extract the complete loader — selected because both callers have the same contract.
-    validations:
-      required: true
-  - type: textarea
-    id: context
-    attributes:
-      label: "Context links"
-      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance. Use only sources readers can open (GitHub links, Knowledge documents, attachments), not local paths."
+      label: "References"
+      description: "Optional: links for context, never required reading. Use only sources readers can open (GitHub links, Knowledge documents, attachments), not local paths."
       placeholder: |
         Link to the two current implementations and the regression tests that capture their existing behavior.
     validations:
