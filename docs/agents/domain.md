@@ -8,7 +8,8 @@ exploring the codebase.
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists. It points at one
   `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/adr/`**. Read ADRs that touch the area you're about to work in. In
+- **`docs/adr/`**. Read ADRs that touch the area you're about to work in, skipping
+  records whose `status` is `deprecated` or `superseded by ADR-NNNN`. In
   multi-context repos, also check `src/<context>/docs/adr/` for context-scoped
   decisions.
 
