@@ -68,7 +68,7 @@ preset are retired (standards v2 flag day, 2026-10-31).
 | `codewiki-pages.yml` | Push-to-default deploy of a committed CodeWiki (`docs/codewiki/` minus `temp/`, requires the `index.html` viewer) to Pages; the starter caller runs it when `docs/codewiki/metadata.json` exists. Caller grants `contents: read`, `pages: write`, `id-token: write`; Pages enablement/visibility is `.github-private` Terraform's. See [`docs/reusable-workflows/codewiki-pages.md`](docs/reusable-workflows/codewiki-pages.md) |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-range gitleaks scan runs in the package's `check:pr` |
 | `e2e.yml` | Runs `bin/setup.sh` and `bin/e2e.sh` in a CI Image, otherwise `just setup` and `just e2e`; requires executed JUnit cases at `reports/e2e/junit.xml`. Uses `project-route.yml`, including the native macOS route |
-| `testflight.yml` | The signed Apple build reusable — see [`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md) and [ADR-0001](docs/adr/0001-shared-apple-testflight-release-architecture.md) |
+| `testflight.yml` | The signed Apple build reusable — see [`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md) and [ADR-0002](docs/adr/0002-shared-apple-testflight-release-architecture.md) |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source) |
 
 `bootstrap-test-gate.yml`, `copilot-setup-steps.yml` and `workflow-validation.yml` are this repo's own
@@ -275,6 +275,12 @@ This is a single-context repo: use root `CONTEXT.md` and root `docs/adr/` when t
 exist. See `docs/agents/domain.md`.
 
 ## Conventions
+
+- **Architecture decisions**: an ADR records why a rule exists. Before changing a decision, check
+  `docs/adr/` for an accepted ADR; reversing one needs a superseding ADR. Write one only if a
+  person approved it: in the session, or in an approved plan or `delegate-to-agent` issue that
+  names the ADR. Otherwise the PR description is the record. Follow
+  [the format](docs/adr/0001-record-architecture-decisions.md), which states the ADR test.
 
 Use Conventional Commits titles. There is no release-please, local commitlint or
 lefthook in this repo. Default branch is `main`; open PRs as drafts by
