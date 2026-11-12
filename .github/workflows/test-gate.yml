@@ -85,6 +85,13 @@ jobs:
             echo '::error::project runner routing did not succeed'
             exit 1
           fi
+      - name: Measure hosted Docker disk at job start
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && env.CI_IMAGE != 'true'
+        run: |
+          df -B1 / /mnt
+          lsblk -o NAME,SIZE,MOUNTPOINTS
+          docker info --format 'DockerRootDir={{.DockerRootDir}} Driver={{.Driver}} DriverStatus={{json .DriverStatus}}'
+          sudo du -sx -B1 /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/share/powershell /var/lib/docker /var/lib/containerd 2>/dev/null || true
       - id: reader
         if: inputs.qualification-repository != ''
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
@@ -186,6 +193,9 @@ jobs:
             test "$CI_IMAGE" != true
             test "$(uname -m)" = x86_64
             docker load < "$RUNNER_TEMP/gate-candidate/base-candidate.tar.gz"
+            docker image inspect ghcr.io/rubio-enterprises/base:candidate --format 'Candidate base size={{.Size}}'
+            df -B1 / /mnt
+            docker system df
             perl -pi -e 's{^FROM ghcr.io/rubio-enterprises/base:\S+ AS dev.*}
               {FROM ghcr.io/rubio-enterprises/base:candidate AS dev}' Dockerfile
             # just build --pull must not replace the unpublished candidate
@@ -203,6 +213,12 @@ jobs:
             bin/setup.sh
           else
             just build
+            if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
+              docker image ls
+              docker system df
+              df -B1 / /mnt
+              trap 'df -B1 / /mnt; docker system df; sudo du -sx -B1 /var/lib/docker/volumes /var/lib/containerd' EXIT
+            fi
             just setup
           fi
       - name: Run Lifecycle Scripts
