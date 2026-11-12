@@ -272,7 +272,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             ),
         )
 
-    def test_python_minor_bumps_are_manual_and_legacy_patch_pins_automerge(self) -> None:
+    def test_python_minor_bumps_are_manual_and_patch_pins_automerge(self) -> None:
         pins = (
             ("mise", "image/mise.toml"),
             ("asdf", ".tool-versions"),
@@ -293,7 +293,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertFalse(minor["automerge"])
                 self.assertFalse(minor["platformAutomerge"])
                 patch = _resolve_dependency({**dependency, "updateType": "patch"})
-                self.assertEqual(patch["automerge"], manager != "mise")
+                self.assertTrue(patch["automerge"])
                 self.assertFalse(patch["platformAutomerge"])
 
         # Other runtimes, and other Python-named dependencies, keep the standing lane.
@@ -310,16 +310,18 @@ class RenovateConfigContractTests(unittest.TestCase):
                 })
                 self.assertTrue(resolved["automerge"])
 
-    def test_image_mise_updates_remain_enabled_but_require_human_merge(self) -> None:
+    def test_image_mise_updates_follow_the_standing_runtime_policy(self) -> None:
         for name, version in (
             ("rust", "1.95.0"),
             ("node", "24.1.0"),
             ("python", "3.14.6"),
             ("go", "1.25.0"),
             ("pnpm", "10.0.0"),
+            ("node", "0.9.0"),
+            ("node", "v0.9.0"),
         ):
             for update in ("major", "minor", "patch", "pin", "digest", "pinDigest"):
-                with self.subTest(name=name, update=update):
+                with self.subTest(name=name, version=version, update=update):
                     resolved = _resolve_dependency({
                         "manager": "mise",
                         "depName": name,
@@ -328,27 +330,19 @@ class RenovateConfigContractTests(unittest.TestCase):
                         "currentVersion": version,
                         "updateType": update,
                     })
+                    held = update == "major" or version.lstrip("v").startswith("0.")
+                    python_minor = name == "python" and update == "minor"
                     self.assertNotIn("enabled", resolved)
-                    self.assertFalse(resolved["automerge"])
+                    self.assertEqual(resolved["automerge"], not (held or python_minor))
                     self.assertFalse(resolved["platformAutomerge"])
+                    self.assertEqual(resolved["draftPR"], held)
+                    self.assertEqual(resolved["prConcurrentLimit"], 1 if held else 5)
+                    self.assertEqual(resolved["branchConcurrentLimit"], 1 if held else 5)
+                    self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
-    def test_image_mise_guard_is_scoped_and_follows_automerge_rules(self) -> None:
-        rules = CONFIG["packageRules"]
-        guards = [
-            (index, rule)
-            for index, rule in enumerate(rules)
-            if rule.get("matchManagers") == ["mise"]
-            and rule.get("matchFileNames") == ["image/mise.toml"]
-        ]
-        self.assertEqual(len(guards), 1)
-        index, guard = guards[0]
-        self.assertIn(
-            "https://github.com/Rubio-Enterprises/standards/issues/945",
-            guard["description"],
-        )
-        self.assertFalse(any(rule.get("automerge") for rule in rules[index + 1:]))
-
+    def test_image_pin_policy_keeps_other_locations_and_managers_unchanged(self) -> None:
         for manager, file_name in (
+            ("mise", "image/mise.toml"),
             ("mise", "mise.toml"),
             ("mise", "other/image/mise.toml"),
             ("npm", "image/mise.toml"),
@@ -362,7 +356,25 @@ class RenovateConfigContractTests(unittest.TestCase):
                     "currentVersion": "24.1.0",
                     "updateType": "patch",
                 })
+                self.assertNotIn("enabled", resolved)
                 self.assertTrue(resolved["automerge"])
+                self.assertFalse(resolved["platformAutomerge"])
+                self.assertFalse(resolved["draftPR"])
+                self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+
+    def test_image_lock_maintenance_keeps_the_standing_automerge_policy(self) -> None:
+        for file_name in ("image/mise.toml", "image/mise.lock"):
+            with self.subTest(file=file_name):
+                resolved = _resolve_dependency({
+                    "manager": "mise",
+                    "fileName": file_name,
+                    "updateType": "lockFileMaintenance",
+                })
+                self.assertNotIn("enabled", resolved)
+                self.assertTrue(resolved["automerge"])
+                self.assertFalse(resolved["platformAutomerge"])
+                self.assertFalse(resolved["draftPR"])
+                self.assertEqual(resolved["minimumReleaseAge"], "0 days")
 
     def test_host_first_main_images_float_for_every_docker_manager(self) -> None:
         for manager in ("dockerfile", "docker-compose", "devcontainer", "custom.regex"):
