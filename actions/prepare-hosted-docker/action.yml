@@ -1,0 +1,13 @@
+name: Prepare hosted Docker disk
+description: Reclaim unused host SDKs before containerized Linux work
+runs:
+  using: composite
+  steps:
+    - if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo 'Hosted Docker disk before SDK cleanup'
+        df -B1 /
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+        echo 'Hosted Docker disk after SDK cleanup'
+        df -B1 /

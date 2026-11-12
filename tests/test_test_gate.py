@@ -238,6 +238,30 @@ def test_setup_uses_native_scripts_or_literal_host_recipes(tmp_path):
         assert (tmp_path / 'ran').read_text().splitlines() == expected
 
 
+@pytest.mark.parametrize(('image', 'os_name'), [
+    ('true', 'Linux'), ('false', 'Linux'), ('false', 'macOS'),
+])
+@pytest.mark.parametrize('dangling_symlink', [False, True])
+def test_setup_rejects_a_lingering_central_checkout(tmp_path, image, os_name, dangling_symlink):
+    binary = tmp_path / 'bin'
+    binary.mkdir()
+    for name in ('just', 'setup.sh'):
+        command = binary / name
+        command.write_text('#!/bin/sh\necho ran >> ran\n')
+        command.chmod(0o755)
+    checkout = tmp_path / '.cache/central-test-gate'
+    checkout.parent.mkdir()
+    if dangling_symlink:
+        checkout.symlink_to(tmp_path / 'missing')
+    else:
+        checkout.mkdir()
+        (checkout / 'README.md').write_text('foreign root file')
+    result, _ = run_shell('Set up dependencies', tmp_path, CI_IMAGE=image, RUNNER_OS=os_name,
+                          PATH=f'{binary}:{os.environ["PATH"]}')
+    assert result.returncode != 0
+    assert not (tmp_path / 'ran').exists()
+
+
 def test_injected_identity_routes_fail_closed_and_retains_arms_label():
     jobs = WORKFLOW['jobs']
     assert WORKFLOW['on'].keys() == {'pull_request', 'merge_group', 'workflow_call'}
@@ -280,7 +304,8 @@ def test_route_failure_and_unauthorized_qualification_stop_before_checkout(tmp_p
 
 def test_qualification_exercises_production_orchestration_and_candidate_parser():
     assert step('Require JUnit evidence')['uses'] == './.cache/central-test-gate/actions/junit-gate'
-    assert step('Check out central JUnit action')['with']['ref'] == "${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}"
+    for name in ('Check out central Docker preparation action', 'Check out central JUnit action'):
+        assert step(name)['with']['ref'] == "${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}"
     assert not any('/actions/junit-gate@' in item.get('uses', '') for item in STEPS)
     assert 'docker compose build dev' in step('Select candidate base or native config')['run']
     assert step('Run Lifecycle Scripts')['id'] == 'lifecycle'
