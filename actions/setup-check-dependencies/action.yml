@@ -1,0 +1,7 @@
+name: Set up Check dependencies
+description: Pass-through kept so runs created before the revert in #557 can still load this path. Does nothing.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: 'true'
