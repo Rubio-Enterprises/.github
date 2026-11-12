@@ -18,16 +18,17 @@ fails the required aggregate without running project code.
   into GHCR with the job token, then runs `just build`, `just check`, `just check-pr`.
   For macOS repositories only, the whole-tree command is `just exec standards check`
   so the native repository's combined `just check` does not invoke SwiftLint on Linux.
-- **Native macOS:** only for `ci-platform=macos`, a parallel `standards-native` job
+- **Native macOS:** only for `ci-platform=macos`, a parallel `standards-macos` job
   uses `RUNNERS.macos` (fallback `macos-26`), checks out with no persisted credential,
-  installs `just`, then runs `just setup-native` and `just check-native`. No Docker
+  installs `just`, then runs `setup-macos` and `check-macos` when listed by `just --summary`,
+  otherwise the corresponding `-native` recipes. No Docker
   login/build, image Checks, PR Checks or native tests run in this leg. The
-  read-only package token lets `setup-native` fetch shared config without Docker;
+  read-only package token lets the setup recipe fetch shared config without Docker;
   the repository owns its native toolchain setup. Native tests remain in `test-gate`.
 
 The execution job is named `standards-linux` for every repository. The sole job
 named `standards` is a Docker-free aggregate with `if: always()`: routing and
-`standards-linux` must succeed; `standards-native` must succeed for macOS and must
+`standards-linux` must succeed; `standards-macos` must succeed for macOS and must
 be skipped for Linux. Failed, cancelled or unexpectedly skipped required legs fail
 the aggregate. This preserves the required result while adding a native leg only
 where declared. OpenTofu requires this workflow by path/ref, not a new status

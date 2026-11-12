@@ -12,20 +12,20 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = json.loads(subprocess.check_output(
     ['yq', '-o=json', str(ROOT / '.github/workflows/test-gate.yml')], text=True))
-STEPS = WORKFLOW['jobs']['test-gate']['steps']
+STEPS = WORKFLOW['jobs']['test-gate-linux']['steps']
 JUNIT = ROOT / 'actions/junit-gate/validate.py'
 FIXTURES = ROOT / 'tests/fixtures/junit-gate'
 
 
-def step(name):
-    return next(item for item in STEPS if item.get('name') == name)
+def step(name, job='test-gate-linux'):
+    return next(item for item in WORKFLOW['jobs'][job]['steps'] if item.get('name') == name)
 
 
-def run_shell(name, root, **env):
+def run_shell(name, root, job='test-gate-linux', **env):
     output = root / 'output'
     output.write_text('')
     result = subprocess.run(
-        ['bash', '-e', '-o', 'pipefail', '-c', step(name)['run']], cwd=root,
+        ['bash', '-e', '-o', 'pipefail', '-c', step(name, job)['run']], cwd=root,
         env={**os.environ, 'GITHUB_OUTPUT': str(output), **env},
         capture_output=True, text=True,
     )
@@ -182,7 +182,6 @@ def scripts(root, *, empty_test=False, fail=None):
 @pytest.mark.parametrize(('image', 'os_name', 'expected'), [
     ('true', 'Linux', ['test', 'typecheck', 'e2e', 'package']),
     ('false', 'Linux', ['test', 'typecheck', 'e2e', 'package']),
-    ('false', 'macOS', ['test']),
 ])
 def test_workflow_executes_only_the_applicable_lifecycle_scripts(tmp_path, image, os_name, expected):
     scripts(tmp_path)
@@ -229,8 +228,7 @@ def test_setup_uses_native_scripts_or_literal_host_recipes(tmp_path):
     (binary / 'just').write_text('#!/bin/sh\necho "$*" >> ran\n')
     (binary / 'just').chmod(0o755)
     for image, os_name, expected in [('true', 'Linux', ['image']),
-                                     ('false', 'Linux', ['build', 'setup']),
-                                     ('false', 'macOS', ['setup-native'])]:
+                                     ('false', 'Linux', ['build', 'setup'])]:
         (tmp_path / 'ran').unlink(missing_ok=True)
         result, _ = run_shell('Set up dependencies', tmp_path, CI_IMAGE=image, RUNNER_OS=os_name,
                               PATH=f'{binary}:{os.environ["PATH"]}')
@@ -239,7 +237,7 @@ def test_setup_uses_native_scripts_or_literal_host_recipes(tmp_path):
 
 
 @pytest.mark.parametrize(('image', 'os_name'), [
-    ('true', 'Linux'), ('false', 'Linux'), ('false', 'macOS'),
+    ('true', 'Linux'), ('false', 'Linux'),
 ])
 @pytest.mark.parametrize('dangling_symlink', [False, True])
 def test_setup_rejects_a_lingering_central_checkout(tmp_path, image, os_name, dangling_symlink):
@@ -267,9 +265,9 @@ def test_injected_identity_routes_fail_closed_and_retains_arms_label():
     assert WORKFLOW['on'].keys() == {'pull_request', 'merge_group', 'workflow_call'}
     assert WORKFLOW['permissions'] == {'contents': 'read', 'packages': 'read'}
     assert jobs['route']['with'] == {'route': 'test'}
-    gate = jobs['test-gate']
-    assert gate['name'] == 'test-gate'
-    assert gate['needs'] == 'route'
+    gate = jobs['test-gate-linux']
+    assert gate['name'] == 'test-gate-linux'
+    assert gate['needs'] == ['route', 'qualification']
     assert 'always()' in gate['if']
     assert "github.repository != 'Rubio-Enterprises/.github'" in gate['if']
     assert 'fromJSON(needs.route.outputs.runner)' in gate['runs-on']

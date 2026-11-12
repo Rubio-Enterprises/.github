@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HOSTED_LINUX = "runner.environment == 'github-hosted' && runner.os == 'Linux'"
 COMPOSE = "needs.route.outputs.ci-image != 'true' && "
 HOSTED_DOCKER_JOBS = [
-    ('test-gate.yml', 'test-gate',
+    ('test-gate.yml', 'test-gate-linux',
      "steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && " + HOSTED_LINUX,
      "${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}"),
     ('standards.yml', 'standards-linux', COMPOSE + HOSTED_LINUX, 'main'),
@@ -34,7 +34,7 @@ def document(path):
 
 
 def test_hosted_preparation_precedes_candidate_download_and_setup():
-    steps = document('.github/workflows/test-gate.yml')['jobs']['test-gate']['steps']
+    steps = document('.github/workflows/test-gate.yml')['jobs']['test-gate-linux']['steps']
     prepare = next(s for s in steps if s.get('name') == 'Prepare hosted Docker disk')
     assert prepare['if'] == (
         "steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && "
@@ -52,14 +52,12 @@ def test_hosted_preparation_precedes_candidate_download_and_setup():
 
 
 def test_central_checkouts_do_not_overlap_repository_execution():
-    steps = document('.github/workflows/test-gate.yml')['jobs']['test-gate']['steps']
+    steps = document('.github/workflows/test-gate.yml')['jobs']['test-gate-linux']['steps']
     setup = next(i for i, s in enumerate(steps) if s.get('name') == 'Set up dependencies')
     lifecycle = next(i for i, s in enumerate(steps) if s.get('id') == 'lifecycle')
     checkouts = [s for s in steps if s.get('with', {}).get('repository') == 'Rubio-Enterprises/.github']
-    assert len(checkouts) == 3
-    early, macos, junit = checkouts
-    assert macos['with']['sparse-checkout'] == 'actions/macos-tools'
-    assert steps.index(early) < steps.index(macos) < setup
+    assert len(checkouts) == 2
+    early, junit = checkouts
     prepare = next(s for s in steps if s.get('name') == 'Prepare hosted Docker disk')
     remove = next(s for s in steps if s.get('name') == 'Remove central Docker preparation checkout')
     assert early['if'] == prepare['if'] == remove['if']

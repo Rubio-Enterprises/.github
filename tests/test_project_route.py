@@ -46,7 +46,7 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 def run_route(*, route='auto', runners=None, admitted=None, repository=None,
               name='org-ops', owner='Rubio-Enterprises', properties=None, api_error=False):
     repo = {'id': ID, 'private': True, 'default_branch': 'main', 'custom_properties': {
-        'ci-platform': 'linux', 'ci-size': 'small',
+        'ci-platform': 'linux', 'ci-size': 'small', 'ci-test-macos': None,
     }}
     if repository is not None:
         repo.update(repository)
@@ -208,7 +208,7 @@ class ProjectRouteTests(unittest.TestCase):
             ("arm", ["linux-arm64"], "linux"),
             ("macos", ["macos-arm64"], "macos"),
         ):
-            properties = {"ci-platform": "linux", "ci-size": "small", "ci-test-route": override}
+            properties = {"ci-platform": "linux", "ci-size": "small", "ci-test-macos": None, "ci-test-route": override}
             with self.subTest(override=override):
                 result = self.assert_route(labels, image=override in ("small", "medium"),
                                            route="test", repository={"custom_properties": properties})
@@ -233,7 +233,7 @@ class ProjectRouteTests(unittest.TestCase):
     def test_unset_test_override_uses_platform_and_size_defaults(self):
         for override in (None, ""):
             self.assert_route(["macos-arm64"], route="test", repository={"custom_properties": {
-                "ci-platform": "macos", "ci-size": "medium", "ci-test-route": override,
+                "ci-platform": "macos", "ci-size": "medium", "ci-test-macos": None, "ci-test-route": override,
             }})
         self.assert_route([f"ci-{ID}-org-ops-small"], image=True, route="test",
                           repository={"custom_properties": None}, properties=[])
@@ -244,7 +244,7 @@ class ProjectRouteTests(unittest.TestCase):
             with self.subTest(override=override):
                 self.assert_route([expected], route="test", repository={
                     "private": False, "custom_properties": {
-                        "ci-platform": "linux", "ci-size": "small", "ci-test-route": override,
+                        "ci-platform": "linux", "ci-size": "small", "ci-test-macos": None, "ci-test-route": override,
                     },
                 })
 
@@ -252,7 +252,7 @@ class ProjectRouteTests(unittest.TestCase):
         for override in ("large", "kvm", "vrt", "__proto__", " ", [], False, 1):
             with self.subTest(override=override):
                 code, result = run_route(route="test", repository={"custom_properties": {
-                    "ci-platform": "linux", "ci-size": "small", "ci-test-route": override,
+                    "ci-platform": "linux", "ci-size": "small", "ci-test-macos": None, "ci-test-route": override,
                 }})
                 self.assertEqual(code, 1, result)
                 self.assertEqual(result["output"], {})

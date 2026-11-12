@@ -2,23 +2,48 @@
 
 The organization injects `.github/workflows/test-gate.yml` on pull requests and merge
 groups. Terraform requires its workflow identity, not an interchangeable Actions
-status. Its single required job is named `test-gate`. Dependency review remains a
+status. Its required result is the aggregate job `test-gate`. Execution happens in
+`test-gate-linux` and `test-gate-macos`. Dependency review remains a
 separate public-PR job, outside that required context.
 
 ## Execution contract
 
-`project-route.yml` with `route: test` reads `ci-platform`, `ci-size` and optional
-`ci-test-route`. The gate uses the returned labels unchanged, including ARM. Route
-failure schedules a small failure-reporting job rather than skipping the required
-context. Public tests stay hosted. See
+`project-route.yml` with `route: test` reads `ci-platform`, `ci-size`, optional
+`ci-test-route` and `ci-test-macos`. The Linux job uses the returned labels unchanged,
+including ARM, with a 120-minute limit. The macOS job has a 60-minute limit and uses
+`macos-runner`. Public tests stay hosted. Route failures fail the aggregate rather
+than silently skipping the required result. See
 [project routing](reusable-workflows/project-route.md).
 
 Checkout retains full history and does not persist credentials. A CI Image runs
 `bin/setup.sh` and the Lifecycle Scripts directly. Other Linux runners execute
 `just build`, `just setup` and each existing recipe among `test typecheck e2e package`.
-Native macOS runs `just setup-native` and only `test`, preserving the native gate's
-coverage; it never logs into Docker or builds a dev image. Missing native mise is
-installed from a checksum-pinned release.
+The macOS job has two modes, neither using Docker:
+- **Shape mode:** when the whole Test Gate runs on macOS, install just and bootstrap
+  mise through `actions/macos-tools` with `provision: false`. Run `setup-macos`
+  when listed by `just --summary`, otherwise `setup-native`, then only `test`.
+  This preserves today's coverage. The small shared `run-recipe.sh` compatibility
+  script is removed after the recipe rename sweep.
+- **Leg mode:** a Linux test route can declare additional concerns in the organization
+  multi-select property `ci-test-macos`, through reviewed OpenTofu configuration.
+  Provision locked repository tools and the base's four runners through
+  `actions/macos-tools` with `provision: true`, run `bin/setup.sh`, then each declared
+  executable `bin/<concern>.sh` directly, in `test typecheck e2e package` order.
+  A declared missing or non-executable script fails. Locked installation fails if
+  macOS lock entries are missing. The Linux job remains unchanged.
+
+Both central macOS jobs restore and save mise's content-addressed download store at
+`${{ runner.temp }}/macos-tools/cache/downloads-cas`, keyed by runner OS, architecture
+and `image/mise.lock`, without a restore prefix. Setup and Lifecycle steps receive
+`GITHUB_TOKEN` from `github.token`. The shared `bin/macos-env.sh` must set
+`MISE_CACHE_DIR=$RUNNER_TEMP/macos-tools/cache` in CI. Existing repository helpers
+that still use a checkout-local cache simply do not consume this restored store.
+Installed tools are not cached.
+
+The aggregate requires every expected leg to succeed and every unexpected leg to be
+skipped. Linux alone, Linux with a declared macOS leg, and macOS shape are distinct
+cases. Failed, cancelled or unexpectedly skipped legs fail the aggregate. An existing
+reasoned Opt-out still succeeds through the applicable leg's policy step.
 
 Script existence declares applicability. Non-executable scripts fail. No test/e2e
 script means no JUnit obligation, not an automatic Opt-out. Tests clear their own
@@ -99,13 +124,19 @@ Qualification is accepted only from `Rubio-Enterprises/standards`. A reader App
 token scoped to the representative performs checkout, then normal production
 policy/setup/Lifecycle steps run. Optional `qualification-ref` selects a ref.
 `qualification-ci-image: true` selects direct script execution on an explicitly
-selected existing CI Image runner. Qualification runner labels are caller-owned:
+selected existing CI Image runner. Optional `qualification-platform` selects
+`linux` or `macos`. Its empty default infers macOS when `qualification-runner`
+contains `macos`, otherwise Linux, preserving existing callers. A small qualification
+job computes this once for the execution jobs and aggregate. Optional
+`qualification-macos-concerns` defaults to empty (shape mode); a non-empty list on
+a macOS qualification selects leg mode. Only the selected qualification leg runs.
+Qualification runner labels are caller-owned:
 real property routing is separately covered by contract tests and injection canaries.
 
 For an unmerged central change, point the workflow ref and
 `qualification-central-ref` at its branch. The latter checks out the candidate
-JUnit and hosted Docker preparation actions for local composite calls; production
-checks out the same actions from central main. Each checkout exists only while
+JUnit, macOS tools and hosted Docker preparation actions for local composite calls;
+production checks out the same actions from central main. Each checkout exists only while
 its action is needed. `actions/checkout` requires a path inside `GITHUB_WORKSPACE`,
 so the early checkout must be removed rather than placed under runner temp.
 A conditional remote action reference would still load its manifest before the
@@ -116,7 +147,8 @@ no-op guard cannot qualify a broken central implementation.
 
 The optional same-run `candidate-base` artifact has the Release Check format:
 `base-candidate.tar.gz` plus `source.tar.gz`. Docker x86_64 legs load the candidate
-and prevent `just build --pull` replacing it; native macOS legs use its config.
+and prevent `just build --pull` replacing it; macOS shape uses its config and
+macOS leg provisioning uses its mise pins and lock.
 Omit this artifact for ARM or existing CI Image runners, whose candidate image is
 qualified separately. Do not claim these qualifications prove injection, secret
 access, or new image pins: the shadow/canary rollout owns that evidence.

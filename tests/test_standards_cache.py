@@ -13,7 +13,7 @@ from test_ruby_workflows import extract_step
 from test_standards_route import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1] / '.github/workflows'
-INJECTED = (ROOT / 'standards.yml').read_text()
+INJECTED = (ROOT / 'standards.yml').read_text().split('\n  standards-macos:', 1)[0]
 WARMER = (ROOT / 'standards-cache.yml').read_text()
 
 

@@ -47,8 +47,10 @@ Terraform owns the injected ref at `refs/heads/main`.
 **`test-gate.yml` — the injected Test Gate** ([`docs/test-gate.md`](docs/test-gate.md)).
 Before changing its routing, policy reader, Lifecycle execution or JUnit validation,
 read that contract and its Release Check qualification interface. The org ruleset
-requires the workflow identity; repositories keep only exception reasons in
-`.github/standards.toml`. `bootstrap-test-gate.yml` independently tests this source repo.
+requires the workflow identity; the required result stays `test-gate`, aggregating
+`test-gate-linux` and `test-gate-macos`. The macOS job preserves shape-mode coverage
+or runs declared `ci-test-macos` concerns directly. Repositories keep only exception
+reasons in `.github/standards.toml`. `bootstrap-test-gate.yml` independently tests this source repo.
 
 The Copier-era gate workflows (`standards-gates`, `lint-hooks`, `typecheck-ts`, `build`),
 `cloud-setup-smoke`, the `devcontainer-run` project-execution action and the Copier Renovate
@@ -60,6 +62,7 @@ preset are retired (standards v2 flag day, 2026-10-31).
 | Workflow | What it does |
 | --- | --- |
 | `project-route.yml` | Selects native runs-on JSON for project jobs from declared platform/size, RUNNERS and central CI Image admission. Read [`docs/reusable-workflows/project-route.md`](docs/reusable-workflows/project-route.md) before changing routing, adding a caller or skipping image-job bootstrap |
+| `actions/macos-tools` | Bootstrap mise for macOS shape jobs or provision locked tools for a declared macOS leg. Both workflows share its temporary recipe-rename compatibility script; see `docs/test-gate.md` for the cache/environment contract |
 | `standards-cache.yml` | Writes, on the default branch, the weekly workspace-local trivy-database cache the injected `standards` job restores (its pull-request runs cannot share caches); the starter caller runs it on push to `main` and dispatch with `packages: read`. Keys must match `standards.yml`'s (`tests/test_standards_cache.py`) |
 | `release-please.yml` | release-please with the `rubio-release-please` App token; the starter caller runs it when `release-please-config.json` exists. See [`docs/reusable-workflows/release-please.md`](docs/reusable-workflows/release-please.md) |
 | `repository-image.yml` | Builds the repository's `ci` target from its own `Dockerfile` on the Build Service (amd64) and publishes `devcontainer-ci:main`; dev images are never built or published (host-first shape §7). See [`docs/reusable-workflows/repository-image.md`](docs/reusable-workflows/repository-image.md) |

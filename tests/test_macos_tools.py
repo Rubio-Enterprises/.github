@@ -31,25 +31,26 @@ def test_action_contract_and_bootstrap_only_callers():
     assert provision['env']['GITHUB_TOKEN'] == '${{ inputs.token }}'
     assert provision['env']['RUNNERS'] == '${{ inputs.runners }}'
     assert provision['env']['STANDARDS_SOURCE'] == '${{ inputs.standards-source }}'
-    for filename, job, guard, ref, setup_name in (
-        ('standards', 'standards-native', None, 'main', 'Set up native Checks'),
-        ('test-gate', 'test-gate', "steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'",
-         "${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}",
-         'Set up dependencies'),
+    for filename, job, guard, setup_name in (
+        ('standards', 'standards-macos', None, 'Set up native Checks'),
+        ('test-gate', 'test-gate-macos', "steps.policy.outputs.opted-out != 'true'", 'Set up dependencies'),
     ):
         steps = document(ROOT / f'.github/workflows/{filename}.yml')['jobs'][job]['steps']
         checkout = next(s for s in steps if s.get('name') == 'Check out central macOS tools action')
         call = next(s for s in steps if s.get('name') == 'Install mise if missing on macOS')
         remove = next(s for s in steps if s.get('name') == 'Remove central macOS tools checkout')
         assert checkout.get('if') == call.get('if') == remove.get('if') == guard
-        assert checkout['with'] == {
-            'repository': 'Rubio-Enterprises/.github', 'ref': ref,
-            'path': '.cache/central-test-gate', 'persist-credentials': False,
-            'sparse-checkout': 'actions/macos-tools',
-        }
+        assert checkout['with']['repository'] == 'Rubio-Enterprises/.github'
+        assert checkout['with']['persist-credentials'] is False
+        assert 'actions/macos-tools' in checkout['with']['sparse-checkout']
         assert call['uses'] == './.cache/central-test-gate/actions/macos-tools'
-        assert call['with'] == {'provision': 'false'}
-        assert remove['run'] == 'rm -rf .cache/central-test-gate'
+        if filename == 'standards':
+            assert call['with'] == {'provision': 'false'}
+        else:
+            assert call['with']['provision'] == "${{ env.MACOS_CONCERNS != '' && 'true' || 'false' }}"
+            assert 'gate-source' in call['with']['standards-source']
+        assert 'cp .cache/central-test-gate/actions/macos-tools/run-recipe.sh' in remove['run']
+        assert remove['run'].endswith('rm -rf .cache/central-test-gate\n')
         setup = next(s for s in steps if s.get('name') == setup_name)
         assert steps.index(checkout) < steps.index(call) < steps.index(remove) < steps.index(setup)
         assert not any('checksum=' in s.get('run', '') for s in steps)

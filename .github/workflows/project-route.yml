@@ -14,6 +14,12 @@ name: project route (reusable)
       runner:
         description: "JSON runs-on labels"
         value: ${{ jobs.route.outputs.runner }}
+      macos-concerns:
+        description: "Declared macOS concerns in canonical order; empty when none"
+        value: ${{ jobs.route.outputs.macos-concerns }}
+      macos-runner:
+        description: "JSON labels for macOS Test Gate execution"
+        value: ${{ jobs.route.outputs.macos-runner }}
       ci-image:
         description: "true only when project commands will run in the repository's CI Image"
         value: ${{ jobs.route.outputs.ci-image }}
@@ -29,6 +35,8 @@ jobs:
       platform: ${{ steps.route.outputs.platform }}
       runner: ${{ steps.route.outputs.runner }}
       ci-image: ${{ steps.route.outputs.ci-image }}
+      macos-concerns: ${{ steps.route.outputs.macos-concerns }}
+      macos-runner: ${{ steps.route.outputs.macos-runner }}
     steps:
       - id: route
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -53,11 +61,12 @@ jobs:
             }
             let route = process.env.ROUTE;
             const testRoute = route === 'test';
+            let macosConcerns = [];
             let platform = route === 'macos' ? 'macos' : 'linux';
             if (['auto', 'linux', 'test'].includes(route)) {
               let properties = context.payload.repository?.custom_properties;
               if (!properties || !Object.hasOwn(properties, 'ci-platform') || !Object.hasOwn(properties, 'ci-size')
-                  || (testRoute && !Object.hasOwn(properties, 'ci-test-route'))) {
+                  || (testRoute && (!Object.hasOwn(properties, 'ci-test-route') || !Object.hasOwn(properties, 'ci-test-macos')))) {
                 const { data } = await github.request('GET /repos/{owner}/{repo}/properties/values', context.repo);
                 properties = Object.fromEntries(data.map(({ property_name, value }) => [property_name, value]));
               }
@@ -71,7 +80,20 @@ jobs:
                 throw new Error('ci-test-route must be small, medium, docker, arm or macos when set');
               }
               route = override || (route !== 'linux' && platform === 'macos' ? 'macos' : size);
-              if (testRoute) platform = route === 'macos' ? 'macos' : 'linux';
+              if (testRoute) {
+                platform = route === 'macos' ? 'macos' : 'linux';
+                const declared = properties['ci-test-macos'];
+                const order = ['test', 'typecheck', 'e2e', 'package'];
+                if (declared != null && declared !== '') {
+                  if (!Array.isArray(declared) || declared.some(value => !order.includes(value))) {
+                    throw new Error('ci-test-macos must contain only test, typecheck, e2e or package');
+                  }
+                  macosConcerns = order.filter(value => declared.includes(value));
+                }
+                if (macosConcerns.length && platform === 'macos') {
+                  throw new Error('ci-test-macos applies to repositories whose Test Gate runs on Linux');
+                }
+              }
             }
             if (!Object.hasOwn(fallbacks, route)) {
               throw new Error('route must be auto, linux, test, small, medium, docker, kvm, arm or macos');
@@ -102,6 +124,12 @@ jobs:
               else if (runner[0] === `linux-x64-${route}`) runner = runners.docker || ['ubuntu-latest'];
               else if (runner[0] === 'ubuntu-slim') runner = ['ubuntu-latest'];
             }
+            const macosRunner = repository.private === true ? runners.macos || fallbacks.macos : fallbacks.macos;
+            if (!Array.isArray(macosRunner) || !macosRunner.length || macosRunner.some(label => typeof label !== 'string' || !label.trim())) {
+              throw new Error('The macOS RUNNERS route must be a nonempty array of labels');
+            }
+            core.setOutput('macos-concerns', macosConcerns.join(' '));
+            core.setOutput('macos-runner', JSON.stringify(macosRunner));
             core.setOutput('platform', platform);
             core.setOutput('runner', JSON.stringify(runner));
             core.setOutput('ci-image', String(image));
