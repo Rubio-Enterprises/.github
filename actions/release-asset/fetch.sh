@@ -9,7 +9,7 @@ trap 'rm -rf "$work"' EXIT
 request() {
   local status
   if ! status=$(printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
-    curl --config - --proto '=https' --proto-redir '=https' --tlsv1.2 --silent --show-error \
+    curl --disable --config - --proto '=https' --proto-redir '=https' --tlsv1.2 --silent --show-error \
       --location --header "Accept: $1" --output "$3" --write-out '%{http_code}' "$2"); then
     echo "Release API request failed for organization ${repo%%/*}" >&2
     return 1

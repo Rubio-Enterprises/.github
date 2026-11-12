@@ -258,6 +258,19 @@ def test_every_non_200_response_fails_without_retry(release_fixture, status):
     assert len(state['requests']) == 1
 
 
+def test_user_curl_config_cannot_enable_credential_forwarding_or_retries(release_fixture, tmp_path):
+    _, _, state, env, _ = release_fixture
+    curl_home = tmp_path / 'curl-home'
+    curl_home.mkdir()
+    (curl_home / '.curlrc').write_text('location-trusted\nretry = 3\n')
+    env['CURL_HOME'] = str(curl_home)
+    result = run_installer(release_fixture, 'just')
+    assert result.returncode == 0, result.stderr
+    assert len(state['requests']) == 3
+    assert state['requests'][-1][0] == 'release-assets.githubusercontent.com'
+    assert state['requests'][-1][2] is None
+
+
 def test_binary_200_without_a_redirect_is_verified(release_fixture):
     _, _, state, _, _ = release_fixture
     state['redirect'] = False
