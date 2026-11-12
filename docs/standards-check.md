@@ -2,7 +2,8 @@
 
 The OpenTofu-owned `standards` ruleset injects `.github/workflows/standards.yml`
 at `refs/heads/main` into repositories with `standards-onboarded=true`.
-The required check remains `standards`; `test-gate` remains repository-owned.
+The required check remains `standards`; the separately injected Test Gate keeps
+its required `test-gate` result.
 
 ## Execution
 
@@ -37,6 +38,75 @@ context per leg; no ruleset change is needed.
 Checkout uses full history and no persisted credential. PR Checks still run when
 whole-tree Checks fail, so one failure does not hide another. Fixer rewrites are
 summarized on failure. `.github` itself is a bootstrap repository and is skipped.
+
+## Default-branch verification
+
+The existing repository-owned publisher calls the central image and cache reusables.
+Their `verify` jobs select pushes and `workflow_dispatch` on the repository's actual
+default branch, including `master`. They exclude this non-onboarded source repository.
+Private repositories verify after successful image publication, unless `image-name`
+is set. Public repositories verify through `standards-cache.yml`, independently of
+cache warming. No repository-owned file or required-check setting changes.
+
+Both call `default-branch-check.yml`, a read-only, workflow_call-only reusable with
+no event/ref guard or qualification inputs. It always executes whole-tree Checks:
+`standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
+the native Standards leg for `ci-platform=macos`. Admission and the shared router,
+not visibility alone, select image execution. Hosted builds use the same disk
+preparation and container-visible trivy context as PR checks. No `check-pr` or
+pull-request metadata is used. The PR execution path is unchanged; contract tests
+compare the duplicated whole-tree steps to it to prevent drift.
+
+The fail-closed aggregate is `standards-main`. The parallel `test-gate-main` call
+uses the production [Test Gate](test-gate.md) with no inputs or inherited secrets.
+Its Linux/macOS jobs and aggregate retain their normal names; caller prefixes are
+part of each check-run name. Audit names by `standards-main` and `test-gate-main`,
+not by assuming flat contexts. These additional results are not required checks.
+
+Every selected push and dispatch executes the checks. There is no PR-evidence
+lookup or reuse in this version. A failure is a failed run only: no retry,
+notification, issue, label or merge block. Publication failure leaves verification
+unrun, not passing. The publisher's existing concurrency group remains held until
+verification finishes. GitHub may replace pending runs during a burst; the contract
+is verification of the latest head, not every intermediate commit.
+
+Verification requests only `contents: read` and `packages: read`. The automatic
+job token covers checkout and package access; it needs no reader-App secret,
+OIDC or write permission. An explicit direct call can exercise these same checks
+on a non-default branch without changing production trigger policy in the callers.
+
+Default-branch macOS Standards jobs restore and save the same mise download-store
+path and key as PR jobs. A default-branch save is visible to PRs, unlike PR-scoped
+saves. Repository setup must use the shared CI cache location described in
+[Test Gate's cache contract](test-gate.md); legacy checkout-local helpers cannot
+populate that store just because the workflow contains a save step.
+
+### Pre-merge canary evidence
+
+The read-only reusable passed direct branch calls in
+[private org-ops](https://github.com/Rubio-Enterprises/org-ops/actions/runs/43192815621),
+[public rubio-cli-kit](https://github.com/Rubio-Enterprises/rubio-cli-kit/actions/runs/43192823362)
+and [native SaneBar](https://github.com/Rubio-Enterprises/SaneBar/actions/runs/43192812689).
+Observed aggregate check-run names were `execution / standards-main` and
+`execution / test-gate-main / test-gate`. Linux execution jobs were
+`execution / standards-linux` and `execution / test-gate-main / test-gate-linux`;
+SaneBar also ran `execution / standards-macos` and used
+`execution / test-gate-main / test-gate-macos` instead of the Linux Test Gate leg.
+`execution` is the temporary direct caller's job ID, not the publisher's prefix.
+The exact post-merge publisher-prefixed names must be read from its first dispatch.
+
+The private/public runs also loaded the candidate publishers with the starter's
+exact permissions and no inherited secrets. Their `verify` jobs and private build
+skipped off-default, while direct execution used the current org-ops CI Image or
+hosted Linux respectively. Only the two new nested reusable references were
+redirected to the temporary candidate ref for load testing; guards and permissions
+were unchanged. These runs prove load compatibility and execution, not newly
+published image freshness or default-branch cache visibility.
+
+SaneBar's native setup and Checks passed, but the cache save warned that the shared
+download path did not exist. Its legacy setup uses a checkout-local cache. The
+workflow's restore/save layout matches PRs; successful content population and
+cross-PR visibility remain unproven until the shared macOS environment is deployed.
 
 ## Caches and environment
 

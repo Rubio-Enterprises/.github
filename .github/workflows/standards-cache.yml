@@ -8,6 +8,16 @@ concurrency:
   group: standards-cache-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  verify:
+    if: >-
+      github.repository != 'Rubio-Enterprises/.github' &&
+      contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      github.event.repository.private == false
+    permissions:
+      contents: read
+      packages: read
+    uses: Rubio-Enterprises/.github/.github/workflows/default-branch-check.yml@main
   route:
     uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
     with:

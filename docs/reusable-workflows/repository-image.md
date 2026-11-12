@@ -16,6 +16,27 @@ Builds run on default-branch push, schedule or dispatch. There is no commit-tag
 skip: a base update must rebuild an unchanged repository. Caller `standards.yml`
 must invoke this reusable on `workflow_dispatch`, not just pushes.
 
+## Default-branch verification
+
+After `build` succeeds, the `verify` job calls `default-branch-check.yml` with only
+`contents: read` and `packages: read`, and no inherited secrets. It does not wait
+for `prune`. Its caller guard requires a push or workflow dispatch on the actual
+default branch, excludes the non-onboarded `.github` source repository, and requires
+an empty `image-name` input. Scheduled and scratch-name builds do not verify.
+A failed publication cannot produce passing verification.
+
+The shared router selects image or fallback execution. Admitted image jobs start
+after publication so the runner can pull the newly published `devcontainer-ci:main`.
+Ordering is contract-tested; deployed pull freshness must be checked by comparing
+the publication record and runner evidence in a real default-branch dispatch.
+Pre-merge branch execution in the current image does not establish this link.
+
+Public repositories publish no runner image and receive verification from the
+cache reusable instead. See [Default-branch verification](../standards-check.md#default-branch-verification)
+for result names, execution, permissions and concurrency. The extra jobs hold the
+existing publisher concurrency group longer. A red verification is a failed run
+only, with no retries or issue automation.
+
 ## Build and publication
 
 The shared `build-service` action supplies pinned client tools and the per-job
