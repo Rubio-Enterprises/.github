@@ -78,6 +78,7 @@ esac
     env = {**os.environ, 'PATH': str(bin_dir), 'RUNNER_TEMP': str(runner), 'REF': REF,
            'DOCKER_CONFIG': str(credentials), 'ORIGINAL_DOCKER_CONFIG': str(credentials), 'ARCHIVE': str(archive),
            'GH_TOKEN': 'fixture-job-token', 'GITHUB_ACTOR': 'fixture-actor',
+           'GITHUB_STEP_SUMMARY': str(tmp_path / 'step-summary'),
            'TEST_ARCH': 'x86_64', 'TRIVY_SKIP_DB_UPDATE': 'true', 'TRIVY_CACHE_DIR': str(tmp_path / 'database')}
     env.pop('TRIVY_BIN', None)
     yield source, env, bin_dir, archive
@@ -109,6 +110,7 @@ def test_both_consumers_extract_the_native_binary_and_keep_scan_environment(imag
         assert not Path(env['RUNNER_TEMP'], 'ci-scan').exists()
     else:
         assert '--scanners vuln' in scans[1]
+        assert '## Vulnerability report' in Path(env['GITHUB_STEP_SUMMARY']).read_text()
 
 
 @pytest.mark.parametrize('consumer', ['ci', 'app'])
