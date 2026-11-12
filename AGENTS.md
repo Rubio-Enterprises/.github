@@ -180,6 +180,12 @@ release for this repository. Recover regressions through reviewed reverts.
   entries before update classification; the explicit replacement always writes
   `version = "<sha>"  # <tag>`.
 
+  **Mise lock sidecars** (`**/.mise/locks/**`) are generated outputs, not independent
+  manager inputs. Their pins still update through `image/mise.toml`, and Renovate
+  commits the regenerated sidecars with `image/mise.lock`. Keep mise lock maintenance
+  on. `ignorePaths` replaces the inherited list, so preserve the module/test defaults
+  alongside the sidecar glob when editing it.
+
   **Dockerfile `ARG`/`ENV` `…_VERSION` pins** ride the shipped `customManagers:dockerfileVersions`
   preset (in `extends`) rather than a hand-rolled regex, because the built-in `dockerfile` manager
   reads only `FROM` lines.

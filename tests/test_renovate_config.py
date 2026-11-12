@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -309,6 +309,45 @@ class RenovateConfigContractTests(unittest.TestCase):
                     "updateType": "minor",
                 })
                 self.assertTrue(resolved["automerge"])
+
+    def test_generated_sidecars_are_not_independent_manager_inputs(self) -> None:
+        # ignorePaths replaces the inherited list from :ignoreModulesAndTests.
+        self.assertEqual(CONFIG.get("ignorePaths"), [
+            "**/node_modules/**", "**/bower_components/**", "**/vendor/**",
+            "**/examples/**", "**/__tests__/**", "**/test/**", "**/tests/**",
+            "**/__fixtures__/**", "**/.mise/locks/**",
+        ])
+        for path in (
+            "image/.mise/locks/pipx-pytest/9.2.0/pyproject.toml",
+            "image/.mise/locks/pipx-pytest/9.2.0/uv.lock",
+            "image/.mise/locks/npm-likec4/1.60.0/package.json",
+            "mise/.mise/locks/npm-commitlint-cli/21.2.2/package.json",
+            ".mise/locks/npm-playwright/1.65.0/aube-lock.yaml",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(any(PurePosixPath(path).full_match(pattern)
+                                    for pattern in CONFIG["ignorePaths"]))
+        for path in ("pyproject.toml", "uv.lock", "package.json", "image/mise.toml",
+                     "image/mise.lock", "src/package.json"):
+            with self.subTest(path=path):
+                self.assertFalse(any(PurePosixPath(path).full_match(pattern)
+                                     for pattern in CONFIG["ignorePaths"]))
+
+    def test_sidecar_pins_and_mise_maintenance_keep_their_update_path(self) -> None:
+        self.assertTrue(CONFIG.get("mise", {}).get("enabled", True))
+        self.assertTrue(CONFIG.get("lockFileMaintenance", {}).get("enabled", True))
+        self.assertTrue(CONFIG["mise"].get("lockFileMaintenance", {}).get("enabled", True))
+        for name, version in (("pipx:pytest", "9.1.1"), ("npm:likec4", "1.59.4")):
+            for update in ("minor", "patch", "lockFileMaintenance"):
+                with self.subTest(name=name, update=update):
+                    resolved = _resolve_dependency({
+                        "manager": "mise", "depName": name, "packageName": name,
+                        "fileName": "image/mise.toml", "currentVersion": version,
+                        "updateType": update,
+                    })
+                    self.assertTrue(resolved.get("enabled", True))
+                    self.assertFalse(resolved["automerge"])
+                    self.assertFalse(resolved["platformAutomerge"])
 
     def test_image_mise_updates_remain_enabled_but_require_human_merge(self) -> None:
         for name, version in (

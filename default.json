@@ -7,6 +7,17 @@
     "helpers:pinGitHubActionDigests",
     "customManagers:dockerfileVersions"
   ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/tests/**",
+    "**/__fixtures__/**",
+    "**/.mise/locks/**"
+  ],
   "timezone": "America/Chicago",
   "dependencyDashboard": false,
   "commitHourlyLimit": 1,
