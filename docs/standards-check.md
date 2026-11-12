@@ -23,10 +23,13 @@ Non-image changes keep the CI Image. Public repositories already build through
 Compose; macOS shapes retain both existing legs. The path list, API limits and
 post-merge canary are in [project routing](reusable-workflows/project-route.md#pull-request-image-inputs).
 
-- **CI Image:** calls `standards check`, then `standards check-pr`. There is no
-  standards installation, toolchain bootstrap or Docker daemon inside the job.
+- **CI Image:** installs checkout dependencies with `bin/setup.sh`, the same
+  dependency-only interface as the Test Gate, then calls `standards check` and
+  `standards check-pr`. Both Standards workflows share `actions/setup-check-dependencies`.
+  Setup failure fails its own step before either Check runs. There is no hook
+  installation, standards installation, toolchain bootstrap or Docker daemon inside the job.
 - **Hosted/non-image Linux:** installs the checksum-pinned `just` release, logs
-  into GHCR with the job token, then runs `just build`, `just check`, `just check-pr`.
+  into GHCR with the job token, then runs `just build`, `just setup`, `just check`, `just check-pr`.
   For macOS repositories only, the whole-tree command is `just exec standards check`
   so the native repository's combined `just check` does not invoke SwiftLint on Linux.
 - **Native macOS:** only for `ci-platform=macos`, a parallel `standards-macos` job
@@ -60,7 +63,7 @@ cache warming. No repository-owned file or required-check setting changes.
 
 Both call `default-branch-check.yml`, a read-only, workflow_call-only reusable with
 no event/ref guard or qualification inputs. It always executes whole-tree Checks:
-`standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
+`bin/setup.sh` then `standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
 the native Standards leg for `ci-platform=macos`. Admission and the shared router,
 not visibility alone, select image execution. Hosted builds use the same disk
 preparation and container-visible trivy context as PR checks. No `check-pr` or
@@ -127,6 +130,21 @@ visible at the same host path inside Compose. The PR conventions' npm packages
 are baked into the image, so there is no npm cache to warm, and nothing writes
 to `/opt/standards`, which the workspace-owner remap leaves read-only. A restored trivy database younger than eight days disables DB updates.
 This accepts advisory lag until the next weekly cache refresh.
+
+The dependency action overrides `XDG_CACHE_HOME` only for `bin/setup.sh`, using
+`runner.temp/check-dependencies` outside the checkout. Bun, pip and Go's build
+cache honor XDG; they must not populate the workspace cache that whole-tree
+scanners read. The Test Gate has no workspace XDG override. The CI Image's explicit
+`UV_CACHE_DIR`, `npm_config_cache`, `pnpm_config_store_dir`, `CARGO_HOME` and
+`GOMODCACHE` still select its warmed `/home/vscode/.cache/` paths. These are private
+to the ephemeral runner container, not shared runner-host directories. Local
+Compose instead mounts its declared download-cache volumes at those paths.
+
+Do not move the job-level XDG or Trivy paths: the database restore and hosted
+context below need the workspace mount. Do not exclude download caches from
+Checks instead. Lefthook's all-files mode selects tracked files; Trivy's existing
+recursive `node_modules`, `.venv` and `.mise/locks` skips cover installed packages
+and their nested lockfiles, just as after local `just setup`.
 
 Compose passes `CI`, `BASE_SHA`, `HEAD_SHA`, `PR_TITLE`, `GH_TOKEN`, `GITHUB_TOKEN`,
 `XDG_CACHE_HOME`, `TRIVY_CACHE_DIR`, `TRIVY_SKIP_DB_UPDATE` and GitHub event/run

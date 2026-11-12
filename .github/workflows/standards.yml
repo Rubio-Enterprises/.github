@@ -89,6 +89,10 @@ jobs:
           echo "trivy vulnerability database: restored, $days day(s) old"
           if [ "$days" -lt 8 ]; then echo "TRIVY_SKIP_DB_UPDATE=true" >>"$GITHUB_ENV"; fi
 
+      - name: Set up dependencies (CI Image)
+        if: needs.route.outputs.ci-image == 'true'
+        uses: Rubio-Enterprises/.github/actions/setup-check-dependencies@main
+
       - id: check-ci
         name: Every Check on every file (CI Image)
         if: needs.route.outputs.ci-image == 'true'

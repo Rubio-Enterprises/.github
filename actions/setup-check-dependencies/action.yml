@@ -1,7 +1,11 @@
 name: Set up Check dependencies
-description: Pass-through kept so runs created before the revert in #557 can still load this path. Does nothing.
+description: Install the checkout's dependencies through the same interface as the CI-image Test Gate.
 runs:
   using: composite
   steps:
     - shell: bash
-      run: 'true'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NODE_AUTH_TOKEN: ${{ github.token }}
+        XDG_CACHE_HOME: ${{ runner.temp }}/check-dependencies
+      run: bin/setup.sh
