@@ -56,8 +56,10 @@ def test_central_checkouts_do_not_overlap_repository_execution():
     setup = next(i for i, s in enumerate(steps) if s.get('name') == 'Set up dependencies')
     lifecycle = next(i for i, s in enumerate(steps) if s.get('id') == 'lifecycle')
     checkouts = [s for s in steps if s.get('with', {}).get('repository') == 'Rubio-Enterprises/.github']
-    assert len(checkouts) == 2
-    early, junit = checkouts
+    assert len(checkouts) == 3
+    early, macos, junit = checkouts
+    assert macos['with']['sparse-checkout'] == 'actions/macos-tools'
+    assert steps.index(early) < steps.index(macos) < setup
     prepare = next(s for s in steps if s.get('name') == 'Prepare hosted Docker disk')
     remove = next(s for s in steps if s.get('name') == 'Remove central Docker preparation checkout')
     assert early['if'] == prepare['if'] == remove['if']
