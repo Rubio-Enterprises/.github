@@ -1,0 +1,13 @@
+{
+  "just-Linux-X64": {"repo": "casey/just", "tag": "1.59.0", "sha256": "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e", "asset": "just-{version}-x86_64-unknown-linux-musl.tar.gz", "member": "just"},
+  "just-Linux-ARM64": {"repo": "casey/just", "tag": "1.59.0", "sha256": "23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d", "asset": "just-{version}-aarch64-unknown-linux-musl.tar.gz", "member": "just"},
+  "just-macOS-X64": {"repo": "casey/just", "tag": "1.59.0", "sha256": "036ead9df9bc31dbae9934ae3b4236ed124d0bafcffd33439460ae084d5c9cb7", "asset": "just-{version}-x86_64-apple-darwin.tar.gz", "member": "just"},
+  "just-macOS-ARM64": {"repo": "casey/just", "tag": "1.59.0", "sha256": "6574cea774ed4cae12e24b6aa11857de33e80dab4667cf628fd5840df96a2a9d", "asset": "just-{version}-aarch64-apple-darwin.tar.gz", "member": "just"},
+  "mise-macOS-ARM64": {"repo": "jdx/mise", "tag": "v2026.11.1", "sha256": "e1eaf20469e586f65849256a0be6a58dd7a3e93ae8db68bc74dd7af5ca0fe7f6", "asset": "mise-v{version}-macos-arm64.tar.gz", "member": "mise/bin/mise"},
+  "trufflehog-Linux-X64": {"repo": "trufflesecurity/trufflehog", "tag": "v3.95.5", "sha256": "8d151a19465973bec226be5992a2a11b053f4ab92c77861f642089892ae9aa58", "asset": "trufflehog_{version}_linux_amd64.tar.gz", "member": "trufflehog"},
+  "trufflehog-Linux-ARM64": {"repo": "trufflesecurity/trufflehog", "tag": "v3.95.5", "sha256": "bb876c4e5a84fa4fdbda4fc24143ed2d12eac32cfd3f7e41c79cbd7d33607b4a", "asset": "trufflehog_{version}_linux_arm64.tar.gz", "member": "trufflehog"},
+  "trufflehog-macOS-X64": {"repo": "trufflesecurity/trufflehog", "tag": "v3.95.5", "sha256": "8091a92ad3ef6c46244f5b6b9683c72296381d77f63e8a979e913d8d58df595d", "asset": "trufflehog_{version}_darwin_amd64.tar.gz", "member": "trufflehog"},
+  "trufflehog-macOS-ARM64": {"repo": "trufflesecurity/trufflehog", "tag": "v3.95.5", "sha256": "0a08b46f63d48ccb894689b68b5e7b91ac5efa09b9684a3457d388456887c213", "asset": "trufflehog_{version}_darwin_arm64.tar.gz", "member": "trufflehog"},
+  "crane-Linux-X64": {"repo": "google/go-containerregistry", "tag": "v0.22.1", "sha256": "0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0", "asset": "go-containerregistry_Linux_x86_64.tar.gz", "member": "crane"},
+  "docker-buildx-Linux-X64": {"repo": "docker/buildx", "tag": "v0.38.1", "sha256": "e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4", "asset": "buildx-v{version}.linux-amd64"}
+}

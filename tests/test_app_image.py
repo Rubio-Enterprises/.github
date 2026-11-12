@@ -590,12 +590,14 @@ class Structure(Workspace):
         (state / "digest").write_text(DIGEST + "\n")
         (state / "staging.ref").write_text(f"{STAGING}/example:run-123-2-candidate\n")
         self.env.update(SERVER="true", TRIVY_BIN=str(self.bin / "trivy"), CONFIG=image_config(), SECRETS="{}", VULNERABILITIES="{}")
+        self.stub("uname", 'case "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
         self.stub("crane", '''printf '%s\\n' "$*" >> "$RUNNER_TEMP/crane-calls"
 [[ "$1" = config ]] || exit 99
 printf '%s' "$CONFIG"
 ''')
         # Trivy writes the report a scan asked for: the secret scan and the vulnerability scan are separate calls
-        self.stub("trivy", '''printf '%s|%s\\n' "$PWD" "$*" >> "$RUNNER_TEMP/trivy-calls"
+        self.stub("trivy", '''if [[ "$1" == --version ]]; then echo "Version: 0.76.1"; exit 0; fi
+printf '%s|%s\\n' "$PWD" "$*" >> "$RUNNER_TEMP/trivy-calls"
 args=("$@"); out=""; scanner=""
 for ((i = 0; i < ${#args[@]}; i++)); do
   case "${args[i]}" in --output) out="${args[i + 1]}" ;; --scanners) scanner="${args[i + 1]}" ;; esac

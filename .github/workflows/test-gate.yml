@@ -403,6 +403,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             actions/macos-tools
+            actions/release-asset
             actions/junit-gate
       - name: Restore macOS tool downloads
         id: macos-downloads

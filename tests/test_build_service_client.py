@@ -315,6 +315,7 @@ class Tools(Workspace):
             {"name": "crane", "url": "https://example.invalid/crane.tgz", "member": "crane"},
         ]
         for tool in tools:
+            tool["version"] = "1.2.3"
             body = assets[tool["url"]]
             tool["sha256"] = (pins or {}).get(tool["name"], hashlib.sha256(body).hexdigest())
         responses = {url: base64.b64encode(body).decode() for url, body in assets.items()}
@@ -369,7 +370,8 @@ class Tools(Workspace):
                 (Path(clean) / name).symlink_to(shutil.which(name))
             for name in ("docker", "crane"):
                 tool = Path(clean) / name
-                tool.write_text("#!/bin/sh\nexit 0\n")
+                output = 'if [ "$1" = buildx ]; then echo "github.com/docker/buildx v1.2.3 abc"; else echo "Docker version 1.2.3, build abc"; fi' if name == "docker" else 'echo "1.2.3"'
+                tool.write_text("#!/bin/sh\n" + output + "\n")
                 tool.chmod(0o755)
             # A docker whose buildx works needs no plugin; the pins are deliberately wrong to prove no download is verified
             result = self.run_install(self.assets(), pins={name: "0" * 64 for name in ("docker", "docker-buildx", "crane")}, path=clean)
@@ -388,5 +390,9 @@ class Tools(Workspace):
         self.assertEqual([tool["name"] for tool in tools], ["docker", "docker-buildx", "crane"])
         for tool in tools:
             self.assertRegex(tool["sha256"], r"^[a-f0-9]{64}$")
-            self.assertRegex(tool["url"], r"^https://(download\.docker\.com|github\.com)/")
-            self.assertNotIn("latest", tool["url"])
+            if tool.get("repo"):
+                self.assertNotIn("latest", tool["tag"])
+                self.assertNotIn("url", tool)
+            else:
+                self.assertRegex(tool["url"], r"^https://download\.docker\.com/")
+                self.assertNotIn("latest", tool["url"])
