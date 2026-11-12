@@ -81,6 +81,33 @@ saves. Repository setup must use the shared CI cache location described in
 [Test Gate's cache contract](test-gate.md); legacy checkout-local helpers cannot
 populate that store just because the workflow contains a save step.
 
+### Pre-merge canary evidence
+
+The read-only reusable passed direct branch calls in
+[private org-ops](https://github.com/Rubio-Enterprises/org-ops/actions/runs/43192815621),
+[public rubio-cli-kit](https://github.com/Rubio-Enterprises/rubio-cli-kit/actions/runs/43192823362)
+and [native SaneBar](https://github.com/Rubio-Enterprises/SaneBar/actions/runs/43192812689).
+Observed aggregate check-run names were `execution / standards-main` and
+`execution / test-gate-main / test-gate`. Linux execution jobs were
+`execution / standards-linux` and `execution / test-gate-main / test-gate-linux`;
+SaneBar also ran `execution / standards-macos` and used
+`execution / test-gate-main / test-gate-macos` instead of the Linux Test Gate leg.
+`execution` is the temporary direct caller's job ID, not the publisher's prefix.
+The exact post-merge publisher-prefixed names must be read from its first dispatch.
+
+The private/public runs also loaded the candidate publishers with the starter's
+exact permissions and no inherited secrets. Their `verify` jobs and private build
+skipped off-default, while direct execution used the current org-ops CI Image or
+hosted Linux respectively. Only the two new nested reusable references were
+redirected to the temporary candidate ref for load testing; guards and permissions
+were unchanged. These runs prove load compatibility and execution, not newly
+published image freshness or default-branch cache visibility.
+
+SaneBar's native setup and Checks passed, but the cache save warned that the shared
+download path did not exist. Its legacy setup uses a checkout-local cache. The
+workflow's restore/save layout matches PRs; successful content population and
+cross-PR visibility remain unproven until the shared macOS environment is deployed.
+
 ## Caches and environment
 
 `standards-cache.yml` writes the weekly `standards-trivy-db-<OS>-<ISO week>` entry
