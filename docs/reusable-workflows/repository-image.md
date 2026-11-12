@@ -70,8 +70,13 @@ older receiver loops. A registry recheck before each repository also stops an
 obsolete loop if publication precedes delivery of the newer event.
 
 The receiver reads the playbook's admission inventory, waits for cancelled
-receivers to finish uploading their attribution artifacts, then reconciles each
-unique repository on its actual default branch:
+receivers to finish uploading their attribution artifacts, then checks live
+repository metadata. Public, archived and disabled repositories are skipped with
+a `::notice::` naming the repository and reason, not counted as failures. They
+receive no cancellation, dispatch or ledger entry. Metadata lookup errors,
+including HTTP 403/404, remain failures, as do dispatch and attribution errors.
+The receiver reconciles each actionable private repository on its actual default
+branch:
 
 1. Read recorded fleet run IDs from earlier `fleet-dispatches` artifacts. Cancel
    active different-base runs only after verifying repository, default branch,

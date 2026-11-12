@@ -14,11 +14,14 @@ const ledger = (digest = OLD, runId = 101) => ({ version: 1, baseDigest: digest,
 const run = (overrides = {}) => ({ id: 101, status: 'queued', event: 'workflow_dispatch', head_branch: 'master', path: '.github/workflows/standards.yml',
   repository: { full_name: REPO }, actor: { login: ACTOR }, triggering_actor: { login: ACTOR }, ...overrides });
 
-function harness({ current = false, active = run(), supportsInput = false, cancelError, dispatchError, registryError = false } = {}) {
+function harness({ current = false, active = run(), supportsInput = false, cancelError, dispatchError, registryError = false, repo = {}, repoError } = {}) {
   const calls = [], logs = [];
   const github = { async api(endpoint, body) {
     calls.push({ endpoint, body });
-    if (endpoint === `repos/${REPO}`) return { private: true, default_branch: 'master' };
+    if (endpoint === `repos/${REPO}`) {
+      if (repoError) throw new Error(`GitHub ${repoError}: ${endpoint}`, { cause: repoError });
+      return { private: true, default_branch: 'master', ...repo };
+    }
     if (endpoint.endsWith('/cancel')) {
       if (cancelError) throw new Error('cancel failed', { cause: cancelError });
       active = { ...active, status: 'completed' }; return {};
@@ -68,6 +71,21 @@ for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested'
   const dispatch = h.calls.findIndex(row => row.endpoint.endsWith('/dispatches'));
   assert.ok(cancel >= 0 && cancel < dispatch);
   assert.deepEqual(h.calls[dispatch].body, { ref: 'master', return_run_details: true });
+});
+
+const ineligible = [
+  { reason: 'public', repo: { private: false } },
+  { reason: 'archived', repo: { private: true, archived: true } },
+  { reason: 'disabled', repo: { private: true, disabled: true } },
+];
+
+for (const { reason, repo } of ineligible) test(`skips ${reason} repository before cancelling or dispatching`, async () => {
+  const h = harness({ repo });
+  assert.equal(await reconcile(h.options), null);
+  assert.deepEqual(h.calls, [{ endpoint: `repos/${REPO}`, body: undefined }]);
+  assert.equal(h.logs.length, 1);
+  assert.ok(h.logs[0].startsWith(`::notice::Skip ${REPO}: `));
+  assert.ok(h.logs[0].includes(reason));
 });
 
 test('sends base-digest only to a caller that declares the input', async () => {
@@ -188,17 +206,17 @@ test('registry resolves amd64 child, not index or arm64; checks label and config
   assert.ok(calls.includes(`blobs/${OLD}`));
 });
 
-async function fleetHarness(t, { requested = '', move = false, failFirst = false } = {}) {
+async function fleetHarness(t, { requested = '', move = false, failFirst = false, entries = [REPO, REPO], ...repoOptions } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fleet-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const h = harness(); const api = h.options.github.api; let registryReads = 0;
+  const h = harness(repoOptions); const api = h.options.github.api; let registryReads = 0;
   const previous = { id: 50, created_at: '2026-01-01', status: 'in_progress', event: 'repository_dispatch' };
   const order = [];
   h.options.github.api = async (endpoint, body) => {
     order.push(endpoint);
     if (endpoint === `repos/${SOURCE}/actions/runs/100`) return { created_at: '2026-01-02' };
     if (endpoint === `repos/${SOURCE}/actions/runs/50`) return { ...previous, status: 'completed' };
-    if (endpoint.includes('/mac-dev-playbook/contents/')) return { content: Buffer.from(JSON.stringify({ entries: [{ repository: REPO }, { repository: REPO }] })).toString('base64') };
+    if (endpoint.includes('/mac-dev-playbook/contents/')) return { content: Buffer.from(JSON.stringify({ entries: entries.map(repository => ({ repository })) })).toString('base64') };
     if (failFirst && endpoint === `repos/${REPO}`) throw new Error('isolated repo failure');
     return api(endpoint, body);
   };
@@ -217,6 +235,50 @@ test('fleet waits for cancelled receiver artifact, persists exact IDs atomically
   assert.ok(h.order.indexOf(`repos/${SOURCE}/actions/runs/50`) < h.order.indexOf('ledger:50'));
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.directory, 'fleet-dispatches.json'))), ledger(DIGEST, 202));
   assert.deepEqual(h.sleeps, [15000]);
+});
+
+test('mixed inventory succeeds and records only actionable private dispatches', async t => {
+  const skipped = new Map(ineligible.map(({ reason, repo }) => [`${REPO}-${reason}`, { reason, repo }]));
+  const h = await fleetHarness(t, { entries: [REPO, ...skipped.keys()] });
+  const api = h.options.github.api;
+  h.options.github.api = async (endpoint, body) => {
+    const entry = skipped.get(endpoint.replace(/^repos\//, ''));
+    if (entry) return entry.repo;
+    return api(endpoint, body);
+  };
+  await fleet(h.options);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.directory, 'fleet-dispatches.json'))), ledger(DIGEST, 202));
+  for (const [repository, { reason }] of skipped) {
+    assert.ok(h.logs.some(text => text.startsWith(`::notice::Skip ${repository}: `) && text.includes(reason)));
+    assert.ok(!h.calls.some(row => row.endpoint.startsWith(`repos/${repository}/`)));
+  }
+  assert.equal(h.calls.filter(row => row.endpoint.endsWith('/dispatches')).length, 1);
+  assert.ok(!h.logs.some(text => text.startsWith('::error::')));
+});
+
+for (const status of [403, 404]) test(`unreadable repository metadata (${status}) still fails the fleet`, async t => {
+  const h = await fleetHarness(t, { repoError: status });
+  await assert.rejects(fleet(h.options), /Failed repositories: 1/);
+  assert.ok(h.logs.some(text => text.startsWith(`::error::${REPO}: GitHub ${status}`)));
+  assert.ok(!h.logs.some(text => text.startsWith('::notice::Skip')));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.directory, 'fleet-dispatches.json'))).dispatches, []);
+  assert.ok(!h.calls.some(row => row.body));
+});
+
+test('failed private dispatch still fails the fleet without recording a run', async t => {
+  const h = await fleetHarness(t, { dispatchError: true });
+  await assert.rejects(fleet(h.options), /Failed repositories: 1/);
+  assert.ok(h.calls.some(row => row.endpoint.endsWith('/dispatches')));
+  assert.ok(h.logs.some(text => text === `::error::${REPO}: dispatch failed`));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.directory, 'fleet-dispatches.json'))).dispatches, []);
+});
+
+test('failed attribution still fails the fleet before cancelling or dispatching', async t => {
+  const h = await fleetHarness(t, { active: run({ actor: { login: 'owner' } }) });
+  await assert.rejects(fleet(h.options), /Failed repositories: 1/);
+  assert.ok(h.logs.some(text => text.includes('failed attribution')));
+  assert.ok(!h.calls.some(row => row.body));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.directory, 'fleet-dispatches.json'))).dispatches, []);
 });
 
 test('superseded payload does nothing and payload injection is rejected', async t => {
