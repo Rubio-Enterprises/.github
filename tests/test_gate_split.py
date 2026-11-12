@@ -86,7 +86,7 @@ def test_macos_lifecycle_modes(tmp_path, selected, expected):
                                MACOS_CONCERNS=selected, PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
     assert result.returncode == 0, result.stderr
     assert (tmp_path / 'ran').read_text().splitlines() == expected
-    concerns = output.removeprefix('concerns=').strip()
+    concerns = dict(line.split('=', 1) for line in output.splitlines())['concerns'].strip()
     assert concerns.split() == [name for name in ('test', 'e2e') if name in expected]
     assert junit(tmp_path, concerns=concerns).returncode == 0
 
@@ -106,7 +106,7 @@ def test_declared_macos_concern_cannot_be_skipped(tmp_path, bad):
     result, output = run_shell('Run Lifecycle Scripts', tmp_path, job=MACOS, MACOS_CONCERNS='test')
     assert result.returncode != 0
     assert '::error::macOS concern test requires executable' in result.stdout
-    assert output.strip() == 'concerns= test'
+    assert dict(line.split('=', 1) for line in output.splitlines()) == {'concerns': ' test', 'artifact-concerns': 'test'}
 
 
 @pytest.mark.parametrize('selected', ['', 'test'])
@@ -133,7 +133,7 @@ def test_macos_script_failure_and_shape_absence(tmp_path, selected):
     if not selected:
         result, output = run_shell('Run Lifecycle Scripts', tmp_path, job=MACOS, MACOS_CONCERNS='')
         assert result.returncode == 0
-        assert output.strip() == 'concerns='
+        assert dict(line.split('=', 1) for line in output.splitlines()) == {'concerns': '', 'artifact-concerns': 'none'}
 
 
 @pytest.mark.parametrize('selected', ['', 'test e2e'])

@@ -63,7 +63,7 @@ def test_central_checkouts_do_not_overlap_repository_execution():
     assert early['if'] == prepare['if'] == remove['if']
     assert early['with']['path'] == junit['with']['path'] == '.cache/central-test-gate'
     assert steps.index(early) < steps.index(prepare) < steps.index(remove) < setup < lifecycle < steps.index(junit)
-    assert junit['with']['sparse-checkout'] == 'actions/junit-gate'
+    assert junit['with']['sparse-checkout'].splitlines() == ['actions/junit-gate', 'actions/gate-artifacts']
     evidence = next(s for s in steps if s.get('name') == 'Require JUnit evidence')
     assert junit['if'] == evidence['if']
     assert steps.index(junit) < steps.index(evidence)
