@@ -6,7 +6,9 @@ no runner image. Dev images are built locally, never published.
 
 ## Workflow interface
 
-Caller grants `contents: read`, `packages: write`, `id-token: write`.
+Caller grants `actions: read`, `contents: read`, `packages: write`, `id-token: write`.
+Deploy the caller grant before the central evidence shortcut; an ungranted caller
+is rejected at workflow load, not handled by the script's fail-open API fallback.
 Inputs: `file` (default `Dockerfile`), `target` (must be `ci`), `context` (default `.`),
 `image-name` (default `ghcr.io/<owner>/<repo>/devcontainer-ci`). Off-default builds
 must use a scratch name inside the caller repository's package namespace.
@@ -19,7 +21,7 @@ must invoke this reusable on `workflow_dispatch`, not just pushes.
 ## Default-branch verification
 
 After `build` succeeds, the `verify` job calls `default-branch-check.yml` with only
-`contents: read` and `packages: read`, and no inherited secrets. It does not wait
+`actions: read`, `contents: read` and `packages: read`, and no inherited secrets. It does not wait
 for `prune`. Its caller guard requires a push or workflow dispatch on the actual
 default branch, excludes the non-onboarded `.github` source repository, and requires
 an empty `image-name` input. Scheduled and scratch-name builds do not verify.

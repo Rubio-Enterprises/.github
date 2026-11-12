@@ -61,7 +61,7 @@ class StandardsCacheTests(unittest.TestCase):
         self.assertIn(route, WARMER)
         self.assertIn('runs-on: ${{ fromJSON(needs.route.outputs.runner) }}', WARMER)
         self.assertRegex(WARMER, r'"on":\n  workflow_call:\n')
-        self.assertIn('permissions:\n  contents: read\n  packages: read', WARMER)
+        self.assertIn('    permissions:\n      contents: read\n      packages: read', WARMER)
 
     def test_the_trivy_database_is_used_as_restored_only_when_fresh(self):
         step = extract_step(INJECTED, 'Use the restored trivy database without updating it')

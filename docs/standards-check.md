@@ -56,10 +56,13 @@ Their `verify` jobs select pushes and `workflow_dispatch` on the repository's ac
 default branch, including `master`. They exclude this non-onboarded source repository.
 Private repositories verify after successful image publication, unless `image-name`
 is set. Public repositories verify through `standards-cache.yml`, independently of
-cache warming. No repository-owned file or required-check setting changes.
+cache warming. No required-check setting changes. Before deploying the shortcut,
+every publisher caller must grant `actions: read` in addition to its existing grants.
 
 Both call `default-branch-check.yml`, a read-only, workflow_call-only reusable with
-no event/ref guard or qualification inputs. It always executes whole-tree Checks:
+no event/ref guard or qualification inputs. Its optional `central-ref` selects the
+central evidence script for pre-merge canaries (default `main`). When no conclusive
+PR evidence exists, it executes whole-tree Checks:
 `standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
 the native Standards leg for `ci-platform=macos`. Admission and the shared router,
 not visibility alone, select image execution. Hosted builds use the same disk
@@ -67,22 +70,51 @@ preparation and container-visible trivy context as PR checks. No `check-pr` or
 pull-request metadata is used. The PR execution path is unchanged; contract tests
 compare the duplicated whole-tree steps to it to prevent drift.
 
-The fail-closed aggregate is `standards-main`. The parallel `test-gate-main` call
-uses the production [Test Gate](test-gate.md) with no inputs or inherited secrets.
-Its Linux/macOS jobs and aggregate retain their normal names; caller prefixes are
-part of each check-run name. Audit names by `standards-main` and `test-gate-main`,
-not by assuming flat contexts. These additional results are not required checks.
+The fail-closed aggregate is `standards-main`. `test-gate-execution` calls the
+production [Test Gate](test-gate.md) with no inputs or inherited secrets. A separate
+aggregate named `test-gate-main / test-gate` requires that execution to succeed or
+records the same PR evidence as `standards-main`. Thus both visible aggregate
+names remain `<caller> / verify / standards-main` and
+`<caller> / verify / test-gate-main / test-gate`, including when execution is reused.
+The caller is `repository-image` or `standards-cache`; execution legs now appear
+under `test-gate-execution`. These additional results are not required checks.
 
-Every selected push and dispatch executes the checks. There is no PR-evidence
-lookup or reuse in this version. A failure is a failed run only: no retry,
-notification, issue, label or merge block. Publication failure leaves verification
+### Exact-files PR evidence
+
+Reuse is all-or-nothing. `scripts/checked-tree.py` returns both passing run links,
+or `{}`. For a single-parent push P with parent B, it requires matching trees for
+P and PR head H, and a compare result proving B is an ancestor of H. This shortcut
+only fires for a branch up to date with its base when merged. The organization
+does not require that (`strict_required_status_checks_policy=false`); behind
+branches, two-parent merge commits and unmatched direct pushes execute the checks.
+
+Both latest completed PR runs for H must succeed. Identity is the injected
+workflow path plus its repository-specific `required_workflows` URL/ID namespace,
+not its display name or a repository-owned workflow at the same path. Fork heads
+are excluded. A newer failed run disarms reuse for that head. Repository-wide run
+listing is necessary because ordinary per-workflow endpoints do not resolve the
+injected IDs. The lookup makes at most three calls: pushed Git commit, completed
+PR runs, and ancestry comparison. If the completed PR history exceeds one page
+(100 runs), the lookup is ambiguous and executes checks rather than paginating.
+
+A dispatch always executes the checks without an API lookup. Every failed,
+incomplete or ambiguous lookup, including a 403, also executes checks. Both
+aggregates summarize and link both passing runs when reused. There are no
+artifacts, log scraping, caching or retries in this module. Same-workflow duplicate
+suppressors cannot supply this cross-workflow tree-and-ancestry proof.
+
+A failure is a failed run only: no retry, notification, issue, label or merge block. Publication failure leaves verification
 unrun, not passing. The publisher's existing concurrency group remains held until
 verification finishes. GitHub may replace pending runs during a burst; the contract
 is verification of the latest head, not every intermediate commit.
 
-Verification requests only `contents: read` and `packages: read`. The automatic
-job token covers checkout and package access; it needs no reader-App secret,
-OIDC or write permission. An explicit direct call can exercise these same checks
+Verification explicitly requests `actions: read`, `contents: read` and
+`packages: read`; only the evidence job gets Actions access, and it has no package
+access. Execution jobs keep their existing read-only grants. The automatic job
+token needs no reader-App secret, OIDC or write permission. Both publisher callers
+must grant Actions read before this central change is merged. An ungranted caller
+is rejected by GitHub at workflow load time, before any fail-open script can run.
+A loaded script receiving a 403 instead returns no evidence and executes checks. An explicit direct call can exercise these same checks
 on a non-default branch without changing production trigger policy in the callers.
 
 Default-branch macOS Standards jobs restore and save the same mise download-store

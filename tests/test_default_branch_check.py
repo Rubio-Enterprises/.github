@@ -11,6 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / '.github/workflows'
 READ = {'contents': 'read', 'packages': 'read'}
+LOOKUP = {**READ, 'actions': 'read'}
 GUARD = ("github.repository != 'Rubio-Enterprises/.github' && "
          "contains(fromJSON('[\"push\",\"workflow_dispatch\"]'), github.event_name) && "
          "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
@@ -25,11 +26,11 @@ def test_delivery_order_visibility_and_scratch_guard():
     assert private['needs'] == 'build'
     assert private['if'] == GUARD + " && needs.build.result == 'success' && inputs.image-name == ''"
     assert private['uses'] == 'Rubio-Enterprises/.github/.github/workflows/default-branch-check.yml@main'
-    assert private['permissions'] == READ
+    assert private['permissions'] == LOOKUP
     public = workflow('standards-cache')['jobs']['verify']
     assert public['if'] == GUARD + ' && github.event.repository.private == false'
     assert public['uses'] == private['uses']
-    assert public['permissions'] == READ
+    assert public['permissions'] == LOOKUP
     assert 'needs' not in public
     for job in (private, public):
         assert 'secrets' not in job
@@ -77,20 +78,24 @@ for (const [{github, needs, inputs}, expected] of cases) {
     subprocess.run(['node', '-e', code, json.dumps(cases)], check=True)
 
 
-def test_production_test_gate_no_inputs_no_shortcut_no_retry():
+def test_production_test_gate_no_qualification_no_retry():
     wf = workflow('default-branch-check')
-    assert wf['on'] == {'workflow_call': None}
-    assert wf['permissions'] == READ
-    assert wf['jobs']['test-gate-main'] == {
-        'permissions': READ, 'uses': 'Rubio-Enterprises/.github/.github/workflows/test-gate.yml@main',
-    }
+    assert set(wf['on']) == {'workflow_call'}
+    assert wf['on']['workflow_call']['inputs']['central-ref']['default'] == 'main'
+    assert wf['permissions'] == LOOKUP
+    call = wf['jobs']['test-gate-execution']
+    assert call['permissions'] == READ
+    assert call['uses'] == 'Rubio-Enterprises/.github/.github/workflows/test-gate.yml@main'
+    assert 'with' not in call
+    assert wf['jobs']['test-gate-main']['name'] == 'test-gate-main / test-gate'
     text = json.dumps(wf)
     for absent in ('check-pr', 'BASE_SHA', 'HEAD_SHA', 'PR_TITLE', 'qualification-',
-                   'continue-on-error', 'retry', 'issues:', 'pull-requests:', 'evidence'):
+                   'continue-on-error', 'retry', 'issues:', 'pull-requests:'):
         assert absent not in text
-    assert set(wf['jobs']) == {'route', 'standards-linux', 'standards-macos', 'standards-main', 'test-gate-main'}
+    assert set(wf['jobs']) == {'evidence', 'route', 'standards-linux', 'standards-macos', 'standards-main', 'test-gate-execution', 'test-gate-main'}
     assert wf['jobs']['route']['with'] == {'route': 'linux'}
-    assert 'if' not in wf['jobs']['route']
+    assert wf['jobs']['route']['needs'] == 'evidence'
+    assert "needs.evidence.outputs.runs == '{}'" in wf['jobs']['route']['if']
     assert 'if' not in wf['jobs']['standards-linux']
     assert wf['jobs']['standards-macos']['if'] == "needs.route.outputs.platform == 'macos'"
     assert wf['jobs']['standards-main']['if'] == '${{ always() }}'
@@ -99,7 +104,8 @@ def test_production_test_gate_no_inputs_no_shortcut_no_retry():
 def test_nested_permissions_fit_both_starter_callers_without_inherited_secrets():
     # Existing starter grants: cache has contents/packages read; publisher additionally
     # has packages write and id-token write. Verification may use only their intersection.
-    for caller in (READ, {'contents': 'read', 'packages': 'write', 'id-token': 'write'}):
+    for caller in (LOOKUP,
+                   {'contents': 'read', 'packages': 'write', 'id-token': 'write', 'actions': 'read'}):
         def subset(permissions, grants):
             level = {'none': 0, 'read': 1, 'write': 2}
             for scope, value in permissions.items():
@@ -145,6 +151,8 @@ def whole_tree_steps(job):
 def test_standards_steps_cannot_drift_from_pr_execution(name):
     original = whole_tree_steps(workflow('standards')['jobs'][name])
     actual = workflow('default-branch-check')['jobs'][name]
+    if name == 'standards-linux':
+        original['permissions'] = READ
     assert actual == original
     # Includes hosted disk preparation, full history, writable checkout, trivy restore,
     # context writer, native routing and exactly the PR macOS download-cache key/path.
@@ -157,7 +165,35 @@ def test_standards_aggregate_preserves_fail_closed_behavior():
     actual = workflow('default-branch-check')['jobs']['standards-main']
     original['name'] = 'standards-main'
     original['if'] = '${{ always() }}'
+    original['needs'].insert(0, 'evidence')
+    actual['steps'] = actual['steps'][1:]
+    actual['steps'][0].pop('if')
     assert actual == original
+
+
+@pytest.mark.parametrize('execution', ['success', 'failure', 'cancelled', 'skipped'])
+@pytest.mark.parametrize('reuse', [True, False])
+def test_default_branch_test_gate_aggregate(tmp_path, execution, reuse):
+    step = workflow('default-branch-check')['jobs']['test-gate-main']['steps'][0]
+    summary = tmp_path / 'summary.md'
+    runs = {'standards': 'https://github.com/example/actions/runs/1',
+            'test-gate': 'https://github.com/example/actions/runs/2'} if reuse else {}
+    result = subprocess.run(['bash', '-euc', step['run']], capture_output=True, text=True,
+                            env={**os.environ, 'RUNS': json.dumps(runs), 'EXECUTION': execution,
+                                 'GITHUB_STEP_SUMMARY': str(summary)})
+    expected = execution == ('skipped' if reuse else 'success')
+    assert (result.returncode == 0) == expected
+    if reuse and expected:
+        assert all(url in summary.read_text() for url in runs.values())
+
+
+def test_lookup_job_and_execution_permissions_are_explicit():
+    jobs = workflow('default-branch-check')['jobs']
+    assert jobs['evidence']['permissions'] == {'actions': 'read', 'contents': 'read'}
+    assert jobs['standards-linux']['permissions'] == READ
+    assert jobs['standards-macos']['permissions'] == READ
+    assert jobs['standards-main']['permissions'] == jobs['test-gate-main']['permissions'] == {}
+    assert 'gh api' not in json.dumps(jobs['test-gate-main'])
 
 
 def test_hosted_context_runs_without_any_pr_metadata(tmp_path):
