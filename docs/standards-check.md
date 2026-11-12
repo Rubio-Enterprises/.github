@@ -84,18 +84,24 @@ under `test-gate-execution`. These additional results are not required checks.
 Reuse is all-or-nothing. `scripts/checked-tree.py` returns both passing run links,
 or `{}`. For a single-parent push P with parent B, it requires matching trees for
 P and PR head H, and a compare result proving B is an ancestor of H. This shortcut
-only fires for a branch up to date with its base when merged. The organization
-does not require that (`strict_required_status_checks_policy=false`); behind
-branches, two-parent merge commits and unmatched direct pushes execute the checks.
+only accepts an evidence head containing the push's entire base. The organization
+does not require up-to-date PR branches (`strict_required_status_checks_policy=false`),
+so a behind merge normally executes checks. Another PR's successful up-to-date head
+can still qualify if it contains that base and has exactly the pushed tree.
+Two-parent merge commits and unmatched direct pushes execute the checks.
 
 Both latest completed PR runs for H must succeed. Identity is the injected
 workflow path plus its repository-specific `required_workflows` URL/ID namespace,
 not its display name or a repository-owned workflow at the same path. Fork heads
 are excluded. A newer failed run disarms reuse for that head. Repository-wide run
 listing is necessary because ordinary per-workflow endpoints do not resolve the
-injected IDs. The lookup makes at most three calls: pushed Git commit, completed
-PR runs, and ancestry comparison. If the completed PR history exceeds one page
-(100 runs), the lookup is ambiguous and executes checks rather than paginating.
+injected IDs. The newest 100 completed PR runs are only a candidate window, so
+large repository histories still qualify. Once a matching head is nominated, a
+separate listing filtered to that head must be complete. Both latest completed
+injected runs in that listing must pass, including re-runs of older runs outside
+the candidate window. An incomplete or malformed per-head page executes checks.
+The lookup makes at most four calls: pushed Git commit, candidate window,
+complete per-head runs, and ancestry comparison. Neither listing is paginated.
 
 A dispatch always executes the checks without an API lookup. Every failed,
 incomplete or ambiguous lookup, including a 403, also executes checks. Both
@@ -112,7 +118,9 @@ Verification explicitly requests `actions: read`, `contents: read` and
 `packages: read`; only the evidence job gets Actions access, and it has no package
 access. Execution jobs keep their existing read-only grants. The automatic job
 token needs no reader-App secret, OIDC or write permission. Both publisher callers
-must grant Actions read before this central change is merged. An ungranted caller
+must grant Actions read before this central change is merged. Merge also waits
+for a released starter carrying the grant and API verification of every onboarded
+default-branch caller. An ungranted caller
 is rejected by GitHub at workflow load time, before any fail-open script can run.
 A loaded script receiving a 403 instead returns no evidence and executes checks. An explicit direct call can exercise these same checks
 on a non-default branch without changing production trigger policy in the callers.
