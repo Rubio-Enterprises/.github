@@ -1,0 +1,10 @@
+name: Set up Check dependencies
+description: Install the checkout's dependencies through the same interface as the CI-image Test Gate.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NODE_AUTH_TOKEN: ${{ github.token }}
+      run: bin/setup.sh
