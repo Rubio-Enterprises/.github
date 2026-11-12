@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -18,7 +19,11 @@ class NativeMiseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.steps = workflow_jobs()['standards-native']['steps']
-        cls.step = next(step for step in cls.steps if step.get('name') == 'Install mise if missing')
+        cls.step = next(step for step in cls.steps if step.get('name') == 'Install mise if missing on macOS')
+        cls.install_step = json.loads(subprocess.check_output(
+            ['yq', '-o=json', str(Path(__file__).resolve().parents[1] / 'actions/macos-tools/action.yml')],
+            text=True))['runs']['steps'][0]
+        cls.source_script = (Path(__file__).resolve().parents[1] / 'actions/macos-tools/install-mise.sh').read_text()
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -46,7 +51,7 @@ cp "$ARCHIVE" "$2"
             member.mode = 0o755
             archive.addfile(member, io.BytesIO(payload))
         digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
-        self.script = self.step['run'].replace(CHECKSUM, digest)
+        self.script = self.source_script.replace(CHECKSUM, digest)
         self.env = {**os.environ, 'PATH': str(self.bin), 'RUNNER_TEMP': str(self.runner),
                     'GITHUB_PATH': str(self.github_path), 'ARCHIVE': str(self.archive),
                     'CALLS': str(self.root / 'calls')}
@@ -61,8 +66,8 @@ cp "$ARCHIVE" "$2"
                               capture_output=True, text=True)
 
     def test_pin_checksum_and_order_match_the_official_release_contract(self):
-        self.assertEqual(self.step['shell'], 'bash')
-        script = self.step['run']
+        self.assertEqual(self.install_step['shell'], 'bash')
+        script = self.source_script
         self.assertIn('version=2026.11.1', script)
         self.assertIn('checksum=' + CHECKSUM, script)
         self.assertIn('SHASUMS256.txt', script)

@@ -154,26 +154,23 @@ jobs:
       - name: Install just
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true'
         uses: Rubio-Enterprises/.github/actions/setup-just@main
-      - name: Install mise if missing on native macOS
+      - name: Check out central macOS tools action
         if: steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if command -v mise >/dev/null 2>&1; then exit 0; fi
-          case "$(uname -s):$(uname -m)" in
-            Darwin:arm64) ;;
-            *) echo '::error::unsupported mise platform'; exit 1 ;;
-          esac
-          version=2026.11.1
-          checksum=e1eaf20469e586f65849256a0be6a58dd7a3e93ae8db68bc74dd7af5ca0fe7f6
-          work=$(mktemp -d "$RUNNER_TEMP/mise.XXXXXX")
-          trap 'rm -rf "$work"' EXIT
-          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
-            "https://github.com/jdx/mise/releases/download/v$version/mise-v$version-macos-arm64.tar.gz" -o "$work/mise.tar.gz"
-          printf '%s  %s\n' "$checksum" "$work/mise.tar.gz" | shasum -a 256 -c -
-          mkdir -p "$RUNNER_TEMP/mise/bin"
-          tar -xzf "$work/mise.tar.gz" -C "$RUNNER_TEMP" mise/bin/mise
-          printf '%s\n' "$RUNNER_TEMP/mise/bin" >> "$GITHUB_PATH"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/macos-tools
+      - name: Install mise if missing on macOS
+        if: steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'
+        uses: ./.cache/central-test-gate/actions/macos-tools # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+        with:
+          provision: 'false'
+      - name: Remove central macOS tools checkout
+        if: steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'
+        run: rm -rf .cache/central-test-gate
       - name: Log in to GHCR for dev image builds
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.os == 'Linux'
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4

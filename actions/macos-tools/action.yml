@@ -1,0 +1,29 @@
+name: Set up macOS tools
+description: Install mise and optionally provision locked repository tools and base runners
+inputs:
+  provision:
+    description: Set to false to install mise only
+    default: 'true'
+  runners:
+    description: Space-separated runner tool names from the base lock
+    default: gotestsum cargo-nextest bats xcbeautify
+  standards-source:
+    description: Candidate standards directory containing mise; empty uses the Dockerfile base version
+    default: ''
+  token:
+    description: GitHub token for package access and authenticated mise API requests
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: Install mise if missing
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/install-mise.sh"
+    - name: Provision locked macOS tools (image/mise.lock needs macOS entries)
+      if: inputs.provision == 'true'
+      shell: bash
+      env:
+        RUNNERS: ${{ inputs.runners }}
+        STANDARDS_SOURCE: ${{ inputs.standards-source }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/provision.sh"
