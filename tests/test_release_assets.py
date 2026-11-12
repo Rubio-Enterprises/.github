@@ -48,6 +48,9 @@ def release_fixture(tmp_path):
                     'trivy': f'Version: {version}', 'trufflehog': f'trufflehog {version}',
                     'crane': version, 'docker-buildx': f'github.com/docker/buildx v{version} abc'}
         payload = f'#!/bin/sh\necho "{versions[tool]}"\n'.encode()
+        if tool == 'trivy':
+            payload = (f'#!/bin/sh\nif [ "$1" = --version ]; then echo "{versions[tool]}"; exit 0; fi\n'
+                       'while [ "$#" -gt 0 ]; do if [ "$1" = --output ]; then shift; echo "{}" > "$1"; fi; shift; done\n').encode()
         content = archive(pin['member'], payload) if 'member' in pin else payload
         pin['sha256'] = hashlib.sha256(content).hexdigest()
         name = pin['asset'].replace('{version}', version)
@@ -60,7 +63,7 @@ def release_fixture(tmp_path):
                    check=True, capture_output=True)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
-    state = {'requests': [], 'status': 200, 'corrupt': False, 'redirect': True, 'downloads': []}
+    state = {'requests': [], 'status': 200, 'message': 'fixture refusal', 'corrupt': False, 'redirect': True, 'downloads': []}
     indexed = list(assets.items())
 
     class Handler(BaseHTTPRequestHandler):
@@ -101,7 +104,7 @@ def release_fixture(tmp_path):
                 self.reply(401)
                 return
             if state['status'] != 200:
-                self.reply(state['status'], b'{"message":"fixture refusal"}')
+                self.reply(state['status'], json.dumps({'message': state['message']}).encode())
                 return
             for i, ((repo, tag, name), content) in enumerate(indexed):
                 if self.path == f'/repos/{repo}/releases/tags/{tag}':
@@ -126,7 +129,7 @@ def release_fixture(tmp_path):
     bin_dir, runner = tmp_path / 'bin', tmp_path / 'runner'
     bin_dir.mkdir()
     runner.mkdir()
-    commands = ('bash', 'dirname', 'mktemp', 'rm', 'mkdir', 'tar', 'gzip', 'shasum', 'mv', 'chmod', 'jq', 'curl', 'node', 'gh', 'tr', 'grep', 'sha256sum')
+    commands = ('bash', 'dirname', 'mktemp', 'rm', 'mkdir', 'tar', 'gzip', 'shasum', 'mv', 'chmod', 'jq', 'curl', 'node', 'tr', 'grep', 'sha256sum', 'cp')
     for command in commands:
         (bin_dir / command).symlink_to(shutil.which(command))
     (bin_dir / 'uname').write_text('#!/bin/sh\ncase "$1" in -s) echo "$TEST_OS";; -m) echo "$TEST_ARCH";; esac\n')
@@ -156,6 +159,11 @@ def run_installer(fixture, tool):
         env.update(TEST_OS='Darwin', TEST_ARCH='arm64')
     if tool in ('trivy', 'structure'):
         env['REF'] = 'example.invalid/image@sha256:' + 'a' * 64
+    if tool == 'structure':
+        crane = fixture[4] / 'crane'
+        config = json.dumps({'config': {'User': '65532', 'Labels': {'org.opencontainers.image.source': 'fixture', 'org.opencontainers.image.revision': 'fixture'}}})
+        crane.write_text(f"#!/bin/sh\nprintf '%s' '{config}'\n")
+        crane.chmod(0o755)
     if tool == 'trufflehog' and (source / 'baseline-trufflehog.sh').exists():
         env['TRUFFLEHOG_VERSION'] = 'v3.95.5'
         args = ['bash', str(source / 'baseline-trufflehog.sh')]
@@ -167,11 +175,13 @@ def run_installer(fixture, tool):
 
 
 @pytest.mark.parametrize('transport', ['gh', 'curl'])
-@pytest.mark.parametrize('tool', ['just', 'mise', 'trivy', 'trufflehog', 'crane', 'docker-buildx'])
+@pytest.mark.parametrize('tool', ['just', 'mise', 'trivy', 'structure', 'trufflehog', 'crane', 'docker-buildx'])
 def test_authenticated_install_and_cross_host_redirect(release_fixture, transport, tool):
     _, _, state, env, bin_dir = release_fixture
-    if transport == 'curl':
-        (bin_dir / 'gh').unlink()
+    if transport == 'gh':
+        gh = bin_dir / 'gh'
+        gh.write_text('#!/bin/sh\necho gh-must-not-be-called >&2\nexit 99\n')
+        gh.chmod(0o755)
     result = run_installer(release_fixture, tool)
     assert result.returncode == 0, result.stdout + result.stderr
     assert state['requests']
@@ -187,8 +197,10 @@ def test_authenticated_install_and_cross_host_redirect(release_fixture, transpor
 @pytest.mark.parametrize('tool', ['just', 'mise', 'trivy', 'structure', 'trufflehog', 'crane', 'docker-buildx'])
 def test_release_failures_never_fall_back(release_fixture, transport, failure, tool):
     _, _, state, env, bin_dir = release_fixture
-    if transport == 'curl':
-        (bin_dir / 'gh').unlink()
+    if transport == 'gh':
+        gh = bin_dir / 'gh'
+        gh.write_text('#!/bin/sh\necho gh-must-not-be-called >&2\nexit 99\n')
+        gh.chmod(0o755)
     if failure == 'token':
         env['GH_TOKEN'] = ''
     elif failure == '403':
@@ -234,3 +246,33 @@ def test_literal_pins_and_renovate_digest_tracking():
     matches = list(re.finditer(pattern, (ROOT / 'actions/release-asset/pins.json').read_text()))
     assert len(matches) == len(pins)
     assert all(len(m['currentDigest']) == 64 and 'latest' not in m['currentValue'] for m in matches)
+
+
+def test_allowlist_refusal_names_the_organization_without_printing_the_body(release_fixture):
+    _, _, state, _, _ = release_fixture
+    state.update(status=403, message='Organization IP allow list enabled: secret-fixture-detail')
+    result = run_installer(release_fixture, 'trivy')
+    assert result.returncode != 0
+    assert 'organization aquasecurity (HTTP 403): IP allow list restriction' in result.stderr
+    assert 'secret-fixture-detail' not in result.stderr
+    assert len(state['requests']) == 1
+
+
+@pytest.mark.parametrize('status', [201, 204, 304, 404, 429, 500])
+def test_every_non_200_response_fails_without_retry(release_fixture, status):
+    _, _, state, _, _ = release_fixture
+    state['status'] = status
+    result = run_installer(release_fixture, 'just')
+    assert result.returncode != 0
+    assert f'organization casey (HTTP {status})' in result.stderr
+    assert len(state['requests']) == 1
+
+
+def test_binary_200_without_a_redirect_is_verified(release_fixture):
+    _, _, state, _, _ = release_fixture
+    state['redirect'] = False
+    result = run_installer(release_fixture, 'just')
+    assert result.returncode == 0, result.stderr
+    assert 'OK' in result.stderr
+    assert len(state['requests']) == 2
+    assert all(host == 'api.github.com' for host, *_ in state['requests'])
