@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+import json
 import re
 import subprocess
 import tempfile
@@ -9,6 +10,7 @@ import textwrap
 import unittest
 
 from test_ruby_workflows import extract_step
+from test_standards_route import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1] / '.github/workflows'
 INJECTED = (ROOT / 'standards.yml').read_text()
@@ -98,6 +100,139 @@ class StandardsCacheTests(unittest.TestCase):
             self.assertNotIn('standards-npm', workflow)
             self.assertNotIn('npm ci', workflow)
         self.assertNotIn('/opt/standards', WARMER)
+
+
+class HostedContextTests(unittest.TestCase):
+    def setUp(self):
+        self.steps = workflow_jobs()['standards-linux']['steps']
+        self.writer = next(step for step in self.steps if step.get('id') == 'context-hosted')
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        self.event = self.root / 'runner-event.json'
+        self.event.write_text('{"pull_request":{"number":992}}')
+        self.env = {**os.environ, 'GITHUB_WORKSPACE': str(self.root),
+                    'GITHUB_WORKFLOW': 'standards', 'GITHUB_EVENT_NAME': 'pull_request',
+                    'GITHUB_EVENT_PATH': str(self.event), 'GITHUB_REPOSITORY': 'Rubio-Enterprises/example',
+                    'GITHUB_RUN_ID': '123', 'GITHUB_SERVER_URL': 'https://github.com',
+                    'BASE_SHA': 'a' * 40, 'HEAD_SHA': 'b' * 40, 'PR_TITLE': 'fix: example',
+                    'CI': 'true', 'XDG_CACHE_HOME': str(self.root / '.cache'),
+                    'TRIVY_CACHE_DIR': str(self.root / '.cache/trivy')}
+        self.env.pop('TRIVY_SKIP_DB_UPDATE', None)
+
+    def run_writer(self):
+        return subprocess.run(['bash', '-euc', self.writer['run']], cwd=self.root,
+                              env=self.env, capture_output=True, text=True)
+
+    def test_one_hosted_writer_runs_after_freshness_and_before_chmod_and_checks(self):
+        self.assertEqual(self.writer['if'], "needs.route.outputs.ci-image != 'true'")
+        names = [step.get('name') for step in self.steps]
+        freshness = names.index('Use the restored trivy database without updating it')
+        restored = names.index('Restore the trivy vulnerability database')
+        writable = names.index('Prepare container-writable hosted checkout')
+        check = next(i for i, step in enumerate(self.steps) if step.get('id') == 'check-hosted')
+        writer = self.steps.index(self.writer)
+        self.assertLess(restored, freshness)
+        self.assertLess(freshness, writer)
+        self.assertLess(writer, writable)
+        self.assertLess(writable, check)
+        writers = [step for step in self.steps if '$ARGS.named' in step.get('run', '')]
+        self.assertEqual(writers, [self.writer])
+        self.assertEqual(self.writer['env']['PR_TITLE'], '${{ github.event.pull_request.title }}')
+
+    def test_optional_update_setting_preserves_unset_empty_and_final_values(self):
+        for setting in (None, '', 'true', 'false'):
+            with self.subTest(setting=setting):
+                if setting is not None:
+                    self.env['TRIVY_SKIP_DB_UPDATE'] = setting
+                result = self.run_writer()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                context = json.loads((self.root / '.cache/ci/context.json').read_text())
+                self.assertEqual(context['CI'], 'true')
+                self.assertEqual(context['XDG_CACHE_HOME'], str(self.root / '.cache'))
+                self.assertEqual(context['TRIVY_CACHE_DIR'], str(self.root / '.cache/trivy'))
+                if setting is None:
+                    self.assertNotIn('TRIVY_SKIP_DB_UPDATE', context)
+                else:
+                    self.assertEqual(context['TRIVY_SKIP_DB_UPDATE'], setting)
+
+    def test_directory_and_context_symlinks_are_refused_without_touching_the_target(self):
+        for relative in ('.cache', '.cache/ci', '.cache/ci/context.json',
+                         '.cache/ci/event.json', '.cache/ci/summary.md'):
+            for dangling in (False, True):
+                with self.subTest(path=relative, dangling=dangling), tempfile.TemporaryDirectory() as tmp:
+                    target = Path(tmp) / 'target'
+                    if not dangling:
+                        if relative.endswith(('.json', '.md')):
+                            target.write_text('untouched')
+                        else:
+                            target.mkdir()
+                            (target / 'context.json').write_text('untouched')
+                    link = self.root / relative
+                    link.parent.mkdir(parents=True, exist_ok=True)
+                    link.symlink_to(target)
+                    result = self.run_writer()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('::error::', result.stdout + result.stderr)
+                    self.assertIn(relative, result.stdout + result.stderr)
+                    if not dangling:
+                        sentinel = target if target.is_file() else target / 'context.json'
+                        self.assertEqual(sentinel.read_text(), 'untouched')
+                    self.assertEqual(target.exists(), not dangling)
+                    link.unlink()
+
+    def test_committed_directory_symlink_cannot_disguise_tracked_context(self):
+        for relative in ('.cache', '.cache/ci'):
+            with self.subTest(path=relative), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                subprocess.run(['git', 'init', '-q', str(root)], check=True)
+                data = root / 'data'
+                data.mkdir()
+                context = data / 'context.json'
+                context.write_text('untouched')
+                link = root / relative
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(os.path.relpath(data, link.parent))
+                subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+                subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                                'commit', '-qm', 'test fixture'], cwd=root, check=True)
+                result = subprocess.run(['bash', '-euc', self.writer['run']], cwd=root,
+                                        env={**self.env, 'GITHUB_WORKSPACE': str(root)},
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('symlink', result.stdout + result.stderr)
+                self.assertEqual(context.read_text(), 'untouched')
+
+    def test_staged_and_committed_context_are_refused_even_when_deleted(self):
+        context = self.root / '.cache/ci/context.json'
+        context.parent.mkdir(parents=True)
+        context.write_text('untouched')
+        subprocess.run(['git', 'add', '-f', str(context)], cwd=self.root, check=True)
+        for state in ('staged', 'committed', 'deleted'):
+            with self.subTest(state=state):
+                if state == 'committed':
+                    subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                                    'commit', '-qm', 'test fixture'], cwd=self.root, check=True)
+                if state == 'deleted':
+                    context.unlink()
+                result = self.run_writer()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('::error::', result.stdout + result.stderr)
+                self.assertIn('tracked', result.stdout + result.stderr)
+                if state != 'deleted':
+                    self.assertEqual(context.read_text(), 'untouched')
+                else:
+                    self.assertFalse(context.exists())
+
+    def test_ignored_untracked_context_can_be_replaced(self):
+        (self.root / '.gitignore').write_text('.cache/\n')
+        context = self.root / '.cache/ci/context.json'
+        context.parent.mkdir(parents=True)
+        context.write_text('{"CI":"false"}')
+        result = self.run_writer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(context.read_text())['CI'], 'true')
 
 
 class WarmerExecutionTests(unittest.TestCase):
