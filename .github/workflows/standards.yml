@@ -244,7 +244,9 @@ jobs:
           ref: main
           path: .cache/central-test-gate
           persist-credentials: false
-          sparse-checkout: actions/macos-tools
+          sparse-checkout: |
+            actions/macos-tools
+            actions/release-asset
       - name: Restore macOS tool downloads
         id: macos-downloads
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6

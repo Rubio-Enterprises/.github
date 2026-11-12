@@ -18,6 +18,8 @@ runs:
   steps:
     - name: Install mise if missing
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
       run: bash "$GITHUB_ACTION_PATH/install-mise.sh"
     - name: Provision locked macOS tools (image/mise.lock needs macOS entries)
       if: inputs.provision == 'true'

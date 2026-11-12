@@ -5,24 +5,17 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 const run = (command, args) => execFileSync(command, args, { encoding: 'utf8' }).trim();
-const CRANE = {
-  version: '0.22.1',
-  sha256: '0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0',
-};
+const releases = fileURLToPath(new URL('../release-asset/', import.meta.url));
+const pins = JSON.parse(fs.readFileSync(path.join(releases, 'pins.json'), 'utf8'));
+const release = name => ({ ...pins[`${name}-Linux-X64`], name });
 
 export const CLIENT_TOOLS = [
   {
-    name: 'docker', url: 'https://download.docker.com/linux/static/stable/x86_64/docker-29.9.2.tgz',
+    name: 'docker', version: '29.9.2', url: 'https://download.docker.com/linux/static/stable/x86_64/docker-29.9.2.tgz',
     sha256: '9ac225999fd5e863f7694c728ef23d480616b1e5639328fa309befd4243d69eb', member: 'docker/docker',
   },
-  {
-    name: 'docker-buildx', url: 'https://github.com/docker/buildx/releases/download/v0.38.1/buildx-v0.38.1.linux-amd64',
-    sha256: 'e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4', plugin: true,
-  },
-  {
-    name: 'crane', sha256: CRANE.sha256, member: 'crane',
-    url: `https://github.com/google/go-containerregistry/releases/download/v${CRANE.version}/go-containerregistry_Linux_x86_64.tar.gz`,
-  },
+  { ...release('docker-buildx'), plugin: true },
+  release('crane'),
 ];
 
 const onPath = (name, env) => (env.PATH || '').split(path.delimiter).some(directory => {
@@ -38,14 +31,23 @@ export async function installTools(env = process.env, tools = CLIENT_TOOLS) {
   fs.mkdirSync(bin, { recursive: true, mode: 0o700 });
   fs.mkdirSync(plugins, { recursive: true, mode: 0o700 });
   for (const tool of tools) {
-    if (tool.plugin ? onPath('docker', env) && buildxWorks(env) : onPath(tool.name, env)) {
+    if (versionMatches(tool, env)) {
       console.log(`${tool.name}: already available`);
       continue;
     }
-    const response = await fetch(tool.url);
-    if (!response.ok) throw new Error(`${tool.name} download failed: ${response.status}`);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (createHash('sha256').update(bytes).digest('hex') !== tool.sha256) throw new Error(`${tool.name} checksum mismatch`);
+    let bytes;
+    if (tool.repo) {
+      const archive = path.join(root, `${tool.name}.download`);
+      execFileSync('bash', [path.join(releases, 'fetch.sh'), tool.repo, tool.tag,
+        tool.asset.replace('{version}', tool.tag.replace(/^v/, '')), tool.sha256, archive], { env, stdio: 'inherit' });
+      bytes = fs.readFileSync(archive);
+      fs.rmSync(archive);
+    } else {
+      const response = await fetch(tool.url);
+      if (!response.ok) throw new Error(`${tool.name} download failed: ${response.status}`);
+      bytes = Buffer.from(await response.arrayBuffer());
+      if (createHash('sha256').update(bytes).digest('hex') !== tool.sha256) throw new Error(`${tool.name} checksum mismatch`);
+    }
     const destination = path.join(tool.plugin ? plugins : bin, tool.name);
     if (tool.plugin) fs.writeFileSync(destination, bytes, { mode: 0o755 });
     else {
@@ -59,13 +61,22 @@ export async function installTools(env = process.env, tools = CLIENT_TOOLS) {
       fs.rmSync(extracted, { recursive: true });
       fs.rmSync(archive);
     }
-    console.log(`${tool.name}: installed from ${tool.url}`);
+    console.log(`${tool.name}: installed pinned ${tool.tag || tool.version}`);
   }
   fs.appendFileSync(env.GITHUB_PATH, `${bin}\n`);
 }
 
-function buildxWorks(env) {
-  try { execFileSync('docker', ['buildx', 'version'], { env, stdio: 'ignore' }); return true; } catch { return false; }
+function versionMatches(tool, env) {
+  const command = tool.plugin ? 'docker' : tool.name;
+  if (!onPath(command, env)) return false;
+  try {
+    const args = tool.plugin ? ['buildx', 'version'] : tool.name === 'crane' ? ['version'] : ['--version'];
+    const output = execFileSync(command, args, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const version = (tool.tag || tool.version).replace(/^v/, '');
+    if (tool.plugin) return output.split(/\s+/)[1] === `v${version}`;
+    if (tool.name === 'docker') return output.split(/\s+/)[2] === `${version},`;
+    return output === version;
+  } catch { return false; }
 }
 
 

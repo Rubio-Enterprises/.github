@@ -10,6 +10,7 @@ runs:
     - shell: bash
       env:
         OPERATION: ${{ inputs.operation }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         case "$OPERATION" in
           tools) node "$GITHUB_ACTION_PATH/tools.mjs" ;;
