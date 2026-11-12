@@ -229,6 +229,21 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: ${{ inputs.submodules }}
           persist-credentials: false
+      - name: Check out central Docker preparation action
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: main
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/prepare-hosted-docker
+      - name: Prepare hosted Docker disk
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+      - name: Remove central Docker preparation checkout
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: rm -rf .cache/central-test-gate
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - name: Log in to GHCR
@@ -324,6 +339,21 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
+      - name: Check out central Docker preparation action
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: main
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/prepare-hosted-docker
+      - name: Prepare hosted Docker disk
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+      - name: Remove central Docker preparation checkout
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: rm -rf .cache/central-test-gate
       - name: Start the candidate
         uses: Rubio-Enterprises/.github/actions/app-image@main
         env:
@@ -354,6 +384,21 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: ${{ inputs.submodules }}
           persist-credentials: false
+      - name: Check out central Docker preparation action
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: main
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/prepare-hosted-docker
+      - name: Prepare hosted Docker disk
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+      - name: Remove central Docker preparation checkout
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: rm -rf .cache/central-test-gate
       - name: Install just
         uses: Rubio-Enterprises/.github/actions/setup-just@main
       - name: Log in to GHCR

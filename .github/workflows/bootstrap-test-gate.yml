@@ -34,6 +34,21 @@ jobs:
 
         with:
           persist-credentials: false
+      - name: Check out central Docker preparation action
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ github.sha }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/prepare-hosted-docker
+      - name: Prepare hosted Docker disk
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+      - name: Remove central Docker preparation checkout
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: rm -rf .cache/central-test-gate
       - uses: ./actions/setup-just # zizmor: ignore[self-repository] actionlint 1.7.12 rejects the $/ form; the action lands with this commit
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:

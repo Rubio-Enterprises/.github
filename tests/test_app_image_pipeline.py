@@ -56,9 +56,10 @@ class Shape(unittest.TestCase):
         self.assertIn("persist-credentials: false", checkout)
         self.assertNotIn("submodules", checkout)
         self.assertIn("SMOKE_FILES: ${{ inputs.smoke-files }}", smoke)
-        # still no repository code: no mise, no run steps, only the central action
         self.assertNotIn("mise", smoke)
-        self.assertNotIn("run:", smoke)
+        self.assertEqual(re.findall(r"^        run: (.*)$", smoke, flags=re.M),
+                         ["rm -rf .cache/central-test-gate"])
+        self.assertEqual(smoke.count("run:"), 1)
         self.assertEqual(smoke.count("uses: Rubio-Enterprises/.github/actions/app-image@main"), 1)
 
     def test_promotion_waits_for_every_tier_and_only_a_publishing_run_promotes(self):
@@ -113,6 +114,8 @@ class Shape(unittest.TestCase):
         for ref in re.findall(r"uses: (\S+)", PIPELINE):
             if ref.startswith("Rubio-Enterprises/.github/"):
                 self.assertRegex(ref, r"^Rubio-Enterprises/\.github/(actions/(app-image|build-service|setup-just)|\.github/workflows/app-image\.yml)@main$")
+            elif ref.startswith("./"):
+                self.assertEqual(ref, "./.cache/central-test-gate/actions/prepare-hosted-docker")
             else:
                 self.assertRegex(ref, r"@[a-f0-9]{40}$")
 
