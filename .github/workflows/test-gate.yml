@@ -136,20 +136,21 @@ jobs:
           if reason is not None:
               print('::notice::Test Gate opted out in .github/standards.toml (reason recorded in policy)')
           PY
-      - name: Check out central actions
-        if: steps.policy.outputs.opted-out != 'true'
+      - name: Check out central Docker preparation action
+        if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/.github
           ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
           path: .cache/central-test-gate
           persist-credentials: false
-          sparse-checkout: |
-            actions/junit-gate
-            actions/prepare-hosted-docker
+          sparse-checkout: actions/prepare-hosted-docker
       - name: Prepare hosted Docker disk
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+      - name: Remove central Docker preparation checkout
+        if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: rm -rf .cache/central-test-gate
       - name: Install just
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true'
         uses: Rubio-Enterprises/.github/actions/setup-just@main
@@ -211,6 +212,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
+          test ! -e .cache/central-test-gate
+          test ! -L .cache/central-test-gate
+          echo 'Central checkout absent before repository setup: .cache/central-test-gate'
           if [ "$RUNNER_OS" = macOS ]; then
             just setup-native
           elif [ "$CI_IMAGE" = true ]; then
@@ -247,6 +251,16 @@ jobs:
             if [ "$CI_IMAGE" = true ]; then "$script"; else just "$step"; fi
             echo '::endgroup::'
           done
+      # Local actions let Release Check qualify a candidate absent from main
+      - name: Check out central JUnit action
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/junit-gate
       - name: Require JUnit evidence
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code

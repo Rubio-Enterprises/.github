@@ -20,16 +20,54 @@ def test_hosted_preparation_precedes_candidate_download_and_setup():
         "runner.environment == 'github-hosted' && runner.os == 'Linux'"
     )
     assert prepare['uses'] == './.cache/central-test-gate/actions/prepare-hosted-docker'
-    checkout = next(s for s in steps if s.get('name') == 'Check out central actions')
+    checkout = next(s for s in steps if s.get('name') == 'Check out central Docker preparation action')
     assert checkout['with']['ref'] == "${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}"
     assert checkout['with']['persist-credentials'] is False
-    assert set(checkout['with']['sparse-checkout'].split()) == {
-        'actions/junit-gate', 'actions/prepare-hosted-docker',
-    }
+    assert checkout['with']['sparse-checkout'] == 'actions/prepare-hosted-docker'
     assert steps.index(checkout) < steps.index(prepare)
     for name in ('Download candidate base and source for qualification', 'Set up dependencies'):
         assert steps.index(prepare) < next(i for i, s in enumerate(steps) if s.get('name') == name)
     assert not any('/actions/prepare-hosted-docker@' in s.get('uses', '') for s in steps)
+
+
+def test_central_checkouts_do_not_overlap_repository_execution():
+    steps = document('.github/workflows/test-gate.yml')['jobs']['test-gate']['steps']
+    setup = next(i for i, s in enumerate(steps) if s.get('name') == 'Set up dependencies')
+    lifecycle = next(i for i, s in enumerate(steps) if s.get('id') == 'lifecycle')
+    checkouts = [s for s in steps if s.get('with', {}).get('repository') == 'Rubio-Enterprises/.github']
+    assert len(checkouts) == 2
+    early, junit = checkouts
+    prepare = next(s for s in steps if s.get('name') == 'Prepare hosted Docker disk')
+    remove = next(s for s in steps if s.get('name') == 'Remove central Docker preparation checkout')
+    assert early['if'] == prepare['if'] == remove['if']
+    assert early['with']['path'] == junit['with']['path'] == '.cache/central-test-gate'
+    assert steps.index(early) < steps.index(prepare) < steps.index(remove) < setup < lifecycle < steps.index(junit)
+    assert junit['with']['sparse-checkout'] == 'actions/junit-gate'
+    evidence = next(s for s in steps if s.get('name') == 'Require JUnit evidence')
+    assert junit['if'] == evidence['if']
+    assert steps.index(junit) < steps.index(evidence)
+
+
+@pytest.mark.parametrize('symlink', [False, True])
+def test_preparation_checkout_is_removed_before_repository_code(tmp_path, symlink):
+    steps = document('.github/workflows/test-gate.yml')['jobs']['test-gate']['steps']
+    remove = next(s for s in steps if s.get('name') == 'Remove central Docker preparation checkout')
+    foreign = tmp_path / 'central'
+    foreign.mkdir()
+    (foreign / 'README.md').write_text('foreign root file')
+    cache = tmp_path / '.cache'
+    cache.mkdir()
+    checkout = cache / 'central-test-gate'
+    if symlink:
+        checkout.symlink_to(foreign, target_is_directory=True)
+    else:
+        checkout.mkdir()
+        (checkout / 'README.md').write_text('foreign root file')
+    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', remove['run']],
+                            cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert not checkout.exists() and not checkout.is_symlink()
+    assert (foreign / 'README.md').read_text() == 'foreign root file'
 
 
 def action_step():

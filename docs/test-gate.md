@@ -30,6 +30,10 @@ call `actions/prepare-hosted-docker`. It removes only the host Android and .NET 
 All Linux Lifecycle work runs inside the dev image, so it uses neither host SDK.
 Self-hosted, CI Image and macOS runners are untouched. The action logs free bytes
 before and after cleanup; the gate also logs disk use after dependency setup.
+The preparation action's temporary central checkout is removed before repository
+setup. Setup asserts its absence on every runner kind. The JUnit action is checked
+out only after Lifecycle Scripts finish, so tree-walking tests never see central
+repository files.
 
 The November 2026 Ubuntu 26.04 hosted measurement had 15.0 GiB free on `/` and
 no separate `/mnt` disk. Docker used `/var/lib/docker` with the containerd
@@ -99,9 +103,12 @@ real property routing is separately covered by contract tests and injection cana
 For an unmerged central change, point the workflow ref and
 `qualification-central-ref` at its branch. The latter checks out the candidate
 JUnit and hosted Docker preparation actions for local composite calls; production
-checks out the same actions from central main. A conditional remote action reference would still load its manifest
-before the runner evaluates the condition, breaking pre-merge qualification when
-the action does not exist on main yet.
+checks out the same actions from central main. Each checkout exists only while
+its action is needed. `actions/checkout` requires a path inside `GITHUB_WORKSPACE`,
+so the early checkout must be removed rather than placed under runner temp.
+A conditional remote action reference would still load its manifest before the
+runner evaluates the condition, breaking pre-merge qualification when the action
+does not exist on main yet.
 The source repository keeps an independent bootstrap test gate so its consumer
 no-op guard cannot qualify a broken central implementation.
 
