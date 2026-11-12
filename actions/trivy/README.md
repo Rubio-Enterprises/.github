@@ -27,7 +27,9 @@ for the public package on [hosted](https://github.com/Rubio-Enterprises/org-ops/
 and [self-hosted](https://github.com/Rubio-Enterprises/org-ops/actions/runs/43265548284/job/131348017059)
 runners. Those probes also export the amd64 and arm64 binaries anonymously from
 GHCR successfully, but production uses the existing job token, not anonymous
-access. Credentials live in a new temporary Docker configuration, isolated from
+access. Both production scanners pass on [hosted](https://github.com/Rubio-Enterprises/org-ops/actions/runs/43266992567/job/131353082598)
+and [self-hosted](https://github.com/Rubio-Enterprises/org-ops/actions/runs/43266992567/job/131353082043)
+runners using authenticated image extraction. Credentials live in a new temporary Docker configuration, isolated from
 the job's publishing configuration, and are removed on exit. A refusal fails;
 there is no anonymous fallback and no new credential or permission.
 

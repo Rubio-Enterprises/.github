@@ -30,8 +30,7 @@ def release_fixture(tmp_path):
     shutil.copytree(ROOT / 'actions', source / 'actions')
     ref = os.environ.get('RELEASE_TEST_REF')
     if ref:
-        for file in ('setup-just/install.sh', 'macos-tools/install-mise.sh', 'build-service/tools.mjs',
-                     'repository-image/scan.sh', 'app-image/structure.sh'):
+        for file in ('setup-just/install.sh', 'macos-tools/install-mise.sh', 'build-service/tools.mjs'):
             content = subprocess.check_output(['git', 'show', f'{ref}:actions/{file}'])
             (source / 'actions' / file).write_bytes(content)
         workflow = subprocess.check_output(['git', 'show', f'{ref}:.github/workflows/secret-scan.yml'], text=True)
@@ -45,12 +44,9 @@ def release_fixture(tmp_path):
         tool = key.rsplit('-', 2)[0]
         version = pin['tag'].removeprefix('v')
         versions = {'just': f'just {version}', 'mise': f'{version} macos-arm64',
-                    'trivy': f'Version: {version}', 'trufflehog': f'trufflehog {version}',
+                    'trufflehog': f'trufflehog {version}',
                     'crane': version, 'docker-buildx': f'github.com/docker/buildx v{version} abc'}
         payload = f'#!/bin/sh\necho "{versions[tool]}"\n'.encode()
-        if tool == 'trivy':
-            payload = (f'#!/bin/sh\nif [ "$1" = --version ]; then echo "{versions[tool]}"; exit 0; fi\n'
-                       'while [ "$#" -gt 0 ]; do if [ "$1" = --output ]; then shift; echo "{}" > "$1"; fi; shift; done\n').encode()
         content = archive(pin['member'], payload) if 'member' in pin else payload
         pin['sha256'] = hashlib.sha256(content).hexdigest()
         name = pin['asset'].replace('{version}', version)
@@ -153,17 +149,9 @@ def run_installer(fixture, tool):
         module = (source / 'actions/build-service/tools.mjs').as_uri()
         code = f"import {{installTools, CLIENT_TOOLS}} from {json.dumps(module)}; await installTools(process.env, CLIENT_TOOLS.filter(t => t.name === '{tool}'));"
         return subprocess.run(['node', '--input-type=module', '-e', code], env=env, text=True, capture_output=True)
-    scripts = {'just': 'setup-just/install.sh', 'mise': 'macos-tools/install-mise.sh',
-               'trivy': 'repository-image/scan.sh', 'structure': 'app-image/structure.sh'}
+    scripts = {'just': 'setup-just/install.sh', 'mise': 'macos-tools/install-mise.sh'}
     if tool == 'mise':
         env.update(TEST_OS='Darwin', TEST_ARCH='arm64')
-    if tool in ('trivy', 'structure'):
-        env['REF'] = 'example.invalid/image@sha256:' + 'a' * 64
-    if tool == 'structure':
-        crane = fixture[4] / 'crane'
-        config = json.dumps({'config': {'User': '65532', 'Labels': {'org.opencontainers.image.source': 'fixture', 'org.opencontainers.image.revision': 'fixture'}}})
-        crane.write_text(f"#!/bin/sh\nprintf '%s' '{config}'\n")
-        crane.chmod(0o755)
     if tool == 'trufflehog' and (source / 'baseline-trufflehog.sh').exists():
         env['TRUFFLEHOG_VERSION'] = 'v3.95.5'
         args = ['bash', str(source / 'baseline-trufflehog.sh')]
@@ -209,7 +197,7 @@ def test_release_failures_never_fall_back(release_fixture, transport, failure, t
         state['corrupt'] = True
     result = run_installer(release_fixture, tool)
     assert result.returncode != 0
-    assert not list(Path(env['RUNNER_TEMP']).rglob(tool if tool != 'structure' else 'trivy'))
+    assert not list(Path(env['RUNNER_TEMP']).rglob(tool))
     assert all(host in ('api.github.com', 'release-assets.githubusercontent.com') for host, *_ in state['requests'])
     if failure == 'token':
         assert not state['requests']

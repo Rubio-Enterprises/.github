@@ -52,6 +52,7 @@ case "$1" in
     [[ "$DOCKER_CONFIG" != "$ORIGINAL_DOCKER_CONFIG" ]]
     token=$(cat)
     [[ "$token" == fixture-job-token ]]
+    [[ "${AUTH_FAIL:-false}" != true ]] || exit 1
     printf '%s' '{"auths":{"ghcr.io":{"auth":"fixture-credential"}}}' > "$DOCKER_CONFIG/config.json"
     ;;
   export)
@@ -111,11 +112,13 @@ def test_both_consumers_extract_the_native_binary_and_keep_scan_environment(imag
 
 
 @pytest.mark.parametrize('consumer', ['ci', 'app'])
-@pytest.mark.parametrize('failure', ['token', 'registry', 'corrupt', 'missing', 'wrong-version', 'scan'])
+@pytest.mark.parametrize('failure', ['token', 'auth', 'registry', 'corrupt', 'missing', 'wrong-version', 'scan'])
 def test_failures_stay_gating_without_a_release_fallback(image_fixture, consumer, failure):
     _, env, _, archive = image_fixture
     if failure == 'token':
         env['GH_TOKEN'] = ''
+    elif failure == 'auth':
+        env['AUTH_FAIL'] = 'true'
     elif failure == 'registry':
         env['REGISTRY_FAIL'] = 'true'
     elif failure == 'corrupt':
@@ -132,12 +135,13 @@ def test_failures_stay_gating_without_a_release_fallback(image_fixture, consumer
     assert result.returncode != 0
     assert 'github-download-forbidden' not in result.stdout + result.stderr
     requests = Path(env['RUNNER_TEMP'], 'registry-requests')
-    if failure == 'token':
+    if failure in ('token', 'auth'):
         assert not requests.exists()
     else:
         assert len(requests.read_text().splitlines()) == 1
     assert not list(Path(env['RUNNER_TEMP']).glob('trivy-image.*'))
     assert 'sensitive-scan-output' not in result.stdout + result.stderr
+    assert 'fixture-job-token' not in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize('consumer', ['ci', 'app'])
