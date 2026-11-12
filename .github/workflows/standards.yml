@@ -218,8 +218,8 @@ jobs:
           { echo '```'; git status --short; git diff --stat; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "::error::the Checks failed or a Fixer rewrote files; run 'just check' locally and commit the result"
 
-  standards-native:
-    name: standards-native
+  standards-macos:
+    name: standards-macos
     needs: route
     if: github.repository != 'Rubio-Enterprises/.github' && needs.route.outputs.platform == 'macos'
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]') }}
@@ -244,23 +244,40 @@ jobs:
           path: .cache/central-test-gate
           persist-credentials: false
           sparse-checkout: actions/macos-tools
+      - name: Restore macOS tool downloads
+        id: macos-downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: macos-tools-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('image/mise.lock') }}
       - name: Install mise if missing on macOS
         uses: ./.cache/central-test-gate/actions/macos-tools # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
         with:
           provision: 'false'
       - name: Remove central macOS tools checkout
-        run: rm -rf .cache/central-test-gate
+        run: |
+          cp .cache/central-test-gate/actions/macos-tools/run-recipe.sh "$RUNNER_TEMP/macos-recipe.sh"
+          rm -rf .cache/central-test-gate
       - name: Set up native Checks
-        run: just setup-native
+        run: bash "$RUNNER_TEMP/macos-recipe.sh" setup
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Save macOS tool downloads
+        if: steps.macos-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: ${{ steps.macos-downloads.outputs.cache-primary-key }}
       - name: Native Checks
-        run: just check-native
+        run: bash "$RUNNER_TEMP/macos-recipe.sh" check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   standards:
     name: standards
-    needs: [route, standards-linux, standards-native]
+    needs: [route, standards-linux, standards-macos]
     if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     permissions: {}
@@ -271,8 +288,8 @@ jobs:
           ROUTE_RESULT: ${{ needs.route.result }}
           PLATFORM: ${{ needs.route.outputs.platform }}
           LINUX_RESULT: ${{ needs.standards-linux.result }}
-          NATIVE_RESULT: ${{ needs.standards-native.result }}
+          MACOS_RESULT: ${{ needs.standards-macos.result }}
         run: |
           test "$ROUTE_RESULT" = success && test "$LINUX_RESULT" = success &&
-            { { test "$PLATFORM" = macos && test "$NATIVE_RESULT" = success; } ||
-              { test "$PLATFORM" = linux && test "$NATIVE_RESULT" = skipped; }; }
+            { { test "$PLATFORM" = macos && test "$MACOS_RESULT" = success; } ||
+              { test "$PLATFORM" = linux && test "$MACOS_RESULT" = skipped; }; }

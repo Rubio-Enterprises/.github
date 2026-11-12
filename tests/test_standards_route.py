@@ -61,15 +61,15 @@ class StandardsRouteTests(unittest.TestCase):
                 self.assertEqual(json.loads(result['output']['runner']), expected)
 
     def test_only_macos_runs_native_checks_without_docker_or_pr_checks(self):
-        native = self.jobs['standards-native']
+        native = self.jobs['standards-macos']
         self.assertEqual(native['needs'], 'route')
         self.assertEqual(native['if'],
                          "github.repository != 'Rubio-Enterprises/.github' && needs.route.outputs.platform == 'macos'")
         self.assertEqual(native['runs-on'],
                          '${{ fromJSON(vars.RUNNERS || \'{}\').macos || fromJSON(\'["macos-26"]\') }}')
         self.assertEqual(native['permissions'], {'contents': 'read', 'packages': 'read'})
-        self.assertEqual([step['run'] for step in native['steps'][-2:]],
-                         ['just setup-native', 'just check-native'])
+        self.assertEqual([step['run'] for step in native['steps'] if step.get('name') in ('Set up native Checks', 'Native Checks')],
+                         ['bash "$RUNNER_TEMP/macos-recipe.sh" setup', 'bash "$RUNNER_TEMP/macos-recipe.sh" check'])
         self.assertEqual(native['steps'][1]['uses'],
                          'Rubio-Enterprises/.github/actions/setup-just@main')
         self.assertFalse(native['steps'][0]['with']['persist-credentials'])
@@ -82,7 +82,7 @@ class StandardsRouteTests(unittest.TestCase):
 
     def test_native_checkout_preserves_fork_scope_with_the_linux_history_contract(self):
         linux = self.jobs['standards-linux']['steps'][0]
-        native = self.jobs['standards-native']['steps'][0]
+        native = self.jobs['standards-macos']['steps'][0]
         self.assertEqual(native, linux)
         self.assertEqual(native['with'], {'persist-credentials': False, 'fetch-depth': 0})
         self.assertEqual(WORKFLOW.count('# origin/upstream and its merge-base.'), 2)
@@ -91,7 +91,7 @@ class StandardsRouteTests(unittest.TestCase):
         aggregate = self.jobs['standards']
         self.assertEqual([name for name, job in self.jobs.items()
                           if job.get('name', name) == 'standards'], ['standards'])
-        self.assertEqual(aggregate['needs'], ['route', 'standards-linux', 'standards-native'])
+        self.assertEqual(aggregate['needs'], ['route', 'standards-linux', 'standards-macos'])
         self.assertEqual(aggregate['if'],
                          "${{ always() && github.repository != 'Rubio-Enterprises/.github' }}")
         self.assertEqual(aggregate['permissions'], {})
@@ -100,14 +100,14 @@ class StandardsRouteTests(unittest.TestCase):
             'ROUTE_RESULT': '${{ needs.route.result }}',
             'PLATFORM': '${{ needs.route.outputs.platform }}',
             'LINUX_RESULT': '${{ needs.standards-linux.result }}',
-            'NATIVE_RESULT': '${{ needs.standards-native.result }}',
+            'MACOS_RESULT': '${{ needs.standards-macos.result }}',
         })
         for platform, route, linux, native in product(
                 ('linux', 'macos', ''), *([('success', 'failure', 'cancelled', 'skipped')] * 3)):
             with self.subTest(platform=platform, route=route, linux=linux, native=native):
                 result = subprocess.run(['bash', '-euc', step['run']], capture_output=True,
                                         env={**os.environ, 'PLATFORM': platform, 'ROUTE_RESULT': route,
-                                             'LINUX_RESULT': linux, 'NATIVE_RESULT': native})
+                                             'LINUX_RESULT': linux, 'MACOS_RESULT': native})
                 expected = (route == linux == 'success'
                             and ((platform == 'macos' and native == 'success')
                                  or (platform == 'linux' and native == 'skipped')))

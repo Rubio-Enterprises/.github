@@ -36,6 +36,19 @@ mean no override; other values fail closed. The effective route determines the
 returned platform. `auto` and `linux` ignore this test-only override, so Standards
 routing remains independent. Public `test` routes always use hosted fallback labels.
 
+The `test` route also reads `ci-test-macos`, an organization multi-select of
+`test`, `typecheck`, `e2e` and `package`, managed through OpenTofu. Missing, null,
+empty-string and empty-array values mean no extra leg. Missing event keys trigger
+the properties API. Non-array declarations or unknown values fail; so does a
+non-empty declaration when the effective test platform is already macOS.
+Duplicates are removed and concerns use the canonical order above. A macOS shape
+with a Linux `ci-test-route` override may declare a leg. Other routes ignore this
+property. The Linux concern list does not change.
+
+The separate `macos-runner` always uses hosted `["macos-26"]` for public
+repositories. Private repositories use `RUNNERS.macos` or the same hosted fallback.
+Invalid macOS label arrays fail before any outputs.
+
 A capability job can explicitly select `small`, `medium`, `docker`, `kvm`, `arm` or `macos`.
 The explicit choice overrides auto selection. Keep existing Docker/KVM/ARM/macOS jobs on their
 capability routes; they never select a CI Image. Existing bespoke labels and service topologies
@@ -47,6 +60,8 @@ Outputs:
   routes, `macos` for the macOS capability and `linux` otherwise.
 - `runner`: JSON label array for `runs-on: fromJSON(...)`.
 - `ci-image`: the string `true` only for a repository-specific CI Image runner; otherwise `false`.
+- `macos-concerns`: space-separated declared concerns in canonical order; empty on non-test routes or without a declaration.
+- `macos-runner`: JSON label array for the Test Gate's macOS job, independent of the Linux runner.
 
 ## Admission and fallback
 

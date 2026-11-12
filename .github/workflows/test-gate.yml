@@ -16,6 +16,14 @@ name: Test Gate
         description: "Release Check only: explicit runs-on JSON for the representative kind"
         type: string
         default: ''
+      qualification-platform:
+        description: "Release Check only: linux or macos; empty infers from qualification-runner"
+        type: string
+        default: ''
+      qualification-macos-concerns:
+        description: "Release Check only: declared concerns; empty preserves macOS shape mode"
+        type: string
+        default: ''
       qualification-ci-image:
         type: boolean
         default: false
@@ -61,10 +69,39 @@ jobs:
     with:
       route: test
 
-  test-gate:
-    name: test-gate
-    needs: route
-    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
+  qualification:
+    if: github.repository != 'Rubio-Enterprises/.github' && inputs.qualification-repository != ''
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    permissions: {}
+    timeout-minutes: 5
+    outputs:
+      platform: ${{ steps.select.outputs.platform }}
+    steps:
+      - id: select
+        name: Select qualification platform
+        env:
+          QUALIFICATION_PLATFORM: ${{ inputs.qualification-platform }}
+          QUALIFICATION_RUNNER: ${{ inputs.qualification-runner }}
+          MACOS_CONCERNS: ${{ inputs.qualification-macos-concerns }}
+        run: |
+          test "$GITHUB_REPOSITORY" = Rubio-Enterprises/standards
+          platform="$QUALIFICATION_PLATFORM"
+          if [ -z "$platform" ]; then
+            case "$QUALIFICATION_RUNNER" in *macos*) platform=macos ;; *) platform=linux ;; esac
+          fi
+          case "$platform" in linux|macos) ;; *) echo '::error::invalid qualification platform'; exit 1 ;; esac
+          if [ -n "$MACOS_CONCERNS" ]; then
+            test "$platform" = macos
+            for concern in $MACOS_CONCERNS; do
+              case "$concern" in test|typecheck|e2e|package) ;; *) echo '::error::invalid macOS concern'; exit 1 ;; esac
+            done
+          fi
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+
+  test-gate-linux:
+    name: test-gate-linux
+    needs: [route, qualification]
+    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' && (inputs.qualification-repository != '' && needs.qualification.outputs.platform != 'macos' || inputs.qualification-repository == '' && needs.route.outputs.platform != 'macos') }}
     runs-on: >-
       ${{ inputs.qualification-repository != '' && fromJSON(inputs.qualification-runner)
           || needs.route.result == 'success' && fromJSON(needs.route.outputs.runner)
@@ -154,23 +191,6 @@ jobs:
       - name: Install just
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true'
         uses: Rubio-Enterprises/.github/actions/setup-just@main
-      - name: Check out central macOS tools action
-        if: steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          repository: Rubio-Enterprises/.github
-          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
-          path: .cache/central-test-gate
-          persist-credentials: false
-          sparse-checkout: actions/macos-tools
-      - name: Install mise if missing on macOS
-        if: steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'
-        uses: ./.cache/central-test-gate/actions/macos-tools # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
-        with:
-          provision: 'false'
-      - name: Remove central macOS tools checkout
-        if: steps.policy.outputs.opted-out != 'true' && runner.os == 'macOS'
-        run: rm -rf .cache/central-test-gate
       - name: Log in to GHCR for dev image builds
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.os == 'Linux'
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
@@ -190,19 +210,13 @@ jobs:
       - name: Select candidate base or native config
         if: steps.policy.outputs.opted-out != 'true' && inputs.qualification-repository != '' && inputs.candidate-base-artifact != ''
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then
-            mkdir -p "$RUNNER_TEMP/gate-source"
-            tar -xzf "$RUNNER_TEMP/gate-candidate/source.tar.gz" -C "$RUNNER_TEMP/gate-source"
-            echo "STANDARDS_NATIVE_CONFIG=$RUNNER_TEMP/gate-source/config" >> "$GITHUB_ENV"
-          else
-            test "$CI_IMAGE" != true
-            test "$(uname -m)" = x86_64
-            docker load < "$RUNNER_TEMP/gate-candidate/base-candidate.tar.gz"
-            perl -pi -e 's{^FROM ghcr.io/rubio-enterprises/base:\S+ AS dev.*}
-              {FROM ghcr.io/rubio-enterprises/base:candidate AS dev}' Dockerfile
-            # just build --pull must not replace the unpublished candidate
-            perl -pi -e 's/docker compose build --pull dev/docker compose build dev/' justfile
-          fi
+          test "$CI_IMAGE" != true
+          test "$(uname -m)" = x86_64
+          docker load < "$RUNNER_TEMP/gate-candidate/base-candidate.tar.gz"
+          perl -pi -e 's{^FROM ghcr.io/rubio-enterprises/base:\S+ AS dev.*}
+            {FROM ghcr.io/rubio-enterprises/base:candidate AS dev}' Dockerfile
+          # just build --pull must not replace the unpublished candidate
+          perl -pi -e 's/docker compose build --pull dev/docker compose build dev/' justfile
       - name: Set up dependencies
         if: steps.policy.outputs.opted-out != 'true'
         env:
@@ -212,9 +226,7 @@ jobs:
           test ! -e .cache/central-test-gate
           test ! -L .cache/central-test-gate
           echo 'Central checkout absent before repository setup: .cache/central-test-gate'
-          if [ "$RUNNER_OS" = macOS ]; then
-            just setup-native
-          elif [ "$CI_IMAGE" = true ]; then
+          if [ "$CI_IMAGE" = true ]; then
             bin/setup.sh
           else
             just build
@@ -234,12 +246,10 @@ jobs:
         run: |
           concerns=''
           for step in test e2e; do
-            if [ "$RUNNER_OS" = macOS ] && [ "$step" != test ]; then continue; fi
             if [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then concerns="$concerns $step"; fi
           done
           echo "concerns=$concerns" >> "$GITHUB_OUTPUT"
           for step in test typecheck e2e package; do
-            if [ "$RUNNER_OS" = macOS ] && [ "$step" != test ]; then continue; fi
             script="bin/$step.sh"
             if [ ! -e "$script" ] && [ ! -L "$script" ]; then continue; fi
             test -f "$script" && test -x "$script"
@@ -271,3 +281,227 @@ jobs:
           GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
           export GIT_COMMON_DIR
           docker compose down --volumes --remove-orphans
+
+  test-gate-macos:
+    name: test-gate-macos
+    needs: [route, qualification]
+    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' && (inputs.qualification-repository != '' && needs.qualification.result == 'success' && needs.qualification.outputs.platform == 'macos' || inputs.qualification-repository == '' && needs.route.result == 'success' && (needs.route.outputs.platform == 'macos' || needs.route.outputs.macos-concerns != '')) }}
+    runs-on: ${{ inputs.qualification-repository != '' && fromJSON(inputs.qualification-runner) || fromJSON(needs.route.outputs.macos-runner) }}
+    timeout-minutes: 60
+    env:
+      MACOS_CONCERNS: ${{ inputs.qualification-repository != '' && inputs.qualification-macos-concerns || needs.route.outputs.macos-concerns }}
+    steps:
+      - name: Require successful project routing or an authorized Release Check
+        env:
+          QUALIFICATION_REPOSITORY: ${{ inputs.qualification-repository }}
+          ROUTE_RESULT: ${{ needs.route.result }}
+        run: |
+          if [ -n "$QUALIFICATION_REPOSITORY" ]; then
+            test "$GITHUB_REPOSITORY" = Rubio-Enterprises/standards
+            [[ "$QUALIFICATION_REPOSITORY" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]
+          elif [ "$ROUTE_RESULT" != success ]; then
+            echo '::error::project runner routing did not succeed'
+            exit 1
+          fi
+      - id: reader
+        if: inputs.qualification-repository != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ secrets.STANDARDS_READER_APP_ID }}
+          private-key: ${{ secrets.STANDARDS_READER_APP_PRIVATE_KEY }}
+          owner: Rubio-Enterprises
+          repositories: ${{ inputs.qualification-repository }}
+          permission-contents: read
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ inputs.qualification-repository != '' && format('Rubio-Enterprises/{0}', inputs.qualification-repository) || github.repository }}
+          ref: ${{ inputs.qualification-ref }}
+          token: ${{ steps.reader.outputs.token || github.token }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check Test Gate policy
+        id: policy
+        shell: bash
+        run: |
+          if [ "${CI_IMAGE:-false}" = true ]; then
+            export MISE_OVERRIDE_CONFIG_FILENAMES=/opt/standards/mise/standards.toml
+          fi
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          policy = Path('.github/standards.toml')
+          reason = None
+          if policy.exists() or policy.is_symlink():
+              import tomllib
+              try:
+                  with policy.open('rb') as stream:
+                      document = tomllib.load(stream)
+                  for name in ('test-gate', 'app-image'):
+                      section = document.get(name, {})
+                      if not isinstance(section, dict):
+                          raise ValueError(f'{name} must be a table')
+                      if 'off' in section:
+                          value = section['off']
+                          if not isinstance(value, str) or not value.strip():
+                              raise ValueError(f'{name}.off must be a non-empty reason string')
+                  reason = document.get('test-gate', {}).get('off')
+              except (OSError, ValueError) as error:
+                  sys.exit(f'::error::invalid .github/standards.toml: {error}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write(f'opted-out={str(reason is not None).lower()}\n')
+          if reason is not None:
+              print('::notice::Test Gate opted out in .github/standards.toml (reason recorded in policy)')
+          PY
+      - name: Download candidate base and source for qualification
+        if: steps.policy.outputs.opted-out != 'true' && inputs.qualification-repository != '' && inputs.candidate-base-artifact != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.candidate-base-artifact }}
+          path: ${{ runner.temp }}/gate-candidate
+      - name: Select candidate base or native config
+        if: steps.policy.outputs.opted-out != 'true' && inputs.qualification-repository != '' && inputs.candidate-base-artifact != ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/gate-source"
+          tar -xzf "$RUNNER_TEMP/gate-candidate/source.tar.gz" -C "$RUNNER_TEMP/gate-source"
+          echo "STANDARDS_NATIVE_CONFIG=$RUNNER_TEMP/gate-source/config" >> "$GITHUB_ENV"
+      - name: Install just
+        if: steps.policy.outputs.opted-out != 'true' && env.MACOS_CONCERNS == ''
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - name: Check out central macOS tools action
+        if: steps.policy.outputs.opted-out != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: |
+            actions/macos-tools
+            actions/junit-gate
+      - name: Restore macOS tool downloads
+        id: macos-downloads
+        if: steps.policy.outputs.opted-out != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: macos-tools-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('image/mise.lock') }}
+      - name: Install mise if missing on macOS
+        if: steps.policy.outputs.opted-out != 'true'
+        uses: ./.cache/central-test-gate/actions/macos-tools # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+        with:
+          provision: ${{ env.MACOS_CONCERNS != '' && 'true' || 'false' }}
+          standards-source: ${{ inputs.candidate-base-artifact != '' && format('{0}/gate-source', runner.temp) || '' }}
+      - name: Remove central macOS tools checkout
+        if: steps.policy.outputs.opted-out != 'true'
+        run: |
+          cp .cache/central-test-gate/actions/macos-tools/run-recipe.sh "$RUNNER_TEMP/macos-recipe.sh"
+          rm -rf .cache/central-test-gate
+      - name: Set up dependencies
+        if: steps.policy.outputs.opted-out != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          test ! -e .cache/central-test-gate
+          test ! -L .cache/central-test-gate
+          echo 'Central checkout absent before repository setup: .cache/central-test-gate'
+          if [ -n "$MACOS_CONCERNS" ]; then
+            bin/setup.sh
+          else
+            bash "$RUNNER_TEMP/macos-recipe.sh" setup
+          fi
+      - name: Save macOS tool downloads
+        if: steps.policy.outputs.opted-out != 'true' && steps.macos-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: ${{ steps.macos-downloads.outputs.cache-primary-key }}
+      - name: Run Lifecycle Scripts
+        id: lifecycle
+        if: steps.policy.outputs.opted-out != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          # Shape mode stays test-only until the concern-list change lands.
+          selected='test'
+          if [ -n "$MACOS_CONCERNS" ]; then selected="$MACOS_CONCERNS"; fi
+          concerns=''
+          for step in test e2e; do
+            case " $selected " in
+              *" $step "*)
+                if [ -n "$MACOS_CONCERNS" ] || [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then
+                  concerns="$concerns $step"
+                fi ;;
+            esac
+          done
+          echo "concerns=$concerns" >> "$GITHUB_OUTPUT"
+          for step in test typecheck e2e package; do
+            case " $selected " in *" $step "*) ;; *) continue ;; esac
+            script="bin/$step.sh"
+            if [ -z "$MACOS_CONCERNS" ] && [ ! -e "$script" ] && [ ! -L "$script" ]; then continue; fi
+            if [ ! -f "$script" ] || [ ! -x "$script" ]; then
+              echo "::error::macOS concern $step requires executable $script"
+              exit 1
+            fi
+            case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
+            echo "::group::$script"
+            if [ -n "$MACOS_CONCERNS" ]; then "$script"; else just "$step"; fi
+            echo '::endgroup::'
+          done
+      # Local actions let Release Check qualify a candidate absent from main
+      - name: Check out central JUnit action
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/junit-gate
+      - name: Require JUnit evidence
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+        with:
+          concerns: ${{ steps.lifecycle.outputs.concerns }}
+          suite-outcome: ${{ steps.lifecycle.outcome }}
+
+  test-gate:
+    name: test-gate
+    needs: [route, qualification, test-gate-linux, test-gate-macos]
+    if: ${{ always() && github.repository != 'Rubio-Enterprises/.github' }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Require all applicable Test Gate legs to succeed
+        env:
+          QUALIFICATION: ${{ inputs.qualification-repository != '' }}
+          QUALIFICATION_RESULT: ${{ needs.qualification.result }}
+          QUALIFICATION_PLATFORM: ${{ needs.qualification.outputs.platform }}
+          ROUTE_RESULT: ${{ needs.route.result }}
+          PLATFORM: ${{ needs.route.outputs.platform }}
+          MACOS_CONCERNS: ${{ needs.route.outputs.macos-concerns }}
+          LINUX_RESULT: ${{ needs.test-gate-linux.result }}
+          MACOS_RESULT: ${{ needs.test-gate-macos.result }}
+        run: |
+          fail() { echo "::error::$*"; exit 1; }
+          want_linux=false; want_macos=false
+          if [ "$QUALIFICATION" = true ]; then
+            [ "$QUALIFICATION_RESULT" = success ] || fail "qualification selection did not succeed ($QUALIFICATION_RESULT)"
+            if [ "$QUALIFICATION_PLATFORM" = macos ]; then want_macos=true; else want_linux=true; fi
+          else
+            [ "$ROUTE_RESULT" = success ] || fail "project runner routing did not succeed ($ROUTE_RESULT)"
+            if [ "$PLATFORM" = macos ]; then want_macos=true; else want_linux=true; fi
+            if [ -n "$MACOS_CONCERNS" ]; then want_macos=true; fi
+          fi
+          leg() {
+            if [ "$2" = true ]; then [ "$3" = success ] || fail "$1 leg is expected and its result is $3"
+            else [ "$3" = skipped ] || fail "$1 leg is not expected and its result is $3"; fi
+          }
+          leg linux "$want_linux" "$LINUX_RESULT"
+          leg macos "$want_macos" "$MACOS_RESULT"

@@ -18,7 +18,7 @@ CHECKSUM = 'e1eaf20469e586f65849256a0be6a58dd7a3e93ae8db68bc74dd7af5ca0fe7f6'
 class NativeMiseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.steps = workflow_jobs()['standards-native']['steps']
+        cls.steps = workflow_jobs()['standards-macos']['steps']
         cls.step = next(step for step in cls.steps if step.get('name') == 'Install mise if missing on macOS')
         cls.install_step = json.loads(subprocess.check_output(
             ['yq', '-o=json', str(Path(__file__).resolve().parents[1] / 'actions/macos-tools/action.yml')],
