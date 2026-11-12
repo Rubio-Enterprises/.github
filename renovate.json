@@ -7,11 +7,17 @@
       "managerFilePatterns": ["/^actions/release-asset/pins\\.json$/"],
       "matchStrings": ["\"repo\":\\s*\"(?<depName>[^\"]+)\",\\s*\"tag\":\\s*\"(?<currentValue>[^\"]+)\",\\s*\"sha256\":\\s*\"(?<currentDigest>[a-f0-9]{64})\""],
       "datasourceTemplate": "github-release-attachments"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^actions/trivy/install\\.sh$/"],
+      "matchStrings": ["image=(?<depName>ghcr\\.io/aquasecurity/trivy):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"],
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
     {
-      "matchFileNames": ["actions/release-asset/pins.json"],
+      "matchFileNames": ["actions/release-asset/pins.json", "actions/trivy/install.sh"],
       "pinDigests": true
     }
   ]

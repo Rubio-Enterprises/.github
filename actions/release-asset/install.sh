@@ -14,7 +14,6 @@ if [[ -n "$existing" ]]; then
   case "$tool" in
     just|trufflehog) expected="$tool $version" ;;
     mise) expected="$version"; observed=${observed%% *} ;;
-    trivy) expected="Version: $version"; observed=${observed%%$'\n'*} ;;
     *) echo 'unsupported release tool' >&2; exit 1 ;;
   esac
   if [[ "$observed" == "$expected" ]]; then printf '%s\n' "$existing"; exit 0; fi

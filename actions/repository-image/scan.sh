@@ -4,7 +4,7 @@ set -euo pipefail
 work="$RUNNER_TEMP/ci-scan"
 mkdir -p "$work"
 trap 'rm -rf "$work"' EXIT
-trivy=$(bash "$(dirname "${BASH_SOURCE[0]}")/../release-asset/install.sh" trivy "$work/trivy")
+trivy=$(bash "$(dirname "${BASH_SOURCE[0]}")/../trivy/install.sh" "$work/trivy")
 # Findings remain in transient JSON so secret matches cannot reach the public log
 if ! "$trivy" image --image-src remote --scanners secret --image-config-scanners secret \
   --exit-code 1 --config '' --ignorefile '' --secret-config "$(dirname "$0")/../build-service/trivy-secret.yaml" \

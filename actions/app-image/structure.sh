@@ -38,7 +38,7 @@ fi
 [[ "$block" == true || "$block" == false ]] || fail 'BLOCK_VULNERABILITIES must be true or false'
 if [[ -n "${REGISTRY_TOKEN:-}" ]]; then ghcr_docker_config "$REGISTRY_TOKEN"; fi
 
-TRIVY_BIN=$(bash "$(dirname "${BASH_SOURCE[0]}")/../release-asset/install.sh" trivy "$state/trivy/trivy" "${TRIVY_BIN:-}")
+TRIVY_BIN=$(bash "$(dirname "${BASH_SOURCE[0]}")/../trivy/install.sh" "$state/trivy/trivy" "${TRIVY_BIN:-}")
 
 failures=0
 problem() {

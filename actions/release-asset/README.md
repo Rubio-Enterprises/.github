@@ -28,7 +28,7 @@ an ordinary budget of 1,000 API requests per hour per repository for
 canary measured 15,000. The budget is shared per repository across its jobs, not
 per minted token. Secondary limits and service failures still fail the job.
 
-Each platform has a literal release tag and SHA-256 in `pins.json`. The repository's
+Each release platform has a literal tag and SHA-256 in `pins.json`. The repository's
 Renovate regex manager uses the built-in `github-release-attachments` datasource
 with `currentDigest` and `pinDigests`. That datasource identifies the current asset
 by checksum and updates its digest together with its release tag. Asset templates
@@ -37,6 +37,8 @@ allowlist change is needed. Checksums were retained from the existing installers
 TruffleHog's per-platform pins come from the v3.95.5 release asset digests.
 
 The shared shell installer and the Node client installer reuse only an exact
-version match. The scoped `TRIVY_BIN` override has the same version requirement.
+version match. Trivy is not a release-helper consumer: both scanners extract its
+binary from the digest-pinned vendor image through the shared `actions/trivy`
+installer, because aquasecurity refuses the job token's release API requests.
 Mise's later tool installations, indirect downloads inside third-party actions,
 and image-build secret delivery are separate from this bootstrap transport.

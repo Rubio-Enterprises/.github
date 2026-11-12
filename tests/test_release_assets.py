@@ -175,7 +175,7 @@ def run_installer(fixture, tool):
 
 
 @pytest.mark.parametrize('transport', ['gh', 'curl'])
-@pytest.mark.parametrize('tool', ['just', 'mise', 'trivy', 'structure', 'trufflehog', 'crane', 'docker-buildx'])
+@pytest.mark.parametrize('tool', ['just', 'mise', 'trufflehog', 'crane', 'docker-buildx'])
 def test_authenticated_install_and_cross_host_redirect(release_fixture, transport, tool):
     _, _, state, env, bin_dir = release_fixture
     if transport == 'gh':
@@ -194,7 +194,7 @@ def test_authenticated_install_and_cross_host_redirect(release_fixture, transpor
 
 @pytest.mark.parametrize('transport', ['gh', 'curl'])
 @pytest.mark.parametrize('failure', ['token', '403', 'corrupt'])
-@pytest.mark.parametrize('tool', ['just', 'mise', 'trivy', 'structure', 'trufflehog', 'crane', 'docker-buildx'])
+@pytest.mark.parametrize('tool', ['just', 'mise', 'trufflehog', 'crane', 'docker-buildx'])
 def test_release_failures_never_fall_back(release_fixture, transport, failure, tool):
     _, _, state, env, bin_dir = release_fixture
     if transport == 'gh':
@@ -220,7 +220,7 @@ def test_release_failures_never_fall_back(release_fixture, transport, failure, t
         assert 'checksum' in result.stderr.lower()
 
 
-@pytest.mark.parametrize('tool', ['just', 'mise', 'trivy', 'trufflehog', 'crane', 'docker-buildx'])
+@pytest.mark.parametrize('tool', ['just', 'mise', 'trufflehog', 'crane', 'docker-buildx'])
 @pytest.mark.parametrize('matching', [True, False])
 def test_only_the_exact_installed_version_is_reused(release_fixture, tool, matching):
     _, pins, state, env, bin_dir = release_fixture
@@ -249,9 +249,11 @@ def test_literal_pins_and_renovate_digest_tracking():
 
 
 def test_allowlist_refusal_names_the_organization_without_printing_the_body(release_fixture):
-    _, _, state, _, _ = release_fixture
+    source, _, state, env, _ = release_fixture
     state.update(status=403, message='Organization IP allow list enabled: secret-fixture-detail')
-    result = run_installer(release_fixture, 'trivy')
+    result = subprocess.run(['bash', str(source / 'actions/release-asset/fetch.sh'), 'aquasecurity/trivy',
+                             'v0.76.1', 'asset', 'a' * 64, env['RUNNER_TEMP'] + '/asset'],
+                            env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert 'organization aquasecurity (HTTP 403): IP allow list restriction' in result.stderr
     assert 'secret-fixture-detail' not in result.stderr
