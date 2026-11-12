@@ -120,6 +120,42 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: context-hosted
+        name: Prepare container-visible hosted context
+        if: needs.route.outputs.ci-image != 'true'
+        run: |
+          for path in .cache .cache/ci .cache/ci/context.json .cache/ci/event.json .cache/ci/summary.md; do
+            if [ -L "$GITHUB_WORKSPACE/$path" ]; then
+              echo "::error::refusing hosted context through symlink: $path"
+              exit 1
+            fi
+          done
+          if git ls-files --error-unmatch -- .cache/ci/context.json >/dev/null 2>&1; then
+            echo "::error::refusing tracked hosted context: .cache/ci/context.json"
+            exit 1
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.cache/ci"
+          cp "$GITHUB_EVENT_PATH" "$GITHUB_WORKSPACE/.cache/ci/event.json"
+          jq -n \
+            --arg GITHUB_WORKFLOW "$GITHUB_WORKFLOW" \
+            --arg GITHUB_EVENT_NAME "$GITHUB_EVENT_NAME" \
+            --arg GITHUB_EVENT_PATH "$GITHUB_WORKSPACE/.cache/ci/event.json" \
+            --arg GITHUB_REPOSITORY "$GITHUB_REPOSITORY" \
+            --arg GITHUB_RUN_ID "$GITHUB_RUN_ID" \
+            --arg GITHUB_SERVER_URL "$GITHUB_SERVER_URL" \
+            --arg GITHUB_STEP_SUMMARY "$GITHUB_WORKSPACE/.cache/ci/summary.md" \
+            --arg BASE_SHA "$BASE_SHA" \
+            --arg HEAD_SHA "$HEAD_SHA" \
+            --arg PR_TITLE "$PR_TITLE" \
+            --arg TRIVY_CACHE_DIR "$TRIVY_CACHE_DIR" \
+            --arg XDG_CACHE_HOME "$XDG_CACHE_HOME" \
+            --arg CI "$CI" \
+            '$ARGS.named + (if env.TRIVY_SKIP_DB_UPDATE == null then {} else
+              {TRIVY_SKIP_DB_UPDATE: env.TRIVY_SKIP_DB_UPDATE} end)' \
+            >"$GITHUB_WORKSPACE/.cache/ci/context.json"
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+
       - name: Prepare container-writable hosted checkout
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
@@ -161,20 +197,6 @@ jobs:
         name: Pull-request Checks (Hosted)
         if: ${{ !cancelled() && needs.route.outputs.ci-image != 'true' && steps['check-hosted'].outcome != 'skipped' }}
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/.cache/ci"
-          cp "$GITHUB_EVENT_PATH" "$GITHUB_WORKSPACE/.cache/ci/event.json"
-          jq -n \
-            --arg GITHUB_WORKFLOW "$GITHUB_WORKFLOW" \
-            --arg GITHUB_EVENT_NAME "$GITHUB_EVENT_NAME" \
-            --arg GITHUB_EVENT_PATH "$GITHUB_WORKSPACE/.cache/ci/event.json" \
-            --arg GITHUB_REPOSITORY "$GITHUB_REPOSITORY" \
-            --arg GITHUB_RUN_ID "$GITHUB_RUN_ID" \
-            --arg GITHUB_SERVER_URL "$GITHUB_SERVER_URL" \
-            --arg GITHUB_STEP_SUMMARY "$GITHUB_WORKSPACE/.cache/ci/summary.md" \
-            --arg BASE_SHA "$BASE_SHA" \
-            --arg HEAD_SHA "$HEAD_SHA" \
-            --arg PR_TITLE "$PR_TITLE" \
-            '$ARGS.named' >"$GITHUB_WORKSPACE/.cache/ci/context.json"
           status=0
           GITHUB_EVENT_PATH="$GITHUB_WORKSPACE/.cache/ci/event.json" \
             GITHUB_STEP_SUMMARY="$GITHUB_WORKSPACE/.cache/ci/summary.md" just check-pr || status=$?

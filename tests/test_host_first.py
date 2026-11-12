@@ -334,11 +334,12 @@ class Contracts(unittest.TestCase):
         self.assertIn("steps['check-hosted'].outcome != 'skipped'", workflow)
         self.assertIn("!cancelled()", workflow)
 
-    def test_hosted_check_pr_writes_token_free_context_and_preserves_summary_and_status(self):
+    def test_hosted_context_is_token_free_and_check_pr_reuses_it_with_summary_and_status(self):
         workflow = json.loads(subprocess.check_output(
             ["yq", "-o=json", str(ROOT / ".github/workflows/standards.yml")], text=True))
-        step = next(step for step in workflow["jobs"]["standards-linux"]["steps"]
-                    if step.get("id") == "check-pr-hosted")
+        steps = workflow["jobs"]["standards-linux"]["steps"]
+        writer = next(step for step in steps if step.get("id") == "context-hosted")
+        step = next(step for step in steps if step.get("id") == "check-pr-hosted")
         for status in (0, 7):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -352,6 +353,9 @@ class Contracts(unittest.TestCase):
                     "GITHUB_STEP_SUMMARY": str(root / ".cache/ci/summary.md"),
                     "BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40,
                     "PR_TITLE": "fix: keep '\" and $(touch injected)\na new line",
+                    "CI": "true", "XDG_CACHE_HOME": str(root / ".cache"),
+                    "TRIVY_CACHE_DIR": str(root / ".cache/trivy"),
+                    "TRIVY_SKIP_DB_UPDATE": "true",
                 }
                 just = root / "just"
                 just.write_text("#!/bin/sh\nset -eu\n"
@@ -364,11 +368,17 @@ class Contracts(unittest.TestCase):
                        "GITHUB_EVENT_PATH": str(event), "GITHUB_STEP_SUMMARY": str(root / "summary"),
                        "GH_TOKEN": "not-a-token", "GITHUB_TOKEN": "not-a-token",
                        "PATH": str(root) + ":" + os.environ["PATH"]}
+                subprocess.run(["git", "init", "-q", str(root)], check=True)
+                written = subprocess.run(["bash", "-euc", writer["run"]], env=env, cwd=root,
+                                         capture_output=True, text=True)
+                self.assertEqual(written.returncode, 0, written.stderr)
+                context = root / ".cache/ci/context.json"
+                before = context.read_bytes()
                 result = subprocess.run(["bash", "-euc", step["run"]], env=env, cwd=root,
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, status, result.stderr)
-                context = root / ".cache/ci/context.json"
-                self.assertEqual(json.loads(context.read_text()), expected)
+                self.assertEqual(context.read_bytes(), before)
+                self.assertEqual(json.loads(before), expected)
                 self.assertNotIn("not-a-token", context.read_text())
                 self.assertEqual((root / ".cache/ci/event.json").read_bytes(), event.read_bytes())
                 self.assertEqual((root / "summary").read_text(), "summary\n")
