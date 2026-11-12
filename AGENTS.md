@@ -158,13 +158,8 @@ release for this repository. Recover regressions through reviewed reverts.
   major/0.x automerge exception. `go.mod` directive raises and the `jdx/mise` and
   `astral-sh/uv` CLI pins remain human-merge-only.
   Stable and pre-1.0 npm, Cargo, and pin updates use
-  distinct groups so a manual member cannot disarm an otherwise-safe stable branch. One rule
-  runs a post-upgrade task: on a branch that bumps the root `.devcontainer/devcontainer.json`,
-  it runs `devcontainer upgrade --workspace-folder .` and commits only
-  `.devcontainer/devcontainer-lock.json`, which Renovate's devcontainer manager cannot update.
-  The command must match the anchored `allowedCommands` entry in `.github-private`'s
-  `renovate/config.js`, whose container provisions the Dev Container CLI. The first two
-  `customManager`s track the
+  distinct groups so a manual member cannot disarm an otherwise-safe stable branch.
+  The first two `customManager`s track the
   `# renovate: … jdx/mise` workflow `MISE_VERSION:` cold fallback and
   `# renovate: … astral-sh/uv` workflow `version:` marker, respectively.
   The mise tags are v-prefixed and need `extractVersionTemplate`; uv tags
