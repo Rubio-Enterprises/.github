@@ -280,7 +280,7 @@ def test_route_failure_and_unauthorized_qualification_stop_before_checkout(tmp_p
 
 def test_qualification_exercises_production_orchestration_and_candidate_parser():
     assert step('Require JUnit evidence')['uses'] == './.cache/central-test-gate/actions/junit-gate'
-    assert step('Check out central JUnit action')['with']['ref'] == "${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}"
+    assert step('Check out central actions')['with']['ref'] == "${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}"
     assert not any('/actions/junit-gate@' in item.get('uses', '') for item in STEPS)
     assert 'docker compose build dev' in step('Select candidate base or native config')['run']
     assert step('Run Lifecycle Scripts')['id'] == 'lifecycle'

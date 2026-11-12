@@ -25,6 +25,21 @@ script means no JUnit obligation, not an automatic Opt-out. Tests clear their ow
 report directory before execution. Linux non-image jobs tear down Compose services
 and dependency volumes even on failure; external organization caches survive.
 
+Before any candidate download or Docker build, GitHub-hosted Linux non-image jobs
+call `actions/prepare-hosted-docker`. It removes only the host Android and .NET SDKs.
+All Linux Lifecycle work runs inside the dev image, so it uses neither host SDK.
+Self-hosted, CI Image and macOS runners are untouched. The action logs free bytes
+before and after cleanup; the gate also logs disk use after dependency setup.
+
+The November 2026 Ubuntu 26.04 hosted measurement had 15.0 GiB free on `/` and
+no separate `/mnt` disk. Docker used `/var/lib/docker` with the containerd
+`overlayfs` snapshotter. The candidate base occupied 4.41 GB including unpacked
+layers; karakeep's dev image occupied 6.99 GB including shared layers. Building
+left only 5.62 GiB free and `pnpm install --frozen-lockfile` exhausted it.
+The two unused SDK trees occupied 16.8 GiB together. Reclaiming them targets at
+least 10 GiB of headroom after karakeep setup, without relocating Docker, pruning
+job data, changing routes or depending on a third-party cleanup action.
+
 The `actions/junit-gate` composite uses Python's XML parser, independently of any
 Base Image helper version. For each required concern it recursively reads XML under
 `reports/test/` or `reports/e2e/`, counts actual `testcase` elements without a
@@ -82,9 +97,9 @@ selected existing CI Image runner. Qualification runner labels are caller-owned:
 real property routing is separately covered by contract tests and injection canaries.
 
 For an unmerged central change, point the workflow ref and
-`qualification-central-ref` at its branch. The latter checks out only the candidate
-JUnit action for a local composite call; production checks out the same action from
-central main. A conditional remote action reference would still load its manifest
+`qualification-central-ref` at its branch. The latter checks out the candidate
+JUnit and hosted Docker preparation actions for local composite calls; production
+checks out the same actions from central main. A conditional remote action reference would still load its manifest
 before the runner evaluates the condition, breaking pre-merge qualification when
 the action does not exist on main yet.
 The source repository keeps an independent bootstrap test gate so its consumer

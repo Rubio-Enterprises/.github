@@ -20,7 +20,7 @@ name: Test Gate
         type: boolean
         default: false
       qualification-central-ref:
-        description: "Candidate central source ref for the qualification's local JUnit action"
+        description: "Candidate central source ref for the qualification's local actions"
         type: string
         default: main
       candidate-base-artifact:
@@ -85,13 +85,6 @@ jobs:
             echo '::error::project runner routing did not succeed'
             exit 1
           fi
-      - name: Measure hosted Docker disk at job start
-        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && env.CI_IMAGE != 'true'
-        run: |
-          df -B1 / /mnt
-          lsblk -o NAME,SIZE,MOUNTPOINTS
-          docker info --format 'DockerRootDir={{.DockerRootDir}} Driver={{.Driver}} DriverStatus={{json .DriverStatus}}'
-          sudo du -sx -B1 /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/share/powershell /var/lib/docker /var/lib/containerd 2>/dev/null || true
       - id: reader
         if: inputs.qualification-repository != ''
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
@@ -143,6 +136,20 @@ jobs:
           if reason is not None:
               print('::notice::Test Gate opted out in .github/standards.toml (reason recorded in policy)')
           PY
+      - name: Check out central actions
+        if: steps.policy.outputs.opted-out != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: |
+            actions/junit-gate
+            actions/prepare-hosted-docker
+      - name: Prepare hosted Docker disk
+        if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
       - name: Install just
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true'
         uses: Rubio-Enterprises/.github/actions/setup-just@main
@@ -193,9 +200,6 @@ jobs:
             test "$CI_IMAGE" != true
             test "$(uname -m)" = x86_64
             docker load < "$RUNNER_TEMP/gate-candidate/base-candidate.tar.gz"
-            docker image inspect ghcr.io/rubio-enterprises/base:candidate --format 'Candidate base size={{.Size}}'
-            df -B1 / /mnt
-            docker system df
             perl -pi -e 's{^FROM ghcr.io/rubio-enterprises/base:\S+ AS dev.*}
               {FROM ghcr.io/rubio-enterprises/base:candidate AS dev}' Dockerfile
             # just build --pull must not replace the unpublished candidate
@@ -213,14 +217,13 @@ jobs:
             bin/setup.sh
           else
             just build
-            if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
-              docker image ls
-              docker system df
-              df -B1 / /mnt
-              trap 'df -B1 / /mnt; docker system df; sudo du -sx -B1 /var/lib/docker/volumes /var/lib/containerd' EXIT
-            fi
             just setup
           fi
+      - name: Report hosted Docker disk use
+        if: ${{ always() && steps.policy.outputs.opted-out == 'false' && env.CI_IMAGE != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux' }}
+        run: |
+          df -B1 /
+          docker system df
       - name: Run Lifecycle Scripts
         id: lifecycle
         if: steps.policy.outputs.opted-out != 'true'
@@ -244,17 +247,6 @@ jobs:
             if [ "$CI_IMAGE" = true ]; then "$script"; else just "$step"; fi
             echo '::endgroup::'
           done
-      # The runner loads remote action manifests before evaluating step conditions
-      # A local central checkout lets Release Check test an action absent from main
-      - name: Check out central JUnit action
-        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          repository: Rubio-Enterprises/.github
-          ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
-          path: .cache/central-test-gate
-          persist-credentials: false
-          sparse-checkout: actions/junit-gate
       - name: Require JUnit evidence
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
