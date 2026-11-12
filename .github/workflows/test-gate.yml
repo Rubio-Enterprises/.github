@@ -245,16 +245,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
-          concerns=''
-          for step in test e2e; do
-            if [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then concerns="$concerns $step"; fi
+          concerns=''; artifact_concerns=''
+          for step in test typecheck e2e package; do
+            if [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then
+              artifact_concerns="${artifact_concerns:+$artifact_concerns-}$step"
+              case "$step" in test|e2e) concerns="$concerns $step" ;; esac
+            fi
           done
           echo "concerns=$concerns" >> "$GITHUB_OUTPUT"
+          echo "artifact-concerns=${artifact_concerns:-none}" >> "$GITHUB_OUTPUT"
           for step in test typecheck e2e package; do
             script="bin/$step.sh"
             if [ ! -e "$script" ] && [ ! -L "$script" ]; then continue; fi
             test -f "$script" && test -x "$script"
             case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
+            if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
             echo "::group::$script"
             if [ "$CI_IMAGE" = true ]; then "$script"; else just "$step"; fi
             echo '::endgroup::'
@@ -268,7 +273,21 @@ jobs:
           ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
           path: .cache/central-test-gate
           persist-credentials: false
-          sparse-checkout: actions/junit-gate
+          sparse-checkout: |
+            actions/junit-gate
+            actions/gate-artifacts
+      - name: Upload Lifecycle artifacts
+        id: artifacts
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: ./.cache/central-test-gate/actions/gate-artifacts # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+        with:
+          name: ${{ github.job }}-${{ steps.lifecycle.outputs.artifact-concerns || 'none' }}
+          representative: ${{ inputs.qualification-repository }}
+          package: ${{ steps.lifecycle.outputs.package }}
+      - name: Report a failed artifact upload
+        if: ${{ !cancelled() && steps.artifacts.outcome == 'failure' }}
+        run: echo '::warning::Test Gate artifact upload failed; the gate result is not affected'
       - name: Require JUnit evidence
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
@@ -431,16 +450,18 @@ jobs:
           # Shape mode stays test-only until the concern-list change lands.
           selected='test'
           if [ -n "$MACOS_CONCERNS" ]; then selected="$MACOS_CONCERNS"; fi
-          concerns=''
-          for step in test e2e; do
+          concerns=''; artifact_concerns=''
+          for step in test typecheck e2e package; do
             case " $selected " in
               *" $step "*)
                 if [ -n "$MACOS_CONCERNS" ] || [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then
-                  concerns="$concerns $step"
+                  artifact_concerns="${artifact_concerns:+$artifact_concerns-}$step"
+                  case "$step" in test|e2e) concerns="$concerns $step" ;; esac
                 fi ;;
             esac
           done
           echo "concerns=$concerns" >> "$GITHUB_OUTPUT"
+          echo "artifact-concerns=${artifact_concerns:-none}" >> "$GITHUB_OUTPUT"
           for step in test typecheck e2e package; do
             case " $selected " in *" $step "*) ;; *) continue ;; esac
             script="bin/$step.sh"
@@ -450,6 +471,7 @@ jobs:
               exit 1
             fi
             case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
+            if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
             echo "::group::$script"
             if [ -n "$MACOS_CONCERNS" ]; then "$script"; else just "$step"; fi
             echo '::endgroup::'
@@ -463,7 +485,21 @@ jobs:
           ref: ${{ inputs.qualification-repository != '' && inputs.qualification-central-ref || 'main' }}
           path: .cache/central-test-gate
           persist-credentials: false
-          sparse-checkout: actions/junit-gate
+          sparse-checkout: |
+            actions/junit-gate
+            actions/gate-artifacts
+      - name: Upload Lifecycle artifacts
+        id: artifacts
+        if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: ./.cache/central-test-gate/actions/gate-artifacts # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+        with:
+          name: ${{ github.job }}-${{ steps.lifecycle.outputs.artifact-concerns || 'none' }}
+          representative: ${{ inputs.qualification-repository }}
+          package: ${{ steps.lifecycle.outputs.package }}
+      - name: Report a failed artifact upload
+        if: ${{ !cancelled() && steps.artifacts.outcome == 'failure' }}
+        run: echo '::warning::Test Gate artifact upload failed; the gate result is not affected'
       - name: Require JUnit evidence
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
