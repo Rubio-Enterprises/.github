@@ -23,13 +23,10 @@ Non-image changes keep the CI Image. Public repositories already build through
 Compose; macOS shapes retain both existing legs. The path list, API limits and
 post-merge canary are in [project routing](reusable-workflows/project-route.md#pull-request-image-inputs).
 
-- **CI Image:** installs checkout dependencies with `bin/setup.sh`, the same
-  dependency-only interface as the Test Gate, then calls `standards check` and
-  `standards check-pr`. Both Standards workflows share `actions/setup-check-dependencies`.
-  Setup failure fails its own step before either Check runs. There is no hook
-  installation, standards installation, toolchain bootstrap or Docker daemon inside the job.
+- **CI Image:** calls `standards check`, then `standards check-pr`. There is no
+  standards installation, toolchain bootstrap or Docker daemon inside the job.
 - **Hosted/non-image Linux:** installs the checksum-pinned `just` release, logs
-  into GHCR with the job token, then runs `just build`, `just setup`, `just check`, `just check-pr`.
+  into GHCR with the job token, then runs `just build`, `just check`, `just check-pr`.
   For macOS repositories only, the whole-tree command is `just exec standards check`
   so the native repository's combined `just check` does not invoke SwiftLint on Linux.
 - **Native macOS:** only for `ci-platform=macos`, a parallel `standards-macos` job
@@ -63,7 +60,7 @@ cache warming. No repository-owned file or required-check setting changes.
 
 Both call `default-branch-check.yml`, a read-only, workflow_call-only reusable with
 no event/ref guard or qualification inputs. It always executes whole-tree Checks:
-`bin/setup.sh` then `standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
+`standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
 the native Standards leg for `ci-platform=macos`. Admission and the shared router,
 not visibility alone, select image execution. Hosted builds use the same disk
 preparation and container-visible trivy context as PR checks. No `check-pr` or
