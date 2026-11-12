@@ -74,7 +74,7 @@ jobs:
         run: echo "tests_ran=true" >> "$GITHUB_OUTPUT"
 
   artifact-timeout-probe:
-    runs-on: ${{ fromJSON('["linux-x64-small"]') }} # temporary canary on the pinned self-hosted runner
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 5
     strategy:
       matrix:
