@@ -189,7 +189,7 @@ def test_workflow_executes_only_the_applicable_lifecycle_scripts(tmp_path, image
                                PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
     assert result.returncode == 0, result.stderr
     assert (tmp_path / 'ran').read_text().splitlines() == expected
-    concerns = output.removeprefix('concerns=').strip()
+    concerns = dict(line.split('=', 1) for line in output.splitlines())['concerns'].strip()
     assert concerns == ('test' if os_name == 'macOS' else 'test e2e')
     assert junit(tmp_path, concerns=concerns).returncode == 0
 
@@ -216,7 +216,7 @@ def test_non_executable_scripts_and_lifecycle_failures_are_not_skipped(tmp_path)
 def test_no_scripts_is_vacuous_success(tmp_path):
     result, output = run_shell('Run Lifecycle Scripts', tmp_path, CI_IMAGE='true', RUNNER_OS='Linux')
     assert result.returncode == 0, result.stderr
-    assert output.strip() == 'concerns='
+    assert dict(line.split('=', 1) for line in output.splitlines()) == {'concerns': '', 'artifact-concerns': 'none'}
     assert junit(tmp_path, concerns='').returncode == 0
 
 

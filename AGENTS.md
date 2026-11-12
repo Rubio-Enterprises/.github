@@ -45,8 +45,11 @@ The route job selects a project runner. CI Image jobs call `standards check` and
 Terraform owns the injected ref at `refs/heads/main`.
 
 **`test-gate.yml` — the injected Test Gate** ([`docs/test-gate.md`](docs/test-gate.md)).
-Before changing its routing, policy reader, Lifecycle execution or JUnit validation,
-read that contract and its Release Check qualification interface. The org ruleset
+Before changing its routing, policy reader, Lifecycle execution, JUnit validation or
+artifact consumers, read that contract and its Release Check qualification interface.
+Each execution leg keeps `reports/` and attempted `package` output from `dist/` for
+seven days, including failures and default-branch runs. Read the artifact naming
+and file-boundary contract before changing output paths or adding a consumer. The org ruleset
 requires the workflow identity; the required result stays `test-gate`, aggregating
 `test-gate-linux` and `test-gate-macos`. The macOS job preserves shape-mode coverage
 or runs declared `ci-test-macos` concerns directly. Repositories keep only exception

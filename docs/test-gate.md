@@ -91,6 +91,142 @@ counted once. Malformed XML, missing reports, failed suite summaries and an
 unsuccessful Lifecycle step all fail. This reuses the XML approach in `e2e.yml`
 rather than a new regex or reporting dependency.
 
+## Artifacts
+
+Every execution leg keeps Lifecycle evidence on passing and failing runs. This
+includes pull requests, merge groups, default-branch calls and Release Check
+qualifications. An Opt-out or a run cancelled before upload has no new evidence.
+The aggregate does not upload. Each leg offers up to two artifacts, retained for
+**7 days**:
+
+- `reports`: contents of `reports/`, with `test/`, `e2e/`, `coverage/` and other
+  diagnostic directories at the artifact root. Only JUnit XML belongs under
+  `reports/test/` and `reports/e2e/`: the validator parses every XML file there.
+- `package`: contents of `dist/`, only after the `package` Lifecycle Script was
+  attempted, including a failed package's partial output. `dist/` is the single
+  packaged-output directory. Scripts writing elsewhere must copy their output
+  there; the gate does not search for builds.
+
+Missing or empty directories produce no artifact and no warning. Preparation or
+upload errors warn and never change the gate result. No files are truncated or
+silently capped by size. GitHub's artifact/storage limits still apply; each leg
+uses at most two of its 500 artifact slots. Upload happens before JUnit validation
+and Compose teardown, so a failed script still leaves its diagnostic evidence.
+
+The workflow's `Upload Lifecycle artifacts` calling step has a **10-minute**
+`timeout-minutes` and `continue-on-error: true`. This bounds staging, compression
+and both uploads together, not the Lifecycle Scripts or JUnit gate. The November
+inventory measured packages up to 94 MB and reports up to 64 MB compressed; an
+[80 MB macOS archive took 11 seconds](https://github.com/Rubio-Enterprises/t3code-overlay/actions/runs/42538344990).
+Ten minutes allows roughly 27 times that transfer time for the combined measured
+package/report sizes, plus local enumeration, copying and compression. It is a
+side-step budget, not a larger job timeout or an unconditional artifact-size cap.
+A timeout or upload failure emits a warning naming the source directories and
+their eligible, uncompressed byte sizes. If enumeration itself fails or times out,
+the warning names the directories and explicitly reports size unavailable.
+
+The [workflow step timeout](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepstimeout-minutes)
+belongs on the caller, not inside composite metadata. Runner 2.337.0's
+[composite schema](https://github.com/actions/runner/blob/v2.337.0/src/Runner.Worker/action_yaml.json)
+has no inner timeout field. Its
+[embedded contexts inherit the caller's remaining time](https://github.com/actions/runner/blob/v2.337.0/src/Runner.Worker/ExecutionContext.cs),
+so an inner `always()` cleanup can itself be interrupted. The composite cleans up
+with `if: always()`, and a separate workflow `always()` step removes staging again
+before JUnit validation, including after the caller times out.
+
+Before copying, staging sizes the same non-hidden, no-follow regular files it
+will upload. It checks free space on the staging filesystem and reserves **1 GiB**
+for JUnit, teardown and runner logs. If the eligible tree cannot fit above that
+reserve, staging warns with each directory's size and the free/reserved bytes,
+removes staging and skips the upload. It checks again before each file and removes
+all partial staging on any copy failure or interrupt. This is a conservative
+logical-byte check, including sparse files, not a fixed maximum artifact size.
+The original `reports/` and `dist/` remain untouched. Portable hard-link staging
+would reopen source paths rather than copy from the already verified no-follow
+descriptors; keeping the existing isolated copies plus a space preflight avoids
+that race and filesystem-specific fallbacks.
+
+### Naming and discovery
+
+The name contract is:
+
+```text
+test-gate-<leg>-<concerns>-<kind>-<attempt>[-<representative>]
+```
+
+- `leg` is `linux` or `macos`, taken from the execution job id.
+- `concerns` is the applicable concern set in `test-typecheck-e2e-package` order,
+  joined with hyphens, or `none`. It is announced before scripts run, not reduced
+  when one fails. macOS shape mode currently selects only `test`; leg mode uses
+  its declared concerns in canonical order.
+- `kind` is `reports` or `package`.
+- `attempt` is `github.run_attempt`. Re-runs keep earlier evidence; uploads never
+  overwrite an artifact from an earlier attempt.
+- `representative` is the qualification repository basename, present only for
+  Release Check calls. It separates representative checkouts in the caller's run.
+  Qualification callers must use distinct repository, leg and concern sets within
+  one run; repeated identical qualifications would otherwise collide and warn.
+
+Examples: `test-gate-linux-test-typecheck-e2e-package-reports-1` and
+`test-gate-macos-test-reports-1-SaneBar`. Readers such as coverage workflows and
+org-ops should list a run's artifacts, filter by this contract and select the
+wanted attempt, not assume that every leg wrote a package. Use the run id from the
+aggregate check's details URL. Ruleset-injected runs may not resolve through
+`gh run list --workflow`; the runs REST API includes them:
+
+```sh
+gh api "repos/OWNER/REPO/actions/runs?head_sha=PR_HEAD_SHA&event=pull_request" \
+  --jq '.workflow_runs[] | select(.name == "Test Gate") | .id'
+gh api repos/OWNER/REPO/actions/runs/RUN_ID/artifacts \
+  --jq '.artifacts[] | {name, size_in_bytes, expired}'
+gh run download RUN_ID -R OWNER/REPO --name ARTIFACT_NAME --dir evidence
+```
+
+A result recorded without re-execution creates no new artifact. Follow its source
+run link, or resolve the merged commit through `repos/OWNER/REPO/commits/SHA/pulls`
+and query the returned pull request head as above. Evidence expires after seven
+days, so coverage consumers must capture their baseline promptly. A privileged
+`workflow_run` consumer must treat the files as untrusted data, not execute them;
+that trigger's behavior for injected workflows needs separate live verification.
+
+### File and credential boundary
+
+`actions/gate-artifacts` stages only regular files from those two fixed roots into
+runner temp. It omits all dotfiles and dot-directories, including `.cache`, and
+all symlinks, including linked roots, directory links, internal aliases and broken
+links. It neither reads nor follows links outside the workspace. The pinned
+[upload action follows symlinks](https://github.com/actions/upload-artifact/blob/cf430e030ddbb5b0abf93d22962f4752f3646cd9/src/shared/search.ts)
+and exposes no no-follow input. Staging therefore uses Python's no-follow directory
+traversal and file descriptors, not a glob over the original tree. Upload's own
+hidden-file exclusion remains enabled as a second boundary. Special files are
+omitted. Copy/read errors warn rather than silently dropping unreadable evidence.
+
+Artifacts do not preserve executable bits or symlinks. Package an `.app` or other
+permission-sensitive tree into an archive under `dist/` first. Compose-produced
+files must be readable by the runner user, normally directories `755` and files
+`644`; staging copies become `644`. No Docker is used for upload: the action uses
+Node 24 supplied by the Actions runner, including CI Image runners, ARM and macOS.
+
+Never write credentials or sensitive request/response bodies into these roots.
+Hidden-file filtering cannot redact secrets embedded in visible logs, traces or
+bundles. Avoid tracing authenticated requests with real credentials. The gate
+passes only the automatic job token to Lifecycle steps, not qualification reader
+App credentials or arbitrary secrets. Private artifacts require repository read
+access; public artifacts can be downloaded by signed-in GitHub users. Fork PR
+artifacts are untrusted and receive the same treatment.
+
+Uploads authenticate with the Actions runtime token, not an additional
+`GITHUB_TOKEN` permission. Default-branch callers keep `contents: read` and
+`packages: read`; uploading needs neither `actions: write` nor inherited secrets.
+Reading artifacts from another run is separate and requires `actions: read`.
+
+Default-branch uploads are intentional: they retain coverage baselines and the
+packaged output of the exact merged tree. At 600 PR/merge-group runs plus roughly
+300 default-branch runs per weekday, the earlier 7.7 GiB seven-day storage estimate
+scales to about 12 GiB (about $3/month if entirely billable). A large-package bound
+scales to about 143 GiB, or $36/month. Actual volume depends on repository mix;
+seven-day retention bounds accumulation without discarding passing-run evidence.
+
 ## Default-branch execution
 
 `default-branch-check.yml` calls this workflow as `test-gate-main` without any

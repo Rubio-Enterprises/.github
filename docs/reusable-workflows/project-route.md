@@ -154,9 +154,10 @@ Test Gate and declared macOS concerns retain their routing.
 
 The router logs the effective route, image-input decision, CI Image admission and
 runner labels. It stays a Docker-free small job with no inherited secrets. Invalid
-declarations fail before outputs. The temporary Renovate human-merge guard remains
-until a post-merge canary proves both required workflows build the changed image;
-removing it is separate work.
+declarations fail before outputs. Renovate image-toolchain updates use the standing
+runtime policy now that both required workflows check the changed Dev Image.
+Stable non-major updates may automerge after the existing soak; Python minor
+updates, majors and pre-1.0 updates retain their existing manual posture.
 
 ### Post-merge canary
 
@@ -173,8 +174,25 @@ small). From the same fresh main, open two separate draft pull requests:
    use `ci-1277378935-org-ops-small`, with no Dev Image build.
 
 Record the run URLs, head SHAs, runner names and build/Check logs. The first pair
-proves routing and building, not that a new toolchain rejects code. Before lifting
-the Renovate guard, also use an image-only toolchain change known to fail a Check
-and observe that failure inside the newly built image. These are bounded canaries,
-not a fleet replay. A standards pull request changing only `release-check.yml`
-exercises qualification runners, not this router's consumer pull-request path.
+proves routing and building, not that a new toolchain rejects code. Also use an
+image-only toolchain change known to fail a Check and observe that failure inside
+the newly built image. These are bounded canaries, not a fleet replay. A standards
+pull request changing only `release-check.yml` exercises qualification runners,
+not this router's consumer pull-request path.
+
+The rejecting canary was
+[aw-server-rust#284 test(ci): exercise a rejecting rust image toolchain](https://github.com/Rubio-Enterprises/aw-server-rust/pull/284),
+closed unmerged after changing only `image/mise.toml` and its mise-generated lock
+from Rust 1.95.0 to 1.99.1. Both routers reported Docker, `CI Image: false` and
+`image inputs: changed`. At head `67e68a40bdeb005fb0b9a93faae1c927e659ac2d`:
+
+- [standards-linux](https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/43215271409/job/131172889338)
+  built the Dev Image with `rust@1.99.1`, then failed with nine
+  `clippy::block_scrutinee` errors in `aw-query/src/parser.rs`. The required
+  `standards` aggregate failed before merge.
+- [test-gate-linux](https://github.com/Rubio-Enterprises/aw-server-rust/actions/runs/43215271589/job/131172899066)
+  independently built that checkout's Dev Image with `rust@1.99.1`, then passed
+  164 tests with two existing skips. A lint rejection need not fail the tests too.
+
+This proof, not the separate App Image build, permits removal of the interim
+Renovate guard. No source, workflow or lint policy changed in the canary.
