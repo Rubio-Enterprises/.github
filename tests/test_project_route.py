@@ -27,6 +27,10 @@ const calls = [];
 const core = { setOutput: (key, value) => { output[key] = value; }, info: () => {} };
 const github = { request: async (path, args) => {
   calls.push({path, args});
+  if (path.includes('/compare/')) {
+    if (input.compareError) throw new Error('comparison unavailable');
+    return {data: input.comparison};
+  }
   if (input.apiError) throw new Error('metadata API unavailable');
   return {data: input.properties};
 } };
@@ -44,7 +48,8 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 
 
 def run_route(*, route='auto', runners=None, admitted=None, repository=None,
-              name='org-ops', owner='Rubio-Enterprises', properties=None, api_error=False):
+              name='org-ops', owner='Rubio-Enterprises', properties=None, api_error=False,
+              event_name='push', event=None, comparison=None, compare_error=False):
     repo = {'id': ID, 'private': True, 'default_branch': 'main', 'custom_properties': {
         'ci-platform': 'linux', 'ci-size': 'small', 'ci-test-macos': None,
     }}
@@ -52,12 +57,15 @@ def run_route(*, route='auto', runners=None, admitted=None, repository=None,
         repo.update(repository)
     payload = {
         'script': SCRIPT,
-        'context': {'repo': {'owner': owner, 'repo': name}, 'payload': {'repository': repo}},
+        'context': {'repo': {'owner': owner, 'repo': name}, 'eventName': event_name,
+                    'payload': {**(event or {}), 'repository': repo}},
         'properties': properties if properties is not None else [
             {'property_name': 'ci-platform', 'value': 'linux'},
             {'property_name': 'ci-size', 'value': 'small'},
         ],
         'apiError': api_error,
+        'comparison': comparison,
+        'compareError': compare_error,
     }
     result = subprocess.run(
         ['node', '-e', HARNESS], input=json.dumps(payload), text=True, capture_output=True,

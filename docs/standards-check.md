@@ -13,6 +13,15 @@ The router's `linux` selection uses `ci-size` for the Linux leg even when
 `ci-platform=macos`, and returns the declared platform separately. A route failure
 fails the required aggregate without running project code.
 
+For an admitted Linux-shape pull request or merge group, the router compares the
+event's base and head. Image-input changes, or an unavailable/incomplete file list,
+select the `docker` route and `ci-image=false`. `standards-linux` then uses the same
+hosted/non-image steps below, including hosted disk preparation and the
+container-visible trivy context, to check the pull request's own Dev Image.
+Non-image changes keep the CI Image. Public repositories already build through
+Compose; macOS shapes retain both existing legs. The path list, API limits and
+post-merge canary are in [project routing](reusable-workflows/project-route.md#pull-request-image-inputs).
+
 - **CI Image:** calls `standards check`, then `standards check-pr`. There is no
   standards installation, toolchain bootstrap or Docker daemon inside the job.
 - **Hosted/non-image Linux:** installs the checksum-pinned `just` release, logs

@@ -1,0 +1,45 @@
+{
+  "source": "https://github.com/Rubio-Enterprises/aw-server-rust/pull/275",
+  "recorded": "2026-11-12",
+  "repo": {
+    "owner": "Rubio-Enterprises",
+    "repo": "aw-server-rust"
+  },
+  "event": {
+    "repository": {
+      "id": 1272558685,
+      "private": true
+    },
+    "pull_request": {
+      "number": 275,
+      "base": {
+        "sha": "da3c81a761709f5e6d4784bb091fb09b122b8716"
+      },
+      "head": {
+        "sha": "7c8fa03a6f102c2d457c89227dd19922b7243c18"
+      }
+    }
+  },
+  "comparison": {
+    "base_commit": {
+      "sha": "da3c81a761709f5e6d4784bb091fb09b122b8716"
+    },
+    "files": [
+      {
+        "filename": "image/mise.lock",
+        "previous_filename": null,
+        "status": "modified"
+      },
+      {
+        "filename": "image/mise.toml",
+        "previous_filename": null,
+        "status": "modified"
+      }
+    ],
+    "merge_base_commit": {
+      "sha": "da3c81a761709f5e6d4784bb091fb09b122b8716"
+    },
+    "status": "ahead",
+    "total_commits": 1
+  }
+}

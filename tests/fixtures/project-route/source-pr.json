@@ -1,0 +1,40 @@
+{
+  "source": "https://github.com/Rubio-Enterprises/org-ops/pull/404",
+  "recorded": "2026-11-12",
+  "repo": {
+    "owner": "Rubio-Enterprises",
+    "repo": "org-ops"
+  },
+  "event": {
+    "repository": {
+      "id": 1277378935,
+      "private": true
+    },
+    "pull_request": {
+      "number": 404,
+      "base": {
+        "sha": "230309adc083c03920619678c5a6d083fe759f30"
+      },
+      "head": {
+        "sha": "56ef42cc9bfd3fcaf9c772a263eb4a8ef5ddfa7d"
+      }
+    }
+  },
+  "comparison": {
+    "base_commit": {
+      "sha": "230309adc083c03920619678c5a6d083fe759f30"
+    },
+    "files": [
+      {
+        "filename": "AGENTS.md",
+        "previous_filename": null,
+        "status": "modified"
+      }
+    ],
+    "merge_base_commit": {
+      "sha": "230309adc083c03920619678c5a6d083fe759f30"
+    },
+    "status": "ahead",
+    "total_commits": 1
+  }
+}

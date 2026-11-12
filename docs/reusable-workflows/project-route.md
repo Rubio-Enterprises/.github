@@ -60,6 +60,8 @@ Outputs:
   routes, `macos` for the macOS capability and `linux` otherwise.
 - `runner`: JSON label array for `runs-on: fromJSON(...)`.
 - `ci-image`: the string `true` only for a repository-specific CI Image runner; otherwise `false`.
+- `image-inputs`: `changed`, `unchanged`, `unknown` or `not-checked`. Only eligible Linux
+  `linux`/`test` pull-request and merge-group calls inspect image inputs.
 - `macos-concerns`: space-separated declared concerns in canonical order; empty on non-test routes or without a declaration.
 - `macos-runner`: JSON label array for the Test Gate's macOS job, independent of the Linux runner.
 
@@ -88,5 +90,83 @@ outside a CI Image needs Docker: a selected generic `linux-x64-small` or
 and `ubuntu-slim` becomes `ubuntu-latest`. Explicit capability routes and custom
 multi-label constraints are preserved. An owner-selected hosted route stays hosted.
 
-The router itself stays a Docker-free small job. It uses the job's read-only token,
-no checkout and no inherited secrets. Invalid declarations fail before outputs.
+## Pull-request image inputs
+
+For `linux` and `test` calls that would otherwise select a CI Image, a Linux-shape
+pull request that changes image inputs selects `RUNNERS.docker` (fallback
+`["ubuntu-latest"]`) and `ci-image=false`. Both injected workflows consume this one
+decision. Their existing Compose branches build the checked-out pull request's Dev
+Image with `just build`, then run their normal Checks and Lifecycle Tasks in it.
+No image is published and no tools are overlaid onto the admitted main image.
+
+The router uses `actions/github-script`'s automatic job token with only `contents: read`
+for `GET /repos/{owner}/{repo}/compare/{base}...{head}`. The base repository is always
+`context.repo`. Pull requests supply `pull_request.base.sha` and `.head.sha`;
+merge groups supply `merge_group.base_sha` and `.head_sha`, spanning the whole group,
+not a constituent pull request. Only full commit SHAs are accepted. The router
+performs no checkout and executes no project code.
+
+The [compare API](https://docs.github.com/en/rest/commits/commits#compare-two-commits)
+returns at most 300 changed files, only on its first page. Commit pagination cannot
+recover additional file names. One unpaginated request therefore suffices when
+fewer than 300 files are returned, even when the commit list exceeds its 250-commit
+limit. At 300 files or more the list is ambiguous: use Docker. Missing SHAs, API
+errors, missing/malformed comparison data or rename metadata also use Docker with
+`image-inputs=unknown`, never the stale CI Image. There is no retry. Property lookup
+failures and invalid declarations still fail routing rather than inventing a platform.
+
+Changed paths include:
+
+- Root `image/**`, including locks and hidden sidecars. The starter copies these
+  toolchain inputs into the Dev Image. `src/image/**` and `images/**` do not match.
+- Files named `Dockerfile`, `Dockerfile.*` or `*.Dockerfile` at any depth. The starter's
+  `compose.yaml` uses `dev.build.context: .` and `target: dev`, with the default root
+  `Dockerfile`. Matching basenames also covers a dev build that selects, for example,
+  `.devcontainer/Dockerfile` or `docker/Dockerfile.dev`. It conservatively includes
+  documentation named `Dockerfile.md`; it does not match `Dockerfile-guide.md`.
+- Compose files named `compose.yaml`, `compose.yml`, `docker-compose.yaml` or
+  `docker-compose.yml`, at any depth, because they can redirect the dev build.
+- `.dockerignore` and `*.dockerignore`, at any depth, because they change the build
+  context, including Dockerfile-specific ignore files.
+
+Both `filename` and `previous_filename` count for renames; added, modified and removed
+inputs all count. This is a convention-based path list, not a Dockerfile dependency
+parser: arbitrary source files copied by an image and unconventionally named build
+files are not inferred. Such configurations need an explicit routing policy extension,
+not a claim that the main image tests them.
+
+Public and unadmitted repositories already build through Compose and do no extra
+lookup. Owner-selected hosted and custom-label routes stay unchanged. Explicit
+capability and `auto` callers are unchanged. `ci-test-route=arm` already builds the
+pull request's Dev Image on ARM and stays there; its separate Standards `linux` call
+switches from an admitted CI Image to Docker on an image change. Existing Docker
+Test Gates stay Docker. `ci-platform=macos` is exempt from this new detection: its
+native checks have no Dev Image, and its existing Linux Standards leg, macOS shape
+Test Gate and declared macOS concerns retain their routing.
+
+The router logs the effective route, image-input decision, CI Image admission and
+runner labels. It stays a Docker-free small job with no inherited secrets. Invalid
+declarations fail before outputs. The temporary Renovate human-merge guard remains
+until a post-merge canary proves both required workflows build the changed image;
+removing it is separate work.
+
+### Post-merge canary
+
+Use the admitted private `Rubio-Enterprises/org-ops` repository (ID `1277378935`,
+small). From the same fresh main, open two separate draft pull requests:
+
+1. Append exactly `# Image-routing canary: build this pull request's Dev Image.` to
+   its root `Dockerfile`. Both `standards-linux` and `test-gate-linux` must log
+   `Project route: docker; CI Image: false; image inputs: changed`, run on the Docker
+   route's runner (`ubuntu-latest` during the hosted initiative), and run `just build`
+   against the pull request checkout before their Checks or Lifecycle Scripts.
+2. Append exactly `<!-- Non-image routing canary. -->` to `README.md`, without any
+   image-input change. Both route calls must report `image inputs: unchanged` and
+   use `ci-1277378935-org-ops-small`, with no Dev Image build.
+
+Record the run URLs, head SHAs, runner names and build/Check logs. The first pair
+proves routing and building, not that a new toolchain rejects code. Before lifting
+the Renovate guard, also use an image-only toolchain change known to fail a Check
+and observe that failure inside the newly built image. These are bounded canaries,
+not a fleet replay. A standards pull request changing only `release-check.yml`
+exercises qualification runners, not this router's consumer pull-request path.
