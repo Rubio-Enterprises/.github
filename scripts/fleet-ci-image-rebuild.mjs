@@ -126,7 +126,11 @@ export async function waitCompleted(github, repository, id, sleep = delay) {
 
 export async function reconcile({ github, registry, repository, digest, ledgers, actor, directory, sleep = delay, log = console.log }) {
   const repo = await github.api(`repos/${repository}`);
-  if (repo.archived || repo.disabled || !repo.private) throw new Error('Admission inventory contains an unavailable or public repository');
+  const reason = repo.archived ? 'archived' : repo.disabled ? 'disabled' : !repo.private ? 'public' : null;
+  if (reason) {
+    log(`::notice::Skip ${repository}: ${reason} repository has no CI image to rebuild`);
+    return null;
+  }
   let sameDigestActive = false;
   const recorded = ledgers.some(ledger => ledger.dispatches.some(row => row.repository === repository));
   const active = new Set(recorded ? (await github.list(`repos/${repository}/actions/workflows/standards.yml/runs?branch=${encodeURIComponent(repo.default_branch)}&event=workflow_dispatch&actor=${encodeURIComponent(actor)}`, 'workflow_runs'))
