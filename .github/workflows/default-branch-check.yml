@@ -1,0 +1,240 @@
+name: default branch verification (reusable)
+"on":
+  workflow_call:
+permissions:
+  contents: read
+  packages: read
+jobs:
+  route:
+    permissions:
+      contents: read
+    uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
+    with:
+      route: linux
+  standards-linux:
+    name: standards-linux
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 30
+    env:
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+      TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require lefthook.yml
+        run: |
+          test -f lefthook.yml ||
+            { echo "::error::repository not onboarded: run npm init @rubio-enterprises/standards"; exit 1; }
+      - name: Check out central Docker preparation action
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: main
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/prepare-hosted-docker
+      - name: Prepare hosted Docker disk
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+      - name: Remove central Docker preparation checkout
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: rm -rf .cache/central-test-gate
+      - id: week
+        name: Name this week's cache keys
+        run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
+      # Restore only. A pull request's own save is scoped to its merge ref, so no other pull request
+      # could restore it. The caller standards-cache.yml writes this key on the default branch.
+      - id: trivy-db
+        name: Restore the trivy vulnerability database
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: .cache/trivy/db
+          key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+          restore-keys: standards-trivy-db-${{ runner.os }}-
+      # trivy replaces a database older than a day (metadata.json NextUpdate), which would make the
+      # weekly cache useless. A restored one under 8 days old is used as it is.
+      - name: Use the restored trivy database without updating it
+        if: steps.trivy-db.outputs.cache-matched-key != ''
+        run: |
+          days=$(jq -r '(now - (.UpdatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) / 86400 | floor' \
+            .cache/trivy/db/metadata.json) || days=99
+          echo "trivy vulnerability database: restored, $days day(s) old"
+          if [ "$days" -lt 8 ]; then echo "TRIVY_SKIP_DB_UPDATE=true" >>"$GITHUB_ENV"; fi
+
+      - id: check-ci
+        name: Every Check on every file (CI Image)
+        if: needs.route.outputs.ci-image == 'true'
+        run: standards check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+
+      - name: Install just
+        if: needs.route.outputs.ci-image != 'true'
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+
+      - name: Log in to ghcr.io
+        if: needs.route.outputs.ci-image != 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: context-hosted
+        name: Prepare container-visible hosted context
+        if: needs.route.outputs.ci-image != 'true'
+        run: |
+          for path in .cache .cache/ci .cache/ci/context.json .cache/ci/event.json .cache/ci/summary.md; do
+            if [ -L "$GITHUB_WORKSPACE/$path" ]; then
+              echo "::error::refusing hosted context through symlink: $path"
+              exit 1
+            fi
+          done
+          if git ls-files --error-unmatch -- .cache/ci/context.json >/dev/null 2>&1; then
+            echo "::error::refusing tracked hosted context: .cache/ci/context.json"
+            exit 1
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.cache/ci"
+          cp "$GITHUB_EVENT_PATH" "$GITHUB_WORKSPACE/.cache/ci/event.json"
+          jq -n \
+            --arg GITHUB_WORKFLOW "$GITHUB_WORKFLOW" \
+            --arg GITHUB_EVENT_NAME "$GITHUB_EVENT_NAME" \
+            --arg GITHUB_EVENT_PATH "$GITHUB_WORKSPACE/.cache/ci/event.json" \
+            --arg GITHUB_REPOSITORY "$GITHUB_REPOSITORY" \
+            --arg GITHUB_RUN_ID "$GITHUB_RUN_ID" \
+            --arg GITHUB_SERVER_URL "$GITHUB_SERVER_URL" \
+            --arg GITHUB_STEP_SUMMARY "$GITHUB_WORKSPACE/.cache/ci/summary.md" \
+            --arg TRIVY_CACHE_DIR "$TRIVY_CACHE_DIR" \
+            --arg XDG_CACHE_HOME "$XDG_CACHE_HOME" \
+            --arg CI "$CI" \
+            '$ARGS.named + (if env.TRIVY_SKIP_DB_UPDATE == null then {} else
+              {TRIVY_SKIP_DB_UPDATE: env.TRIVY_SKIP_DB_UPDATE} end)' \
+            >"$GITHUB_WORKSPACE/.cache/ci/context.json"
+
+      - name: Prepare container-writable hosted checkout
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
+      - name: Build dev image
+        if: needs.route.outputs.ci-image != 'true'
+        run: just build
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Set up dependencies (Hosted)
+        if: needs.route.outputs.ci-image != 'true'
+        run: |
+          if [ "$CI_PLATFORM" = macos ]; then
+            if [ -f Gemfile ]; then
+              just exec bin/setup.sh
+            fi
+          else
+            just setup
+          fi
+        env:
+          CI_PLATFORM: ${{ needs.route.outputs.platform }}
+          GH_TOKEN: ${{ github.token }}
+
+      - id: check-hosted
+        name: Every Check on every file (Hosted)
+        if: needs.route.outputs.ci-image != 'true'
+        run: |
+          if [ "$CI_PLATFORM" = macos ]; then
+            just exec standards check
+          else
+            just check
+          fi
+        env:
+          CI_PLATFORM: ${{ needs.route.outputs.platform }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+
+      - name: Summarize what the Checks rewrote
+        if: ${{ failure() && (steps['check-ci'].outcome == 'failure' || steps['check-hosted'].outcome == 'failure') }}
+        run: |
+          { echo '```'; git status --short; git diff --stat; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error::the Checks failed or a Fixer rewrote files; run 'just check' locally and commit the result"
+
+  standards-macos:
+    name: standards-macos
+    needs: route
+    if: needs.route.outputs.platform == 'macos'
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]') }}
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install just
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - name: Check out central macOS tools action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: main
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: actions/macos-tools
+      - name: Restore macOS tool downloads
+        id: macos-downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: macos-tools-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('image/mise.lock') }}
+      - name: Install mise if missing on macOS
+        uses: ./.cache/central-test-gate/actions/macos-tools # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
+        with:
+          provision: 'false'
+      - name: Remove central macOS tools checkout
+        run: |
+          cp .cache/central-test-gate/actions/macos-tools/run-recipe.sh "$RUNNER_TEMP/macos-recipe.sh"
+          rm -rf .cache/central-test-gate
+      - name: Set up native Checks
+        run: bash "$RUNNER_TEMP/macos-recipe.sh" setup
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Save macOS tool downloads
+        if: steps.macos-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: ${{ steps.macos-downloads.outputs.cache-primary-key }}
+      - name: Native Checks
+        run: bash "$RUNNER_TEMP/macos-recipe.sh" check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  standards-main:
+    name: standards-main
+    needs: [route, standards-linux, standards-macos]
+    if: ${{ always() }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Require all applicable Checks to succeed
+        env:
+          ROUTE_RESULT: ${{ needs.route.result }}
+          PLATFORM: ${{ needs.route.outputs.platform }}
+          LINUX_RESULT: ${{ needs.standards-linux.result }}
+          MACOS_RESULT: ${{ needs.standards-macos.result }}
+        run: |
+          test "$ROUTE_RESULT" = success && test "$LINUX_RESULT" = success &&
+            { { test "$PLATFORM" = macos && test "$MACOS_RESULT" = success; } ||
+              { test "$PLATFORM" = linux && test "$MACOS_RESULT" = skipped; }; }
+
+  test-gate-main:
+    permissions:
+      contents: read
+      packages: read
+    uses: Rubio-Enterprises/.github/.github/workflows/test-gate.yml@main

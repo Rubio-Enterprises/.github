@@ -80,6 +80,24 @@ counted once. Malformed XML, missing reports, failed suite summaries and an
 unsuccessful Lifecycle step all fail. This reuses the XML approach in `e2e.yml`
 rather than a new regex or reporting dependency.
 
+## Default-branch execution
+
+`default-branch-check.yml` calls this workflow as `test-gate-main` without any
+qualification inputs or inherited secrets. The image and cache publishers select
+default-branch pushes and dispatches; see
+[default-branch verification](standards-check.md#default-branch-verification).
+The production route, policy reader, applicable Lifecycle concerns and executed
+JUnit validation are unchanged, including native shapes and declared macOS legs.
+The reader-App token steps are qualification-only. Normal checkout/setup use the
+automatic read-only job token, so the publisher callers need no additional secrets.
+Dependency review remains public-PR-only, not a whole-tree push check.
+
+The aggregate remains named `test-gate`, under the `test-gate-main` caller prefix.
+These extra default-branch results are not required by a ruleset. Existing
+reasoned policy exceptions still apply. Every selected run executes the checks;
+no evidence shortcut, automatic retry or red-run issue/label/notification exists.
+The caller's concurrency group remains occupied through completion.
+
 ## Exceptions
 
 Missing `.github/standards.toml` means enforcement is enabled. Either independent

@@ -2,7 +2,8 @@
 
 The OpenTofu-owned `standards` ruleset injects `.github/workflows/standards.yml`
 at `refs/heads/main` into repositories with `standards-onboarded=true`.
-The required check remains `standards`; `test-gate` remains repository-owned.
+The required check remains `standards`; the separately injected Test Gate keeps
+its required `test-gate` result.
 
 ## Execution
 
@@ -37,6 +38,48 @@ context per leg; no ruleset change is needed.
 Checkout uses full history and no persisted credential. PR Checks still run when
 whole-tree Checks fail, so one failure does not hide another. Fixer rewrites are
 summarized on failure. `.github` itself is a bootstrap repository and is skipped.
+
+## Default-branch verification
+
+The existing repository-owned publisher calls the central image and cache reusables.
+Their `verify` jobs select pushes and `workflow_dispatch` on the repository's actual
+default branch, including `master`. They exclude this non-onboarded source repository.
+Private repositories verify after successful image publication, unless `image-name`
+is set. Public repositories verify through `standards-cache.yml`, independently of
+cache warming. No repository-owned file or required-check setting changes.
+
+Both call `default-branch-check.yml`, a read-only, workflow_call-only reusable with
+no event/ref guard or qualification inputs. It always executes whole-tree Checks:
+`standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
+the native Standards leg for `ci-platform=macos`. Admission and the shared router,
+not visibility alone, select image execution. Hosted builds use the same disk
+preparation and container-visible trivy context as PR checks. No `check-pr` or
+pull-request metadata is used. The PR execution path is unchanged; contract tests
+compare the duplicated whole-tree steps to it to prevent drift.
+
+The fail-closed aggregate is `standards-main`. The parallel `test-gate-main` call
+uses the production [Test Gate](test-gate.md) with no inputs or inherited secrets.
+Its Linux/macOS jobs and aggregate retain their normal names; caller prefixes are
+part of each check-run name. Audit names by `standards-main` and `test-gate-main`,
+not by assuming flat contexts. These additional results are not required checks.
+
+Every selected push and dispatch executes the checks. There is no PR-evidence
+lookup or reuse in this version. A failure is a failed run only: no retry,
+notification, issue, label or merge block. Publication failure leaves verification
+unrun, not passing. The publisher's existing concurrency group remains held until
+verification finishes. GitHub may replace pending runs during a burst; the contract
+is verification of the latest head, not every intermediate commit.
+
+Verification requests only `contents: read` and `packages: read`. The automatic
+job token covers checkout and package access; it needs no reader-App secret,
+OIDC or write permission. An explicit direct call can exercise these same checks
+on a non-default branch without changing production trigger policy in the callers.
+
+Default-branch macOS Standards jobs restore and save the same mise download-store
+path and key as PR jobs. A default-branch save is visible to PRs, unlike PR-scoped
+saves. Repository setup must use the shared CI cache location described in
+[Test Gate's cache contract](test-gate.md); legacy checkout-local helpers cannot
+populate that store just because the workflow contains a save step.
 
 ## Caches and environment
 
