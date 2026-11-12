@@ -113,6 +113,39 @@ silently capped by size. GitHub's artifact/storage limits still apply; each leg
 uses at most two of its 500 artifact slots. Upload happens before JUnit validation
 and Compose teardown, so a failed script still leaves its diagnostic evidence.
 
+The workflow's `Upload Lifecycle artifacts` calling step has a **10-minute**
+`timeout-minutes` and `continue-on-error: true`. This bounds staging, compression
+and both uploads together, not the Lifecycle Scripts or JUnit gate. The November
+inventory measured packages up to 94 MB and reports up to 64 MB compressed; an
+[80 MB macOS archive took 11 seconds](https://github.com/Rubio-Enterprises/t3code-overlay/actions/runs/42538344990).
+Ten minutes allows roughly 27 times that transfer time for the combined measured
+package/report sizes, plus local enumeration, copying and compression. It is a
+side-step budget, not a larger job timeout or an unconditional artifact-size cap.
+A timeout or upload failure emits a warning naming the source directories and
+their eligible, uncompressed byte sizes. If enumeration itself fails or times out,
+the warning names the directories and explicitly reports size unavailable.
+
+The [workflow step timeout](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepstimeout-minutes)
+belongs on the caller, not inside composite metadata. Runner 2.337.0's
+[composite schema](https://github.com/actions/runner/blob/v2.337.0/src/Runner.Worker/action_yaml.json)
+has no inner timeout field. Its
+[embedded contexts inherit the caller's remaining time](https://github.com/actions/runner/blob/v2.337.0/src/Runner.Worker/ExecutionContext.cs),
+so an inner `always()` cleanup can itself be interrupted. The composite cleans up
+with `if: always()`, and a separate workflow `always()` step removes staging again
+before JUnit validation, including after the caller times out.
+
+Before copying, staging sizes the same non-hidden, no-follow regular files it
+will upload. It checks free space on the staging filesystem and reserves **1 GiB**
+for JUnit, teardown and runner logs. If the eligible tree cannot fit above that
+reserve, staging warns with each directory's size and the free/reserved bytes,
+removes staging and skips the upload. It checks again before each file and removes
+all partial staging on any copy failure or interrupt. This is a conservative
+logical-byte check, including sparse files, not a fixed maximum artifact size.
+The original `reports/` and `dist/` remain untouched. Portable hard-link staging
+would reopen source paths rather than copy from the already verified no-follow
+descriptors; keeping the existing isolated copies plus a space preflight avoids
+that race and filesystem-specific fallbacks.
+
 ### Naming and discovery
 
 The name contract is:

@@ -15,7 +15,6 @@ runs:
   steps:
     - name: Stage regular non-hidden Lifecycle files
       id: stage
-      continue-on-error: true
       shell: bash
       env:
         PACKAGE_ATTEMPT: ${{ inputs.package }}
@@ -27,7 +26,6 @@ runs:
     - name: Upload reports
       id: reports
       if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
-      continue-on-error: true
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: ${{ inputs.name }}-reports-${{ github.run_attempt }}${{ inputs.representative != '' && format('-{0}', inputs.representative) || '' }}
@@ -37,14 +35,13 @@ runs:
     - name: Upload packaged output
       id: package
       if: ${{ !cancelled() && steps.stage.outcome == 'success' && inputs.package == 'true' }}
-      continue-on-error: true
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: ${{ inputs.name }}-package-${{ github.run_attempt }}${{ inputs.representative != '' && format('-{0}', inputs.representative) || '' }}
         path: ${{ runner.temp }}/gate-artifacts/dist
         retention-days: 7
         if-no-files-found: ignore
-    - name: Report unavailable evidence
-      if: ${{ !cancelled() && (steps.stage.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.package.outcome == 'failure') }}
+    - name: Clean up staged evidence
+      if: ${{ always() }}
       shell: bash
-      run: echo '::warning::Test Gate artifact preparation or upload failed; the gate result is not affected'
+      run: rm -rf -- "$RUNNER_TEMP/gate-artifacts"

@@ -280,6 +280,7 @@ jobs:
         id: artifacts
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         continue-on-error: true
+        timeout-minutes: 10
         uses: ./.cache/central-test-gate/actions/gate-artifacts # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
         with:
           name: ${{ github.job }}-${{ steps.lifecycle.outputs.artifact-concerns || 'none' }}
@@ -287,7 +288,10 @@ jobs:
           package: ${{ steps.lifecycle.outputs.package }}
       - name: Report a failed artifact upload
         if: ${{ !cancelled() && steps.artifacts.outcome == 'failure' }}
-        run: echo '::warning::Test Gate artifact upload failed; the gate result is not affected'
+        run: echo "::warning::Test Gate artifact preparation or upload failed or exceeded 10 minutes for ${GATE_ARTIFACT_SIZES:-reports/ and dist/ (size unavailable before inventory completed)}; the gate result is not affected"
+      - name: Clean up Lifecycle artifacts
+        if: ${{ always() }}
+        run: rm -rf -- "$RUNNER_TEMP/gate-artifacts"
       - name: Require JUnit evidence
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
@@ -492,6 +496,7 @@ jobs:
         id: artifacts
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         continue-on-error: true
+        timeout-minutes: 10
         uses: ./.cache/central-test-gate/actions/gate-artifacts # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
         with:
           name: ${{ github.job }}-${{ steps.lifecycle.outputs.artifact-concerns || 'none' }}
@@ -499,7 +504,10 @@ jobs:
           package: ${{ steps.lifecycle.outputs.package }}
       - name: Report a failed artifact upload
         if: ${{ !cancelled() && steps.artifacts.outcome == 'failure' }}
-        run: echo '::warning::Test Gate artifact upload failed; the gate result is not affected'
+        run: echo "::warning::Test Gate artifact preparation or upload failed or exceeded 10 minutes for ${GATE_ARTIFACT_SIZES:-reports/ and dist/ (size unavailable before inventory completed)}; the gate result is not affected"
+      - name: Clean up Lifecycle artifacts
+        if: ${{ always() }}
+        run: rm -rf -- "$RUNNER_TEMP/gate-artifacts"
       - name: Require JUnit evidence
         if: ${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}
         uses: ./.cache/central-test-gate/actions/junit-gate # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code

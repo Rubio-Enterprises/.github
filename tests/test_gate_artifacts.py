@@ -3,11 +3,14 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import resource
+import shutil
+import signal
 from itertools import product
 
 import pytest
 
-from test_test_gate import ROOT, WORKFLOW, run_shell, scripts, step
+from test_test_gate import ROOT, WORKFLOW, junit, report, run_shell, scripts, step
 
 ACTION = ROOT / 'actions/gate-artifacts'
 JOBS = ('test-gate-linux', 'test-gate-macos')
@@ -125,8 +128,92 @@ def test_unreadable_evidence_is_an_error_not_silent_loss(tmp_path, directory):
         result = stage(repo, tmp_path)
         assert result.returncode != 0
         assert 'PermissionError' in result.stderr
+        assert not (tmp_path / 'gate-artifacts').exists()
     finally:
         target.chmod(0o755 if directory else 0o644)
+
+
+def test_insufficient_space_warns_with_sizes_without_consuming_the_reserve(tmp_path):
+    repo = tmp_path / 'repo'
+    report(repo, 'passed.xml')
+    (repo / 'dist').mkdir()
+    size = shutil.disk_usage(tmp_path).free + 1
+    with (repo / 'dist/large.zip').open('wb') as stream:
+        stream.truncate(size)
+    result = stage(repo, tmp_path)
+    assert result.returncode != 0
+    assert '::warning::' in result.stdout
+    assert f'dist/ ({size} bytes)' in result.stdout
+    assert 'reports/ (' in result.stdout
+    assert 'free' in result.stdout
+    assert not (tmp_path / 'gate-artifacts').exists()
+    assert junit(repo).returncode == 0
+
+
+def test_copy_failure_removes_partial_staging_and_preserves_junit(tmp_path):
+    repo = tmp_path / 'repo'
+    original = report(repo, 'passed.xml').read_bytes()
+    (repo / 'dist').mkdir()
+    (repo / 'dist/app.zip').write_bytes(b'x' * (2 * 1024 * 1024))
+
+    def limit_file_size():
+        signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+        resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+
+    result = subprocess.run([sys.executable, str(ACTION / 'stage.py')], cwd=repo,
+                            env={**os.environ, 'RUNNER_TEMP': str(tmp_path), 'PACKAGE_ATTEMPT': 'true'},
+                            preexec_fn=limit_file_size, text=True, capture_output=True)
+    assert result.returncode != 0
+    assert 'File too large' in result.stderr
+    assert not (tmp_path / 'gate-artifacts').exists()
+    assert (repo / 'reports/test/junit.xml').read_bytes() == original
+    assert junit(repo).returncode == 0
+
+
+@pytest.mark.parametrize('job', JOBS)
+@pytest.mark.parametrize('upload', ['failure', 'timeout'])
+@pytest.mark.parametrize('fixture,outcome,expected', [
+    ('passed.xml', 'success', 0), ('failed.xml', 'success', 1), ('passed.xml', 'failure', 1),
+])
+def test_upload_failure_or_timeout_cleans_staging_without_changing_junit(tmp_path, job, upload, fixture, outcome, expected):
+    repo = tmp_path / 'repo'
+    original = report(repo, fixture).read_bytes()
+    environment = tmp_path / 'environment'
+    environment.touch()
+    staged = subprocess.run([sys.executable, str(ACTION / 'stage.py')], cwd=repo,
+                            env={**os.environ, 'RUNNER_TEMP': str(tmp_path), 'GITHUB_ENV': str(environment)},
+                            text=True, capture_output=True)
+    assert staged.returncode == 0, staged.stderr
+    assert (tmp_path / 'gate-artifacts/reports/test/junit.xml').is_file()
+    sizes = dict(line.split('=', 1) for line in environment.read_text().splitlines())
+    assert sizes['GATE_ARTIFACT_SIZES'] == f'reports/ ({len(original)} bytes)'
+    if upload == 'failure':
+        assert subprocess.run(['bash', '-c', 'exit 23']).returncode == 23
+    else:
+        with pytest.raises(subprocess.TimeoutExpired):
+            subprocess.run(['sleep', '10'], timeout=0.05)
+    warning, _ = run_shell('Report a failed artifact upload', repo, job=job, **sizes)
+    assert warning.returncode == 0
+    assert '::warning::' in warning.stdout
+    assert sizes['GATE_ARTIFACT_SIZES'] in warning.stdout
+    cleaned, _ = run_shell('Clean up Lifecycle artifacts', repo, job=job, RUNNER_TEMP=str(tmp_path))
+    assert cleaned.returncode == 0, cleaned.stderr
+    assert not (tmp_path / 'gate-artifacts').exists()
+    assert (repo / 'reports/test/junit.xml').read_bytes() == original
+    assert junit(repo, outcome=outcome).returncode == expected
+
+
+def test_composite_always_cleanup_removes_staging_but_not_sources(tmp_path):
+    repo = tmp_path / 'repo'
+    report(repo, 'passed.xml')
+    assert stage(repo, tmp_path).returncode == 0
+    cleanup = document()['runs']['steps'][-1]
+    assert cleanup['if'] == '${{ always() }}'
+    result = subprocess.run(['bash', '-e', '-c', cleanup['run']], cwd=repo,
+                            env={**os.environ, 'RUNNER_TEMP': str(tmp_path)}, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / 'gate-artifacts').exists()
+    assert junit(repo).returncode == 0
 
 
 def test_upload_interface_is_shared_warn_only_and_keeps_permissions():
@@ -137,6 +224,7 @@ def test_upload_interface_is_shared_warn_only_and_keeps_permissions():
         steps = WORKFLOW['jobs'][job]['steps']
         call = step('Upload Lifecycle artifacts', job)
         assert call['continue-on-error'] is True
+        assert call['timeout-minutes'] == 10
         assert call['if'] == "${{ !cancelled() && steps.lifecycle.outcome != 'skipped' }}"
         assert call['uses'] == './.cache/central-test-gate/actions/gate-artifacts'
         assert call['with'] == {
@@ -152,6 +240,10 @@ def test_upload_interface_is_shared_warn_only_and_keeps_permissions():
         warning = step('Report a failed artifact upload', job)
         assert "steps.artifacts.outcome == 'failure'" in warning['if']
         assert '::warning::' in warning['run']
+        assert 'GATE_ARTIFACT_SIZES' in warning['run']
+        cleanup = step('Clean up Lifecycle artifacts', job)
+        assert cleanup['if'] == '${{ always() }}'
+        assert steps.index(call) < steps.index(cleanup) < steps.index(step('Require JUnit evidence', job))
 
 
 def test_upload_action_has_one_pin_short_retention_and_no_empty_warning():
@@ -161,7 +253,7 @@ def test_upload_action_has_one_pin_short_retention_and_no_empty_warning():
     pins = {s['uses'] for s in uploads}
     assert pins == {'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9'}
     for upload in uploads:
-        assert upload['continue-on-error'] is True
+        assert upload.get('continue-on-error', False) is False
         assert upload['with']['retention-days'] == 7
         assert upload['with']['if-no-files-found'] == 'ignore'
         assert upload['with'].get('include-hidden-files', False) is False
@@ -169,8 +261,10 @@ def test_upload_action_has_one_pin_short_retention_and_no_empty_warning():
         assert upload['with']['path'].startswith('${{ runner.temp }}/gate-artifacts/')
         assert 'steps.stage.outcome' in upload['if']
     assert "inputs.package == 'true'" in uploads[1]['if']
-    assert '::warning::' in steps[-1]['run']
-    assert 'steps.stage.outcome' in steps[-1]['if']
+    assert steps[-1]['if'] == '${{ always() }}'
+    assert 'rm -rf' in steps[-1]['run']
+    assert all('timeout-minutes' not in s for s in steps)
+    assert steps[0].get('continue-on-error', False) is False
     for workflow in (ROOT / '.github/workflows').glob('*.yml'):
         for line in workflow.read_text().splitlines():
             if 'uses: actions/upload-artifact@' in line:
