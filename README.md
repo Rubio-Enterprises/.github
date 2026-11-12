@@ -76,12 +76,19 @@ The canonical organization defaults live in [`.github/ISSUE_TEMPLATE/`](.github/
 | [Refactoring](.github/ISSUE_TEMPLATE/refactoring.yml) | Structural code changes that preserve behavior | `task` |
 | [Task](.github/ISSUE_TEMPLATE/task.yml) | Documentation, maintenance, infrastructure, or other concrete work | `task` |
 
-Every form starts with only `needs-triage`; kind labels and Stage fields are not
-assigned. Proposal forms require Outcome, Problem / motivation, In scope, Out of
-scope, Done when, Verification, and Alternatives considered; Context links are
-optional. Bug intake is diagnostic: a complete reproduction is optional at
-filing, but needed before unattended implementation. Examples are placeholders,
-not prefilled answers.
+Every form starts with only `intent:draft`; kind labels and Stage fields are not
+assigned. Enhancement, Refactoring and Task capture the Intent: what is asked and
+why. Their fields, in order, are Problem and Outcome (required), then Constraints,
+Open questions and References (optional). Constraints name what must not change
+and limits on any solution; "None" is valid. Open questions belong only when an
+answer would change the Outcome, scope or a constraint, or when the asker wants
+to be asked about a decision. Leaving them empty is normal. References are
+context, never required reading, and must be sources readers can open.
+
+Decisions, scope and acceptance criteria are added later in Refinement; filing
+does not mean approval. Bug intake stays diagnostic: a complete reproduction is
+optional at filing, but needed before unattended implementation. Examples are
+placeholders, not prefilled answers.
 
 Repositories without local issue templates inherit the complete set from this
 public `.github` repository's default branch. Any local issue template or
@@ -92,10 +99,12 @@ override must maintain its complete local chooser. No release, renderer or
 synchronization job is needed.
 
 Before publishing, prepare compatible issue consumers, ensure the lowercase
-native types and `needs-triage` label exist where used, and pilot the complete
-chooser in one repository. These files do not provision GitHub metadata or change
-existing issues. Required fields are not a universal enforcement boundary,
-particularly in private repositories or for API/CLI-created issues.
+native types and `intent:draft` label exist where used, and pilot the complete
+chooser in one repository. Apply the organization label rename before merging
+these forms: a form naming a label that does not exist files issues with no
+state. These files do not provision GitHub metadata or change existing issues.
+Required fields are not a universal enforcement boundary, particularly in
+private repositories or for API/CLI-created issues.
 
 ## Reusable workflows
 

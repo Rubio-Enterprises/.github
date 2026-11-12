@@ -12,15 +12,12 @@ FORMS = {
     "refactoring": ("Refactoring", "task"),
     "task": ("Task", "task"),
 }
-PROPOSAL_FIELDS = {
+INTENT_FIELDS = {
+    "problem": "Problem",
     "outcome": "Outcome",
-    "problem": "Problem / motivation",
-    "in-scope": "In scope",
-    "out-of-scope": "Out of scope",
-    "done-when": "Done when",
-    "verification": "Verification",
-    "alternatives": "Alternatives considered",
-    "context": "Context links",
+    "constraints": "Constraints",
+    "open-questions": "Open questions",
+    "references": "References",
 }
 BUG_FIELDS = {
     "description": "Description",
@@ -68,13 +65,13 @@ class IssueFormStructureTests(unittest.TestCase):
                 self.assertEqual(form["name"], display_name)
                 self.assertTrue(form["description"].strip())
                 self.assertEqual(form["type"], issue_type)
-                self.assertEqual(form["labels"], ["needs-triage"])
+                self.assertEqual(form["labels"], ["intent:draft"])
 
-    def test_fields_have_unique_ids_and_the_agreed_diagnostic_or_proposal_sections(self):
+    def test_fields_have_unique_ids_and_the_agreed_diagnostic_or_intent_sections(self):
         for name, form in self.forms.items():
             with self.subTest(form=name):
                 fields = [field for field in form["body"] if field["type"] != "markdown"]
-                expected = BUG_FIELDS if name == "bug" else PROPOSAL_FIELDS
+                expected = BUG_FIELDS if name == "bug" else INTENT_FIELDS
                 ids = [field["id"] for field in fields]
                 self.assertEqual(len(ids), len(set(ids)))
                 self.assertEqual(ids, list(expected))
@@ -82,9 +79,13 @@ class IssueFormStructureTests(unittest.TestCase):
                     self.assertRegex(field["id"], r"^[a-zA-Z0-9_-]+$")
                     self.assertEqual(field["attributes"]["label"], expected[field["id"]])
 
-    def test_requiredness_keeps_bug_reproduction_optional_at_intake(self):
+    def test_requiredness_keeps_only_problem_and_outcome_required_for_intents(self):
         for name, form in self.forms.items():
-            optional = {"reproduction", "logs", "context"} if name == "bug" else {"context"}
+            optional = (
+                {"reproduction", "logs", "context"}
+                if name == "bug"
+                else {"constraints", "open-questions", "references"}
+            )
             for field in form["body"]:
                 if field["type"] == "markdown":
                     continue

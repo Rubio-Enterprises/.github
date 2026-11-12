@@ -2,17 +2,23 @@ name: Task
 description: Plan documentation, maintenance, infrastructure, or other concrete work.
 type: task
 labels:
-  - needs-triage
+  - intent:draft
 body:
   - type: markdown
     attributes:
       value: |
-        Use this form for work that is not a bug, enhancement, or behavior-preserving code refactor.
-        Examples: update setup documentation; upgrade a dependency; perform a bounded infrastructure change.
-
-        Keep answers concise. Context links are optional; other sections are required.
-        If a section genuinely does not apply, explain why rather than inventing content.
-        Examples are illustrative, not reports about this repository. Do not include secrets.
+        This form captures the Intent—what is asked and why—for documentation, maintenance, infrastructure or other concrete work.
+        Decisions, scope and acceptance criteria are added later in Refinement.
+        Filing does not mean approval; keep answers concise and leave out secrets.
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem"
+      description: "Describe the current situation and why this documentation, maintenance or other work is needed."
+      placeholder: |
+        The setup guide still names retired task aliases, so following it fails before the first test run.
+    validations:
+      required: true
   - type: textarea
     id: outcome
     attributes:
@@ -23,73 +29,34 @@ body:
     validations:
       required: true
   - type: textarea
-    id: problem
+    id: constraints
     attributes:
-      label: "Problem / motivation"
-      description: "Describe the current situation and why it needs to change."
+      label: "Constraints"
+      description: 'Optional: what must not change, and what limits apply to any solution? "None" is a valid answer.'
       placeholder: |
-        The setup guide still names retired task aliases, so following it fails before the first test run.
+        - Keep the current task runner and CI configuration.
+        - Do not upgrade dependencies as part of this work.
     validations:
-      required: true
+      required: false
   - type: textarea
-    id: in-scope
+    id: open-questions
     attributes:
-      label: "In scope"
-      description: "Name the behavior, areas, or artifacts this issue should change. Include concrete constraints."
+      label: "Open questions"
+      description: >-
+        Include a question only if its answer would change the Outcome, scope or a constraint,
+        or if it is a decision you want to be asked about.
+        For example: "Should setup cover a clean machine, or assume prerequisites are installed?"
+        and "One setup guide or separate guides? I have a view."
+        Leaving this empty is normal.
       placeholder: |
-        - Update the setup instructions and command reference.
-        - Use the tasks currently exposed by the repository.
-        - Correct only instructions affected by the retired aliases.
+        Should the setup instructions cover both macOS and Linux?
     validations:
-      required: true
+      required: false
   - type: textarea
-    id: out-of-scope
+    id: references
     attributes:
-      label: "Out of scope"
-      description: "Name related work that is deliberately excluded."
-      placeholder: |
-        - Dependency upgrades.
-        - Changes to the task runner or CI configuration.
-    validations:
-      required: true
-  - type: textarea
-    id: done-when
-    attributes:
-      label: "Done when"
-      description: "List observable conditions that must be true when the work is complete."
-      placeholder: |
-        - [ ] Every documented task name exists.
-        - [ ] Following the setup instructions in a clean checkout reaches the documented working state.
-        - [ ] Unrelated documentation is unchanged.
-    validations:
-      required: true
-  - type: textarea
-    id: verification
-    attributes:
-      label: "Verification"
-      description: "Give relevant commands or manual checks and their expected results. Use the repository's actual tools."
-      placeholder: |
-        mise tasks — confirm that each documented task exists.
-        Follow the revised setup instructions in a disposable checkout and record the result.
-        Run the repository's documentation checks, if present; they pass.
-    validations:
-      required: true
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: "Alternatives considered"
-      description: "Describe actual alternatives and why they were rejected. Use N/A only with a concrete reason no meaningful choice existed—not because alternatives were not investigated."
-      placeholder: |
-        Keep the old commands with a warning — rejected because the primary path would still fail.
-        Remove the setup section — rejected because contributors still need it.
-        Update the instructions to the supported tasks — selected.
-    validations:
-      required: true
-  - type: textarea
-    id: context
-    attributes:
-      label: "Context links"
-      description: "Optional: link to relevant issues, documentation, logs, or prior decisions and explain their relevance. Use only sources readers can open (GitHub links, Knowledge documents, attachments), not local paths."
+      label: "References"
+      description: "Optional: links for context, never required reading. Use only sources readers can open (GitHub links, Knowledge documents, attachments), not local paths."
       placeholder: |
         Link to the setup guide and the change that removed the old task aliases.
     validations:
