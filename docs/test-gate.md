@@ -8,12 +8,23 @@ separate public-PR job, outside that required context.
 
 ## Execution contract
 
-`project-route.yml` with `route: test` reads `ci-platform`, `ci-size`, optional
+This workflow calls `project-route.yml` with `route: test` and
+`inspect-image-inputs: true`. Other router callers default to no image-input
+inspection. The router reads `ci-platform`, `ci-size`, optional
 `ci-test-route` and `ci-test-macos`. The Linux job uses the returned labels unchanged,
 including ARM, with a 120-minute limit. The macOS job has a 60-minute limit and uses
 `macos-runner`. Public tests stay hosted. Route failures fail the aggregate rather
 than silently skipping the required result. See
 [project routing](reusable-workflows/project-route.md).
+
+For admitted Linux small/medium tests, the shared router sends image-changing pull
+requests and merge groups to `RUNNERS.docker` with `ci-image=false`. Unknown or
+capped changed-file lists take the same safe route. `test-gate-linux` builds the
+checked-out Dev Image and runs every existing concern inside it. It retains hosted
+disk preparation, setup and JUnit validation. Unrelated changes keep the CI Image;
+public repositories already use Compose. ARM and Docker test overrides already
+build the changed image and retain their runners; macOS shapes and declared macOS
+legs are unchanged. No file-detection logic is duplicated in this workflow.
 
 Checkout retains full history and does not persist credentials. A CI Image runs
 `bin/setup.sh` and the Lifecycle Scripts directly. Other Linux runners execute
