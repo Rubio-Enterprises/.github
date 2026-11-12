@@ -1,0 +1,17 @@
+name: Install a pinned release tool
+description: Authenticated API download with a literal SHA-256, or reuse of the exact version
+inputs:
+  tool:
+    description: Tool from the central release pins
+    required: true
+  token:
+    description: Job token for public release assets
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TOOL: ${{ inputs.tool }}
+      run: bash "$GITHUB_ACTION_PATH/entry.sh"

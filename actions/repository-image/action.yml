@@ -15,6 +15,7 @@ runs:
       shell: bash
       env:
         OPERATION: ${{ inputs.operation }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         case "$OPERATION" in
           build|scan|publish) bash "$GITHUB_ACTION_PATH/$OPERATION.sh" ;;

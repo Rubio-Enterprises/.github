@@ -280,19 +280,10 @@ fi
         self.assertNotIn("imagetools create", (self.root / "calls").read_text())
 
     def test_scan_failure_is_redacted_and_cleans_up_its_transient_results(self):
-        import io
-        import tarfile
+        self.stub("uname", 'case "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
         for status in (0, 1):
             with self.subTest(status=status):
-                body = ('#!/bin/sh\necho sensitive-fixture-output\nexit ' + str(status) + '\n').encode()
-                archive = self.root / "scanner.tgz"
-                with tarfile.open(archive, "w:gz") as tar:
-                    member = tarfile.TarInfo("trivy")
-                    member.mode = 0o755
-                    member.size = len(body)
-                    tar.addfile(member, io.BytesIO(body))
-                self.stub("curl", 'while [[ "$1" != -o ]]; do shift; done; cp "$RUNNER_TEMP/scanner.tgz" "$2"\n')
-                self.stub("sha256sum", 'cat >/dev/null\n')
+                self.stub("trivy", 'if [[ "$1" == --version ]]; then echo "Version: 0.76.1"; exit 0; fi\necho sensitive-fixture-output\nexit ' + str(status) + '\n')
                 result = self.run_script("scan")
                 self.assertEqual(result.returncode, status, result.stderr)
                 self.assertNotIn("sensitive-fixture-output", result.stdout + result.stderr)

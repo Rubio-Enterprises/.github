@@ -1,4 +1,18 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>Rubio-Enterprises/.github"]
+  "extends": ["github>Rubio-Enterprises/.github"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^actions/release-asset/pins\\.json$/"],
+      "matchStrings": ["\"repo\":\\s*\"(?<depName>[^\"]+)\",\\s*\"tag\":\\s*\"(?<currentValue>[^\"]+)\",\\s*\"sha256\":\\s*\"(?<currentDigest>[a-f0-9]{64})\""],
+      "datasourceTemplate": "github-release-attachments"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchFileNames": ["actions/release-asset/pins.json"],
+      "pinDigests": true
+    }
+  ]
 }

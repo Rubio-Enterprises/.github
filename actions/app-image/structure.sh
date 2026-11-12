@@ -16,7 +16,7 @@
 #   SERVER                 true when the image is a long-running server: it must declare a HEALTHCHECK (default false)
 #   BLOCK_VULNERABILITIES  true fails the step on a fixable CRITICAL vulnerability (default false: report only)
 #   REGISTRY_TOKEN         optional: the job's GITHUB_TOKEN with packages: read, for a GHCR REF
-#   TRIVY_BIN              optional: a Trivy binary to use instead of the pinned release
+#   TRIVY_BIN              optional: an existing Trivy binary, reused only at the pinned version
 set -euo pipefail
 : "${RUNNER_TEMP:?}"
 # shellcheck source=lib.sh
@@ -38,18 +38,7 @@ fi
 [[ "$block" == true || "$block" == false ]] || fail 'BLOCK_VULNERABILITIES must be true or false'
 if [[ -n "${REGISTRY_TOKEN:-}" ]]; then ghcr_docker_config "$REGISTRY_TOKEN"; fi
 
-# The pinned Trivy release, the one repository-image.yml scans with
-install_trivy() {
-  local version=0.76.1 checksum=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0 archive="$state/trivy.tar.gz"
-  curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 --output "$archive" \
-    "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-64bit.tar.gz"
-  printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --strict
-  mkdir -p "$state/trivy"
-  tar -xzf "$archive" -C "$state/trivy" trivy
-  rm -f "$archive"
-  TRIVY_BIN="$state/trivy/trivy"
-}
-if [[ -z "${TRIVY_BIN:-}" ]]; then install_trivy; fi
+TRIVY_BIN=$(bash "$(dirname "${BASH_SOURCE[0]}")/../release-asset/install.sh" trivy "$state/trivy/trivy" "${TRIVY_BIN:-}")
 
 failures=0
 problem() {
