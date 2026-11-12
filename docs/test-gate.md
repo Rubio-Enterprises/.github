@@ -34,6 +34,8 @@ The preparation action's temporary central checkout is removed before repository
 setup. Setup asserts its absence on every runner kind. The JUnit action is checked
 out only after Lifecycle Scripts finish, so tree-walking tests never see central
 repository files.
+The other central hosted Docker jobs use the same temporary sparse checkout,
+local action call and immediate removal before Docker work, including ARM jobs.
 
 The November 2026 Ubuntu 26.04 hosted measurement had 15.0 GiB free on `/` and
 no separate `/mnt` disk. Docker used `/var/lib/docker` with the containerd
