@@ -7,6 +7,10 @@ name: project route (reusable)
         description: "auto uses ci-platform/ci-size; linux selects Linux checks; test also reads ci-test-route; capability jobs select a RUNNERS key"
         type: string
         default: auto
+      inspect-image-inputs:
+        description: "Inspect image inputs for injected Standards Check and Test Gate calls"
+        type: boolean
+        default: false
     outputs:
       platform:
         description: "Declared platform for auto/linux routes; capability platform otherwise"
@@ -46,6 +50,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           ROUTE: ${{ inputs.route }}
+          INSPECT_IMAGE_INPUTS: ${{ inputs.inspect-image-inputs }}
           RUNNERS: ${{ vars.RUNNERS || '{}' }}
           CI_IMAGE_REPOS: ${{ vars.CI_IMAGE_REPOS || '[]' }}
         with:
@@ -65,7 +70,7 @@ jobs:
             }
             let route = process.env.ROUTE;
             const testRoute = route === 'test';
-            let inspectImageInputs = ['linux', 'test'].includes(route);
+            let inspectImageInputs = process.env.INSPECT_IMAGE_INPUTS === 'true' && ['linux', 'test'].includes(route);
             let macosConcerns = [];
             let platform = route === 'macos' ? 'macos' : 'linux';
             if (['auto', 'linux', 'test'].includes(route)) {

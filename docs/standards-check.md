@@ -9,8 +9,9 @@ its required `test-gate` result.
 
 The [project router](reusable-workflows/project-route.md) reads `ci-platform`,
 `ci-size`, `RUNNERS` and the central `CI_IMAGE_REPOS` admission list before checkout.
-The router's `linux` selection uses `ci-size` for the Linux leg even when
-`ci-platform=macos`, and returns the declared platform separately. A route failure
+This workflow sets `inspect-image-inputs: true`; other router callers default to
+no image-input inspection. The router's `linux` selection uses `ci-size` for the
+Linux leg even when `ci-platform=macos`, and returns the declared platform separately. A route failure
 fails the required aggregate without running project code.
 
 For an admitted Linux-shape pull request or merge group, the router compares the

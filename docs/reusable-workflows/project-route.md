@@ -54,6 +54,12 @@ The explicit choice overrides auto selection. Keep existing Docker/KVM/ARM/macOS
 capability routes; they never select a CI Image. Existing bespoke labels and service topologies
 remain repository-owned, not replaced by the router.
 
+The optional boolean `inspect-image-inputs` defaults to `false`. Only the injected
+Standards Check and Test Gate set it to `true`, with `route: linux` and `route: test`
+respectively. Other callers, including repository-owned `linux`/`test` jobs, keep
+their existing routing and perform no image-input comparison unless they opt in.
+It has no effect on `auto` or explicit capability routes.
+
 Outputs:
 
 - `platform`: declared `linux` or `macos` for `auto`/`linux`, effective platform for `test`; for explicit capability
@@ -61,7 +67,8 @@ Outputs:
 - `runner`: JSON label array for `runs-on: fromJSON(...)`.
 - `ci-image`: the string `true` only for a repository-specific CI Image runner; otherwise `false`.
 - `image-inputs`: `changed`, `unchanged`, `unknown` or `not-checked`. Only eligible Linux
-  `linux`/`test` pull-request and merge-group calls inspect image inputs.
+  `linux`/`test` pull-request and merge-group calls with `inspect-image-inputs: true`
+  inspect image inputs. Calls without the input return `not-checked`.
 - `macos-concerns`: space-separated declared concerns in canonical order; empty on non-test routes or without a declaration.
 - `macos-runner`: JSON label array for the Test Gate's macOS job, independent of the Linux runner.
 
@@ -92,9 +99,9 @@ multi-label constraints are preserved. An owner-selected hosted route stays host
 
 ## Pull-request image inputs
 
-For `linux` and `test` calls that would otherwise select a CI Image, a Linux-shape
-pull request that changes image inputs selects `RUNNERS.docker` (fallback
-`["ubuntu-latest"]`) and `ci-image=false`. Both injected workflows consume this one
+For `linux` and `test` calls with `inspect-image-inputs: true` that would otherwise
+select a CI Image, a Linux-shape pull request that changes image inputs selects
+`RUNNERS.docker` (fallback `["ubuntu-latest"]`) and `ci-image=false`. Both injected workflows consume this one
 decision. Their existing Compose branches build the checked-out pull request's Dev
 Image with `just build`, then run their normal Checks and Lifecycle Tasks in it.
 No image is published and no tools are overlaid onto the admitted main image.
@@ -137,7 +144,8 @@ not a claim that the main image tests them.
 
 Public and unadmitted repositories already build through Compose and do no extra
 lookup. Owner-selected hosted and custom-label routes stay unchanged. Explicit
-capability and `auto` callers are unchanged. `ci-test-route=arm` already builds the
+capability and `auto` callers, and all callers without `inspect-image-inputs: true`,
+are unchanged. `ci-test-route=arm` already builds the
 pull request's Dev Image on ARM and stays there; its separate Standards `linux` call
 switches from an admitted CI Image to Docker on an image change. Existing Docker
 Test Gates stay Docker. `ci-platform=macos` is exempt from this new detection: its

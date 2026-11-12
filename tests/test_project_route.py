@@ -49,7 +49,8 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 
 def run_route(*, route='auto', runners=None, admitted=None, repository=None,
               name='org-ops', owner='Rubio-Enterprises', properties=None, api_error=False,
-              event_name='push', event=None, comparison=None, compare_error=False):
+              event_name='push', event=None, comparison=None, compare_error=False,
+              inspect_image_inputs=False):
     repo = {'id': ID, 'private': True, 'default_branch': 'main', 'custom_properties': {
         'ci-platform': 'linux', 'ci-size': 'small', 'ci-test-macos': None,
     }}
@@ -70,6 +71,7 @@ def run_route(*, route='auto', runners=None, admitted=None, repository=None,
     result = subprocess.run(
         ['node', '-e', HARNESS], input=json.dumps(payload), text=True, capture_output=True,
         check=False, env={**os.environ, 'ROUTE': route,
+                          'INSPECT_IMAGE_INPUTS': str(inspect_image_inputs).lower(),
                           'RUNNERS': json.dumps(RUNNERS if runners is None else runners),
                           'CI_IMAGE_REPOS': json.dumps([ID] if admitted is None else admitted)},
     )

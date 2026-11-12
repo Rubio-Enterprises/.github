@@ -8,7 +8,9 @@ separate public-PR job, outside that required context.
 
 ## Execution contract
 
-`project-route.yml` with `route: test` reads `ci-platform`, `ci-size`, optional
+This workflow calls `project-route.yml` with `route: test` and
+`inspect-image-inputs: true`. Other router callers default to no image-input
+inspection. The router reads `ci-platform`, `ci-size`, optional
 `ci-test-route` and `ci-test-macos`. The Linux job uses the returned labels unchanged,
 including ARM, with a 120-minute limit. The macOS job has a 60-minute limit and uses
 `macos-runner`. Public tests stay hosted. Route failures fail the aggregate rather

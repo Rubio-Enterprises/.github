@@ -13,7 +13,7 @@ SOURCE_PR = json.loads((FIXTURES / 'source-pr.json').read_text())
 
 
 def route_event(record=IMAGE_PR, *, route='linux', event_name='pull_request', files=None,
-                properties=None, **kwargs):
+                properties=None, inspect_image_inputs=True, **kwargs):
     event = copy.deepcopy(record['event'])
     comparison = copy.deepcopy(record['comparison'])
     if files is not None:
@@ -25,6 +25,8 @@ def route_event(record=IMAGE_PR, *, route='linux', event_name='pull_request', fi
         'ci-platform': 'linux', 'ci-size': 'small', 'ci-test-route': None,
         'ci-test-macos': None, **(properties or {}),
     }, **kwargs.pop('repository', {})}
+    if inspect_image_inputs is not None:
+        kwargs['inspect_image_inputs'] = inspect_image_inputs
     return run_route(route=route, event_name=event_name, event=event,
                      comparison=kwargs.pop('comparison', comparison),
                      name=record['repo']['repo'], repository=repository,
@@ -54,6 +56,20 @@ def test_recorded_pull_request_comparisons(route, record):
         'path': 'GET /repos/{owner}/{repo}/compare/{basehead}',
         'args': {**record['repo'], 'basehead': f"{pr['base']['sha']}...{pr['head']['sha']}"},
     }]
+
+
+@pytest.mark.parametrize('route', ['linux', 'test'])
+@pytest.mark.parametrize('event_name', ['pull_request', 'merge_group'])
+@pytest.mark.parametrize('inspect_image_inputs', [None, False], ids=['omitted', 'disabled'])
+@pytest.mark.parametrize('compare_error', [False, True])
+def test_other_linux_and_test_callers_keep_the_image_without_opt_in(
+        route, event_name, inspect_image_inputs, compare_error):
+    repo_id = IMAGE_PR['event']['repository']['id']
+    data = assert_selection(route_event(route=route, event_name=event_name,
+                                       inspect_image_inputs=inspect_image_inputs,
+                                       compare_error=compare_error),
+                            [f'ci-{repo_id}-aw-server-rust-small'], True, 'not-checked')
+    assert data['calls'] == []
 
 
 @pytest.mark.parametrize('path', [
@@ -135,7 +151,8 @@ def test_lookup_failure_chooses_docker_not_the_stale_image(route, event_name):
 
 @pytest.mark.parametrize('pr', [None, {}, {'base': {'sha': 'main'}, 'head': {'sha': 'x'}}])
 def test_missing_or_ambiguous_event_shas_choose_docker_without_a_request(pr):
-    code, data = run_route(route='linux', event_name='pull_request', event={'pull_request': pr})
+    code, data = run_route(route='linux', inspect_image_inputs=True,
+                           event_name='pull_request', event={'pull_request': pr})
     assert_selection((code, data), RUNNERS['docker'], inputs='unknown')
     assert data['calls'] == []
 
@@ -226,4 +243,24 @@ def test_both_injected_workflows_use_the_router_result_for_all_image_branches():
         assert 'needs.route.outputs.ci-image' in execution
         assert 'just build' in execution
         assert '/compare/' not in json.dumps(workflow)
-        assert 'image-inputs' not in json.dumps(workflow)
+        assert jobs['route']['with']['inspect-image-inputs'] is True
+        assert 'image-inputs' not in execution
+
+
+def test_image_inspection_input_defaults_to_false_and_only_injected_callers_enable_it():
+    workflow = json.loads(subprocess.check_output(
+        ['yq', '-o=json', str(ROOT / '.github/workflows/project-route.yml')], text=True))
+    assert workflow['on']['workflow_call']['inputs']['inspect-image-inputs'] == {
+        'description': 'Inspect image inputs for injected Standards Check and Test Gate calls',
+        'type': 'boolean', 'default': False,
+    }
+    env = workflow['jobs']['route']['steps'][0]['env']
+    assert env['INSPECT_IMAGE_INPUTS'] == '${{ inputs.inspect-image-inputs }}'
+    callers = set()
+    for path in (ROOT / '.github/workflows').glob('*.yml'):
+        caller = json.loads(subprocess.check_output(['yq', '-o=json', str(path)], text=True))
+        for job in caller.get('jobs', {}).values():
+            if 'project-route.yml@' in job.get('uses', ''):
+                if job.get('with', {}).get('inspect-image-inputs'):
+                    callers.add(path.name)
+    assert callers == {'standards.yml', 'test-gate.yml'}

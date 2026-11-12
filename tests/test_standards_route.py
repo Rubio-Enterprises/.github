@@ -26,7 +26,7 @@ class StandardsRouteTests(unittest.TestCase):
         route = self.jobs['route']
         self.assertEqual(route['uses'],
                          'Rubio-Enterprises/.github/.github/workflows/project-route.yml@main')
-        self.assertEqual(route['with'], {'route': 'linux'})
+        self.assertEqual(route['with'], {'route': 'linux', 'inspect-image-inputs': True})
         self.assertEqual(route['if'], "github.repository != 'Rubio-Enterprises/.github'")
         linux = self.jobs['standards-linux']
         self.assertEqual(linux['needs'], 'route')

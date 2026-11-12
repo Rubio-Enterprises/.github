@@ -126,7 +126,8 @@ release for this repository. Recover regressions through reviewed reverts.
   `standards.yml` routes from the repository's `ci-platform` (`linux`/`macos`) and `ci-size`
   (`small`/`medium`) custom properties (hand-authored in `.github-private` Terraform). The route
   reusable uses event properties or the base repository properties API before checkout. Admitted
-  small/medium self-hosted jobs select their CI Image labels. For Linux `linux`/`test`
+  small/medium self-hosted jobs select their CI Image labels. The injected workflows
+  opt in with `inspect-image-inputs: true`. For their Linux `linux`/`test`
   pull-request and merge-group calls, image-input changes or an uncertain comparison
   select Docker and build the checkout's Dev Image instead. Before changing detection
   or adding an image-input path, read `docs/reusable-workflows/project-route.md` for

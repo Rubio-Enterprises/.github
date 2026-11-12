@@ -264,7 +264,7 @@ def test_injected_identity_routes_fail_closed_and_retains_arms_label():
     jobs = WORKFLOW['jobs']
     assert WORKFLOW['on'].keys() == {'pull_request', 'merge_group', 'workflow_call'}
     assert WORKFLOW['permissions'] == {'contents': 'read', 'packages': 'read'}
-    assert jobs['route']['with'] == {'route': 'test'}
+    assert jobs['route']['with'] == {'route': 'test', 'inspect-image-inputs': True}
     gate = jobs['test-gate-linux']
     assert gate['name'] == 'test-gate-linux'
     assert gate['needs'] == ['route', 'qualification']

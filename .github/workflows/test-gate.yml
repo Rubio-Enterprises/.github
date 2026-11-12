@@ -68,6 +68,7 @@ jobs:
     uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
     with:
       route: test
+      inspect-image-inputs: true
 
   qualification:
     if: github.repository != 'Rubio-Enterprises/.github' && inputs.qualification-repository != ''

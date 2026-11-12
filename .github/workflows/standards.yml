@@ -28,6 +28,7 @@ jobs:
     uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
     with:
       route: linux
+      inspect-image-inputs: true
   standards-linux:
     name: standards-linux
     # This repository is not onboarded; its own pull requests would fail `test -f lefthook.yml`.
