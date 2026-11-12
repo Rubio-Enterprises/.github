@@ -6,7 +6,7 @@ inputs:
     default: 'true'
   runners:
     description: Space-separated runner tool names from the base lock
-    default: gotestsum cargo-nextest bats xcbeautify
+    default: aqua:gotestyourself/gotestsum aqua:nextest-rs/nextest/cargo-nextest aqua:bats-core/bats-core aqua:cpisciotta/xcbeautify
   standards-source:
     description: Candidate standards directory containing mise; empty uses the Dockerfile base version
     default: ''

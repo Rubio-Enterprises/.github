@@ -9,7 +9,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / 'actions/macos-tools'
-RUNNERS = 'gotestsum cargo-nextest bats xcbeautify'
+RUNNERS = ('aqua:gotestyourself/gotestsum aqua:nextest-rs/nextest/cargo-nextest '
+           'aqua:bats-core/bats-core aqua:cpisciotta/xcbeautify')
 
 
 def document(path):
@@ -209,6 +210,31 @@ def test_missing_repo_lock_fails_without_installing(provision):
     assert result.returncode != 0
     assert (ACTION / 'provision.sh').is_file()
     assert not calls and not paths and not env
+
+
+def test_default_runners_resolve_to_the_base_config_with_real_mise(tmp_path):
+    config = tmp_path / 'standards.toml'
+    tools = (
+        'aqua:gotestyourself/gotestsum', 'aqua:nextest-rs/nextest/cargo-nextest',
+        'aqua:bats-core/bats-core', 'aqua:cpisciotta/xcbeautify',
+    )
+    config.write_text('[tools]\n' + ''.join(f'"{tool}" = "1.0.0"\n' for tool in tools))
+    default = document(ACTION / 'action.yml')['inputs']['runners']['default']
+    result = subprocess.run(
+        ['mise', 'ls', '--current', '--json', *default.split()], text=True, capture_output=True,
+        env={**os.environ, 'MISE_OVERRIDE_CONFIG_FILENAMES': str(config),
+             'MISE_GLOBAL_CONFIG_FILE': str(tmp_path / 'empty.toml'),
+             'MISE_DATA_DIR': str(tmp_path / 'data'),
+             'MISE_CACHE_DIR': str(tmp_path / 'cache'),
+             'MISE_CONFIG_DIR': str(tmp_path / 'config'),
+             'MISE_SYSTEM_CONFIG_DIR': str(tmp_path / 'system'),
+             'MISE_TRUSTED_CONFIG_PATHS': str(tmp_path)},
+    )
+    assert result.returncode == 0, result.stderr
+    versions = json.loads(result.stdout)
+    assert len(versions) == 4
+    assert all(version['version'] == '1.0.0' for version in versions)
+    assert all(version['source']['path'] == str(config) for version in versions)
 
 
 def test_real_mise_environment_keeps_repository_precedence(provision):
