@@ -76,7 +76,8 @@ def test_partial_test_metadata_reads_all_properties(missing):
 
 
 @pytest.mark.parametrize(('selected', 'expected'), [
-    ('', ['test']), ('test', ['test']), ('package test', ['test', 'package']),
+    ('', ['test', 'typecheck', 'e2e', 'package']),
+    ('test', ['test']), ('package test', ['test', 'package']),
     ('e2e typecheck', ['typecheck', 'e2e']),
     ('package e2e typecheck test', ['test', 'typecheck', 'e2e', 'package']),
 ])
@@ -129,8 +130,9 @@ def test_macos_script_failure_and_shape_absence(tmp_path, selected):
                           PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
     assert result.returncode == 7
     assert junit(tmp_path, outcome='failure').returncode != 0
-    (tmp_path / 'bin/test.sh').unlink()
     if not selected:
+        for name in ('test', 'typecheck', 'e2e', 'package'):
+            (tmp_path / f'bin/{name}.sh').unlink()
         result, output = run_shell('Run Lifecycle Scripts', tmp_path, job=MACOS, MACOS_CONCERNS='')
         assert result.returncode == 0
         assert dict(line.split('=', 1) for line in output.splitlines()) == {'concerns': '', 'artifact-concerns': 'none'}

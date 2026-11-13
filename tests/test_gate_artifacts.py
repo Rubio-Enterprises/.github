@@ -30,7 +30,7 @@ def test_lifecycle_announces_concern_set_and_package_attempt(tmp_path, job, imag
     result, output = run_shell('Run Lifecycle Scripts', tmp_path, job=job, CI_IMAGE=image,
                                MACOS_CONCERNS=selected, PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
     values = dict(line.split('=', 1) for line in output.splitlines())
-    expected = 'test-typecheck-e2e-package' if job == JOBS[0] else ('test-package' if selected else 'test')
+    expected = 'test-package' if selected else 'test-typecheck-e2e-package'
     assert values['artifact-concerns'] == expected
     ran = (tmp_path / 'ran').read_text().splitlines()
     assert values.get('package') == ('true' if 'package' in ran else None)

@@ -32,9 +32,12 @@ Checkout retains full history and does not persist credentials. A CI Image runs
 The macOS job has two modes, neither using Docker:
 - **Shape mode:** when the whole Test Gate runs on macOS, install just and bootstrap
   mise through `actions/macos-tools` with `provision: false`. Run `setup-macos`
-  when listed by `just --summary`, otherwise `setup-native`, then only `test`.
-  This preserves today's coverage. The small shared `run-recipe.sh` compatibility
-  script is removed after the recipe rename sweep.
+  when listed by `just --summary`, otherwise `setup-native`, then each existing
+  concern through `just test`, `just typecheck`, `just e2e` and `just package`, in
+  that order. The shared policy reader selects the same applicable concerns as
+  Linux, including per-concern Opt-outs. Both `test` and `e2e` require executed
+  JUnit cases. No concern is skipped because the runner is macOS. The small shared
+  `run-recipe.sh` compatibility script is removed after the recipe rename sweep.
 - **Leg mode:** a Linux test route can declare additional concerns in the organization
   multi-select property `ci-test-macos`, through reviewed OpenTofu configuration.
   Provision locked repository tools and the base's four runners through
@@ -158,8 +161,8 @@ test-gate-<leg>-<concerns>-<kind>-<attempt>[-<representative>]
 - `leg` is `linux` or `macos`, taken from the execution job id.
 - `concerns` is the applicable concern set, excluding per-concern Opt-outs, in
   `test-typecheck-e2e-package` order, joined with hyphens, or `none`. It is announced before scripts run, not reduced
-  when one fails. macOS shape mode currently selects only `test`; leg mode uses
-  its declared concerns in canonical order.
+  when one fails. macOS shape mode uses the same existing-concern selection as
+  Linux; leg mode uses its declared concerns in canonical order.
 - `kind` is `reports` or `package`.
 - `attempt` is `github.run_attempt`. Re-runs keep earlier evidence; uploads never
   overwrite an artifact from an earlier attempt.

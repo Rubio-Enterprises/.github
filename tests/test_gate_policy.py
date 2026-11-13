@@ -59,7 +59,7 @@ def test_stale_declaration_fails_on_every_leg(tmp_path, concern, mode):
 
 @pytest.mark.parametrize(('mode', 'declared', 'expected'), [
     ('linux', '', ['test', 'typecheck', 'e2e', 'package']),
-    ('macos', '', ['test']),
+    ('macos', '', ['test', 'typecheck', 'e2e', 'package']),
     ('macos', 'package e2e test', ['test', 'e2e', 'package']),
 ])
 def test_no_declaration_preserves_selection(tmp_path, mode, declared, expected):
@@ -83,7 +83,7 @@ def test_concern_optout_keeps_script_but_removes_execution_evidence_and_artifact
                                CI_IMAGE='true', MACOS_CONCERNS=declared,
                                PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
     assert result.returncode == 0, result.stderr
-    expected = ['test'] if job.endswith('macos') and not declared else ['test', 'typecheck', 'e2e', 'package']
+    expected = ['test', 'typecheck', 'e2e', 'package']
     expected = [c for c in expected if c != concern]
     assert (tmp_path / 'ran').read_text().splitlines() == expected if expected else not (tmp_path / 'ran').exists()
     assert (tmp_path / f'bin/{concern}.sh').exists()

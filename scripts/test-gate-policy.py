@@ -44,7 +44,7 @@ def reason(value, name):
 
 def select(mode, excluded):
     declared = os.environ.get('MACOS_CONCERNS', '').split() if mode == 'macos' else []
-    selected = declared or (['test'] if mode == 'macos' else CONCERNS)
+    selected = declared or CONCERNS
     # Declared macOS concerns must still reach the executable-script check when absent.
     return [name for name in CONCERNS if name in selected and name not in excluded
             and (declared or Path(f'bin/{name}.sh').exists() or Path(f'bin/{name}.sh').is_symlink())]
