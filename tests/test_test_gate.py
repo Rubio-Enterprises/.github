@@ -25,6 +25,16 @@ def run_shell(name, root, job='test-gate-linux', **env):
     output = root / 'output'
     output.write_text('')
     shutil.copyfile(ROOT / 'scripts/test-gate-policy.py', root / 'test-gate-policy.py')
+    action = ROOT / 'actions/lifecycle'
+    stage = json.loads(subprocess.check_output(['yq', '-o=json', str(action / 'action.yml')], text=True))['runs']['steps'][0]
+    staged = subprocess.run(['bash', '-e', '-c', stage['run']], cwd=root,
+                            env={**os.environ, 'GITHUB_ACTION_PATH': str(action),
+                                 'RUNNER_TEMP': str(root), 'GITHUB_OUTPUT': str(output)},
+                            capture_output=True, text=True)
+    assert staged.returncode == 0, staged.stderr
+    if (root / 'macos-recipe.sh').exists():
+        shutil.copyfile(root / 'macos-recipe.sh', root / 'lifecycle/macos-recipe.sh')
+    output.write_text('')
     result = subprocess.run(
         ['bash', '-e', '-o', 'pipefail', '-c', step(name, job)['run']], cwd=root,
         env={**os.environ, 'GITHUB_OUTPUT': str(output), 'RUNNER_TEMP': str(root), **env},

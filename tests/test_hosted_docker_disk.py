@@ -61,7 +61,11 @@ def test_central_checkouts_do_not_overlap_repository_execution():
     stage = next(s for s in steps if s.get('name') == 'Stage Test Gate policy reader')
     assert steps.index(policy) < steps.index(stage) < steps.index(early)
     assert 'rm -rf .cache/central-test-gate' in stage['run']
-    assert policy['with']['sparse-checkout'] == 'scripts/test-gate-policy.py'
+    assert policy['with']['sparse-checkout'].splitlines() == [
+        'scripts/test-gate-policy.py', 'actions/lifecycle', 'actions/macos-tools', 'actions/release-asset']
+    dispatcher = next(s for s in steps if s.get('name') == 'Stage Lifecycle dispatcher')
+    assert dispatcher['uses'] == './.cache/central-test-gate/actions/lifecycle'
+    assert steps.index(policy) < steps.index(dispatcher) < steps.index(stage)
     prepare = next(s for s in steps if s.get('name') == 'Prepare hosted Docker disk')
     remove = next(s for s in steps if s.get('name') == 'Remove central Docker preparation checkout')
     assert early['if'] == prepare['if'] == remove['if']

@@ -29,6 +29,11 @@ legs are unchanged. No file-detection logic is duplicated in this workflow.
 Checkout retains full history and does not persist credentials. A CI Image runs
 `bin/setup.sh` and the Lifecycle Scripts directly. Other Linux runners execute
 `just build`, `just setup` and each existing recipe among `test typecheck e2e package`.
+Both jobs use the [Lifecycle dispatcher](../actions/lifecycle/README.md) for setup
+and single-recipe execution. The workflow retains concern selection, script checks,
+report cleanup, outputs and log groups. The dispatcher is staged alongside the
+policy reader in runner temp before the central checkout is removed.
+
 The macOS job has two modes, neither using Docker:
 - **Shape mode:** when the whole Test Gate runs on macOS, install just and bootstrap
   mise through `actions/macos-tools` with `provision: false`. Run `setup-macos`
