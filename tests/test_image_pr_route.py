@@ -247,7 +247,7 @@ def test_both_injected_workflows_use_the_router_result_for_all_image_branches():
         assert 'image-inputs' not in execution
 
 
-def test_image_inspection_input_defaults_to_false_and_only_injected_callers_enable_it():
+def test_image_inspection_input_defaults_to_false_and_only_declared_callers_enable_it():
     workflow = json.loads(subprocess.check_output(
         ['yq', '-o=json', str(ROOT / '.github/workflows/project-route.yml')], text=True))
     assert workflow['on']['workflow_call']['inputs']['inspect-image-inputs'] == {
@@ -263,4 +263,4 @@ def test_image_inspection_input_defaults_to_false_and_only_injected_callers_enab
             if 'project-route.yml@' in job.get('uses', ''):
                 if job.get('with', {}).get('inspect-image-inputs'):
                     callers.add(path.name)
-    assert callers == {'standards.yml', 'test-gate.yml'}
+    assert callers == {'standards.yml', 'test-gate.yml', 'pages.yml'}
