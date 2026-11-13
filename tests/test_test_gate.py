@@ -24,9 +24,10 @@ def step(name, job='test-gate-linux'):
 def run_shell(name, root, job='test-gate-linux', **env):
     output = root / 'output'
     output.write_text('')
+    shutil.copyfile(ROOT / 'scripts/test-gate-policy.py', root / 'test-gate-policy.py')
     result = subprocess.run(
         ['bash', '-e', '-o', 'pipefail', '-c', step(name, job)['run']], cwd=root,
-        env={**os.environ, 'GITHUB_OUTPUT': str(output), **env},
+        env={**os.environ, 'GITHUB_OUTPUT': str(output), 'RUNNER_TEMP': str(root), **env},
         capture_output=True, text=True,
     )
     return result, output.read_text()

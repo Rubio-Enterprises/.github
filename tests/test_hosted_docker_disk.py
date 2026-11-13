@@ -56,8 +56,12 @@ def test_central_checkouts_do_not_overlap_repository_execution():
     setup = next(i for i, s in enumerate(steps) if s.get('name') == 'Set up dependencies')
     lifecycle = next(i for i, s in enumerate(steps) if s.get('id') == 'lifecycle')
     checkouts = [s for s in steps if s.get('with', {}).get('repository') == 'Rubio-Enterprises/.github']
-    assert len(checkouts) == 2
-    early, junit = checkouts
+    assert len(checkouts) == 3
+    policy, early, junit = checkouts
+    stage = next(s for s in steps if s.get('name') == 'Stage Test Gate policy reader')
+    assert steps.index(policy) < steps.index(stage) < steps.index(early)
+    assert 'rm -rf .cache/central-test-gate' in stage['run']
+    assert policy['with']['sparse-checkout'] == 'scripts/test-gate-policy.py'
     prepare = next(s for s in steps if s.get('name') == 'Prepare hosted Docker disk')
     remove = next(s for s in steps if s.get('name') == 'Remove central Docker preparation checkout')
     assert early['if'] == prepare['if'] == remove['if']
