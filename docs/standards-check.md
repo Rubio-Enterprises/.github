@@ -171,6 +171,21 @@ are baked into the image, so there is no npm cache to warm, and nothing writes
 to `/opt/standards`, which the workspace-owner remap leaves read-only. A restored trivy database younger than eight days disables DB updates.
 This accepts advisory lag until the next weekly cache refresh.
 
+The dependency action overrides `XDG_CACHE_HOME` only for `bin/setup.sh`, using
+`runner.temp/check-dependencies` outside the checkout. Bun, pip and Go's build
+cache honor XDG; they must not populate the workspace cache that whole-tree
+scanners read. The Test Gate has no workspace XDG override. The CI Image's explicit
+`UV_CACHE_DIR`, `npm_config_cache`, `pnpm_config_store_dir`, `CARGO_HOME` and
+`GOMODCACHE` still select its warmed `/home/vscode/.cache/` paths. These are private
+to the ephemeral runner container, not shared runner-host directories. Local
+Compose instead mounts its declared download-cache volumes at those paths.
+
+Do not move the job-level XDG or Trivy paths: the database restore and hosted
+context below need the workspace mount. Do not exclude download caches from
+Checks instead. Lefthook's all-files mode selects tracked files; Trivy's existing
+recursive `node_modules`, `.venv` and `.mise/locks` skips cover installed packages
+and their nested lockfiles, just as after local `just setup`.
+
 Compose passes `CI`, `BASE_SHA`, `HEAD_SHA`, `PR_TITLE`, `GH_TOKEN`, `GITHUB_TOKEN`,
 `XDG_CACHE_HOME`, `TRIVY_CACHE_DIR`, `TRIVY_SKIP_DB_UPDATE` and GitHub event/run
 metadata. Hosted PR Checks copy the event JSON under `.cache/ci/` and write a

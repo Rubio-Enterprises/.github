@@ -7,4 +7,5 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
         NODE_AUTH_TOKEN: ${{ github.token }}
+        XDG_CACHE_HOME: ${{ runner.temp }}/check-dependencies
       run: bin/setup.sh
