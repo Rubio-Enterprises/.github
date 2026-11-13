@@ -96,6 +96,13 @@ def test_concern_optout_keeps_script_but_removes_execution_evidence_and_artifact
     assert ('package' in values) == ('package' in expected)
 
 
+@pytest.mark.parametrize('job', ['test-gate-linux', 'test-gate-macos'])
+def test_staged_policy_reader_source_is_retained(job):
+    stage = step('Stage Test Gate policy reader', job)
+    assert 'cp .cache/central-test-gate/scripts/test-gate-policy.py ' in stage['run']
+    assert READER.is_file(), 'Retain the reader source while the workflow stages it, including on revert'
+
+
 def test_every_concern_computing_job_uses_one_reader_and_default_branch_delegates():
     for job in ('test-gate-linux', 'test-gate-macos'):
         assert 'test-gate-policy.py' in step('Check Test Gate policy', job)['run']

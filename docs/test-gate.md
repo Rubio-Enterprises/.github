@@ -303,6 +303,25 @@ publish images, mint OIDC, persist reader credentials or forward all secrets.
 Fork/Dependabot credentials retain GitHub's restrictions. Actual ruleset secret
 availability and event semantics must be proven by rollout canaries.
 
+## Policy reader delivery compatibility
+
+Production stages `scripts/test-gate-policy.py` from central `main`; a qualification
+can select a central candidate ref. The reader checkout resolves when its step
+runs, which can be later than the workflow's resolution when the run was created.
+Queued runs can therefore pair an older workflow with a newer reader.
+
+The reader's path and interface must never change in the same change as the
+workflow. Keep `scripts/test-gate-policy.py`, its `--select linux|macos` interface,
+stdout concern list, and `opted-out`, `concerns` and `artifact-concerns` outputs
+compatible with workflows already created. Add a compatible interface first,
+change callers separately, and retain the older interface for queued runs.
+
+A revert of the workflow must keep the reader file and its compatible interface
+on `main`. Do not revert the reader's introduction by deleting the file. Stop
+staging it in a separate change before considering removal; the contract test
+requires the source file while either execution job still stages it. Temporary
+candidate refs need the same retention discipline while qualification runs exist.
+
 ## Release Check qualification
 
 Standards' Release Check can call the *same* workflow on representative repositories:
