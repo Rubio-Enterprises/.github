@@ -139,11 +139,17 @@ jobs:
           token: ${{ steps.reader.outputs.token || github.token }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Report Test Gate workflow identity
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          printf 'job.workflow_repository=%s\njob.workflow_sha=%s\n' "$WORKFLOW_REPOSITORY" "$WORKFLOW_SHA"
       - name: Check out central Test Gate policy reader
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: Rubio-Enterprises/.github
-          ref: ${{ inputs.qualification-central-ref || 'main' }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .cache/central-test-gate
           persist-credentials: false
           sparse-checkout: scripts/test-gate-policy.py
@@ -325,11 +331,17 @@ jobs:
           token: ${{ steps.reader.outputs.token || github.token }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Report Test Gate workflow identity
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          printf 'job.workflow_repository=%s\njob.workflow_sha=%s\n' "$WORKFLOW_REPOSITORY" "$WORKFLOW_SHA"
       - name: Check out central Test Gate policy reader
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: Rubio-Enterprises/.github
-          ref: ${{ inputs.qualification-central-ref || 'main' }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .cache/central-test-gate
           persist-credentials: false
           sparse-checkout: scripts/test-gate-policy.py
