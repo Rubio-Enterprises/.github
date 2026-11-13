@@ -1,11 +1,40 @@
 name: default branch verification (reusable)
 "on":
   workflow_call:
+    inputs:
+      central-ref:
+        description: Central evidence module source; branch ref for pre-merge canaries only
+        type: string
+        default: main
 permissions:
+  actions: read
   contents: read
   packages: read
 jobs:
+  evidence:
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 5
+    outputs:
+      runs: ${{ steps.lookup.outputs.runs }}
+    steps:
+      - name: Check out the evidence module
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.central-ref }}
+          persist-credentials: false
+          sparse-checkout: scripts/checked-tree.py
+      - id: lookup
+        name: Look for exact-files PR evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "runs=$(python3 scripts/checked-tree.py)" >> "$GITHUB_OUTPUT"
   route:
+    needs: evidence
+    if: ${{ !cancelled() && (needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
     permissions:
       contents: read
     uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
@@ -14,6 +43,9 @@ jobs:
   standards-linux:
     name: standards-linux
     needs: route
+    permissions:
+      contents: read
+      packages: read
     runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 30
     env:
@@ -222,13 +254,20 @@ jobs:
 
   standards-main:
     name: standards-main
-    needs: [route, standards-linux, standards-macos]
+    needs: [evidence, route, standards-linux, standards-macos]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     permissions: {}
     timeout-minutes: 5
     steps:
+      - name: Record exact-files PR evidence
+        if: needs.evidence.outputs.runs != '{}' && needs.evidence.outputs.runs != ''
+        env:
+          RUNS: ${{ needs.evidence.outputs.runs }}
+        run: |
+          jq -r 'to_entries[] | "Reused [\(.key)](\(.value)): these exact files passed."' <<< "$RUNS" >> "$GITHUB_STEP_SUMMARY"
       - name: Require all applicable Checks to succeed
+        if: needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == ''
         env:
           ROUTE_RESULT: ${{ needs.route.result }}
           PLATFORM: ${{ needs.route.outputs.platform }}
@@ -239,8 +278,29 @@ jobs:
             { { test "$PLATFORM" = macos && test "$MACOS_RESULT" = success; } ||
               { test "$PLATFORM" = linux && test "$MACOS_RESULT" = skipped; }; }
 
-  test-gate-main:
+  test-gate-execution:
+    needs: evidence
+    if: ${{ !cancelled() && (needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
     permissions:
       contents: read
       packages: read
     uses: Rubio-Enterprises/.github/.github/workflows/test-gate.yml@main
+  test-gate-main:
+    name: test-gate-main / test-gate
+    needs: [evidence, test-gate-execution]
+    if: ${{ always() }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Require execution or record exact-files PR evidence
+        env:
+          RUNS: ${{ needs.evidence.outputs.runs }}
+          EXECUTION: ${{ needs.test-gate-execution.result }}
+        run: |
+          if [ -z "$RUNS" ] || [ "$RUNS" = '{}' ]; then
+            test "$EXECUTION" = success
+          else
+            test "$EXECUTION" = skipped
+            jq -r 'to_entries[] | "Reused [\(.key)](\(.value)): these exact files passed."' <<< "$RUNS" >> "$GITHUB_STEP_SUMMARY"
+          fi

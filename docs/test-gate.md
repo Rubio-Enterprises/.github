@@ -229,7 +229,7 @@ seven-day retention bounds accumulation without discarding passing-run evidence.
 
 ## Default-branch execution
 
-`default-branch-check.yml` calls this workflow as `test-gate-main` without any
+`default-branch-check.yml` calls this workflow as `test-gate-execution` without any
 qualification inputs or inherited secrets. The image and cache publishers select
 default-branch pushes and dispatches; see
 [default-branch verification](standards-check.md#default-branch-verification).
@@ -239,10 +239,13 @@ The reader-App token steps are qualification-only. Normal checkout/setup use the
 automatic read-only job token, so the publisher callers need no additional secrets.
 Dependency review remains public-PR-only, not a whole-tree push check.
 
-The aggregate remains named `test-gate`, under the `test-gate-main` caller prefix.
-These extra default-branch results are not required by a ruleset. Existing
-reasoned policy exceptions still apply. Every selected run executes the checks;
-no evidence shortcut, automatic retry or red-run issue/label/notification exists.
+This workflow's aggregate remains named `test-gate`. The caller separately reports
+`test-gate-main / test-gate`, requiring successful production execution or exact-files
+PR evidence for both check families. That visible aggregate name is unchanged when
+execution is reused. Behind branches and ambiguous evidence execute this entire
+production path, and dispatch always executes it. These extra default-branch results
+are not required by a ruleset. Existing reasoned policy exceptions still apply.
+There is no automatic retry or red-run issue/label/notification.
 The caller's concurrency group remains occupied through completion.
 
 ## Exceptions
