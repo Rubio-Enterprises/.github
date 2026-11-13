@@ -54,11 +54,12 @@ The explicit choice overrides auto selection. Keep existing Docker/KVM/ARM/macOS
 capability routes; they never select a CI Image. Existing bespoke labels and service topologies
 remain repository-owned, not replaced by the router.
 
-The optional boolean `inspect-image-inputs` defaults to `false`. Only the injected
-Standards Check and Test Gate set it to `true`, with `route: linux` and `route: test`
-respectively. Other callers, including repository-owned `linux`/`test` jobs, keep
-their existing routing and perform no image-input comparison unless they opt in.
-It has no effect on `auto` or explicit capability routes.
+The optional boolean `inspect-image-inputs` defaults to `false`. The injected
+Standards Check sets it to `true` with `route: linux`; the Test Gate and
+[built-site Pages workflow](pages.md) use `route: test` with inspection enabled.
+Other callers, including repository-owned `linux`/`test` jobs, keep their existing
+routing and perform no image-input comparison unless they opt in. It has no effect
+on `auto` or explicit capability routes.
 
 Outputs:
 

@@ -1,0 +1,173 @@
+name: pages (reusable)
+
+"on":
+  workflow_call:
+    inputs:
+      recipe:
+        description: Recipe that builds the site (bin/<recipe>.sh in a CI Image, otherwise just <recipe>)
+        type: string
+        default: package
+      path:
+        description: Repository-relative site directory containing index.html, without symlinks
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  route:
+    permissions:
+      contents: read
+    uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
+    with:
+      route: test
+      inspect-image-inputs: true
+
+  build:
+    name: Build Pages site
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      pages: read
+    env:
+      LIFECYCLE_MODE: ${{ needs.route.outputs.ci-image == 'true' && 'image' || needs.route.outputs.platform == 'macos' && 'macos' || 'compose' }}
+    steps:
+      - name: Check out caller revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require one Pages publisher
+        env:
+          RECIPE: ${{ inputs.recipe }}
+        shell: bash
+        run: |
+          if [ -e docs/codewiki/metadata.json ] || [ -L docs/codewiki/metadata.json ]; then
+            echo '::error::pages: CodeWiki already publishes this repository Pages site; choose one publisher.' >&2
+            exit 1
+          fi
+          if [ -z "$RECIPE" ]; then
+            echo '::error::pages: a build recipe is required.' >&2
+            exit 1
+          fi
+
+      - name: Read Pages settings
+        id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Prepare hosted Docker disk
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: Rubio-Enterprises/.github/actions/prepare-hosted-docker@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+      - name: Install just
+        if: needs.route.outputs.ci-image != 'true'
+        uses: Rubio-Enterprises/.github/actions/setup-just@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+      - name: Log in to GHCR for dev image builds
+        if: needs.route.outputs.ci-image != 'true' && runner.os == 'Linux'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Prepare container-writable hosted checkout
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
+      - name: Install mise if missing on macOS
+        if: runner.os == 'macOS'
+        uses: Rubio-Enterprises/.github/actions/macos-tools@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        with:
+          provision: 'false'
+
+      - name: Set up dependencies
+        uses: Rubio-Enterprises/.github/actions/lifecycle@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        with:
+          mode: ${{ env.LIFECYCLE_MODE }}
+          recipe: setup
+      - name: Build the site
+        uses: Rubio-Enterprises/.github/actions/lifecycle@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          SITE_URL: ${{ steps.pages.outputs.origin }}
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        with:
+          mode: ${{ env.LIFECYCLE_MODE }}
+          recipe: ${{ inputs.recipe }}
+
+      - name: Verify the site directory
+        id: site
+        env:
+          SITE_PATH: ${{ inputs.path }}
+        shell: bash
+        run: |
+          src="${SITE_PATH%/}"
+          case "$src" in
+            ''|/*|..|../*|*/..|*/../*|*$'\n'*|*$'\r'*)
+              echo '::error::pages: path must be a repository-relative site directory without parent segments or newlines.' >&2
+              exit 1 ;;
+          esac
+          parent="$src"
+          while :; do
+            if [ -L "$parent" ]; then
+              echo '::error::pages: site paths must not traverse symlinks.' >&2
+              exit 1
+            fi
+            case "$parent" in */*) parent="${parent%/*}" ;; *) break ;; esac
+          done
+          if [ ! -d "$src" ] || [ ! -f "$src/index.html" ]; then
+            echo '::error::pages: the site directory must exist and contain index.html.' >&2
+            exit 1
+          fi
+          src="$(cd -- "$src" && pwd -P)"
+          if [ "$src" = "$(pwd -P)" ]; then
+            echo '::error::pages: the repository root is not a site directory.' >&2
+            exit 1
+          fi
+          # upload-pages-artifact dereferences symlinks, including targets outside the site
+          links="$(find "$src" -type l -print)"
+          if [ -n "$links" ]; then
+            echo '::error::pages: symlinks are not publishable.' >&2
+            exit 1
+          fi
+          printf 'dir=%s\n' "$src" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ steps.site.outputs.dir }}
+      - name: Clean up dependency volumes and services
+        if: ${{ always() && needs.route.outputs.ci-image != 'true' && runner.os == 'Linux' }}
+        run: |
+          export REPO_DIR="$GITHUB_WORKSPACE"
+          GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
+          export GIT_COMMON_DIR
+          docker compose down --volumes --remove-orphans
+
+  deploy:
+    name: Deploy site to Pages
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # Share CodeWiki's deployment lock without reusing a caller-held concurrency group
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 15
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
