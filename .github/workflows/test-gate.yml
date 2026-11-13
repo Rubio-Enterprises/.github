@@ -139,6 +139,19 @@ jobs:
           token: ${{ steps.reader.outputs.token || github.token }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Check out central Test Gate policy reader
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: scripts/test-gate-policy.py
+          sparse-checkout-cone-mode: false
+      - name: Stage Test Gate policy reader
+        run: |
+          cp .cache/central-test-gate/scripts/test-gate-policy.py "$RUNNER_TEMP/test-gate-policy.py"
+          rm -rf .cache/central-test-gate
       - name: Check Test Gate policy
         id: policy
         shell: bash
@@ -146,34 +159,7 @@ jobs:
           if [ "${CI_IMAGE:-false}" = true ]; then
             export MISE_OVERRIDE_CONFIG_FILENAMES=/opt/standards/mise/standards.toml
           fi
-          python3 - <<'PY'
-          import os
-          import sys
-          from pathlib import Path
-
-          policy = Path('.github/standards.toml')
-          reason = None
-          if policy.exists() or policy.is_symlink():
-              import tomllib
-              try:
-                  with policy.open('rb') as stream:
-                      document = tomllib.load(stream)
-                  for name in ('test-gate', 'app-image'):
-                      section = document.get(name, {})
-                      if not isinstance(section, dict):
-                          raise ValueError(f'{name} must be a table')
-                      if 'off' in section:
-                          value = section['off']
-                          if not isinstance(value, str) or not value.strip():
-                              raise ValueError(f'{name}.off must be a non-empty reason string')
-                  reason = document.get('test-gate', {}).get('off')
-              except (OSError, ValueError) as error:
-                  sys.exit(f'::error::invalid .github/standards.toml: {error}')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
-              stream.write(f'opted-out={str(reason is not None).lower()}\n')
-          if reason is not None:
-              print('::notice::Test Gate opted out in .github/standards.toml (reason recorded in policy)')
-          PY
+          python3 "$RUNNER_TEMP/test-gate-policy.py"
       - name: Check out central Docker preparation action
         if: steps.policy.outputs.opted-out != 'true' && env.CI_IMAGE != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -245,18 +231,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
-          concerns=''; artifact_concerns=''
-          for step in test typecheck e2e package; do
-            if [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then
-              artifact_concerns="${artifact_concerns:+$artifact_concerns-}$step"
-              case "$step" in test|e2e) concerns="$concerns $step" ;; esac
+          selected="$(
+            if [ "${CI_IMAGE:-false}" = true ]; then
+              export MISE_OVERRIDE_CONFIG_FILENAMES=/opt/standards/mise/standards.toml
             fi
-          done
-          echo "concerns=$concerns" >> "$GITHUB_OUTPUT"
-          echo "artifact-concerns=${artifact_concerns:-none}" >> "$GITHUB_OUTPUT"
-          for step in test typecheck e2e package; do
+            python3 "$RUNNER_TEMP/test-gate-policy.py" --select linux
+          )"
+          for step in $selected; do
             script="bin/$step.sh"
-            if [ ! -e "$script" ] && [ ! -L "$script" ]; then continue; fi
             test -f "$script" && test -x "$script"
             case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
             if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
@@ -343,6 +325,19 @@ jobs:
           token: ${{ steps.reader.outputs.token || github.token }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Check out central Test Gate policy reader
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Rubio-Enterprises/.github
+          ref: ${{ inputs.qualification-central-ref || 'main' }}
+          path: .cache/central-test-gate
+          persist-credentials: false
+          sparse-checkout: scripts/test-gate-policy.py
+          sparse-checkout-cone-mode: false
+      - name: Stage Test Gate policy reader
+        run: |
+          cp .cache/central-test-gate/scripts/test-gate-policy.py "$RUNNER_TEMP/test-gate-policy.py"
+          rm -rf .cache/central-test-gate
       - name: Check Test Gate policy
         id: policy
         shell: bash
@@ -350,34 +345,7 @@ jobs:
           if [ "${CI_IMAGE:-false}" = true ]; then
             export MISE_OVERRIDE_CONFIG_FILENAMES=/opt/standards/mise/standards.toml
           fi
-          python3 - <<'PY'
-          import os
-          import sys
-          from pathlib import Path
-
-          policy = Path('.github/standards.toml')
-          reason = None
-          if policy.exists() or policy.is_symlink():
-              import tomllib
-              try:
-                  with policy.open('rb') as stream:
-                      document = tomllib.load(stream)
-                  for name in ('test-gate', 'app-image'):
-                      section = document.get(name, {})
-                      if not isinstance(section, dict):
-                          raise ValueError(f'{name} must be a table')
-                      if 'off' in section:
-                          value = section['off']
-                          if not isinstance(value, str) or not value.strip():
-                              raise ValueError(f'{name}.off must be a non-empty reason string')
-                  reason = document.get('test-gate', {}).get('off')
-              except (OSError, ValueError) as error:
-                  sys.exit(f'::error::invalid .github/standards.toml: {error}')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
-              stream.write(f'opted-out={str(reason is not None).lower()}\n')
-          if reason is not None:
-              print('::notice::Test Gate opted out in .github/standards.toml (reason recorded in policy)')
-          PY
+          python3 "$RUNNER_TEMP/test-gate-policy.py"
       - name: Download candidate base and source for qualification
         if: steps.policy.outputs.opted-out != 'true' && inputs.qualification-repository != '' && inputs.candidate-base-artifact != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -452,25 +420,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
-          # Shape mode stays test-only until the concern-list change lands.
-          selected='test'
-          if [ -n "$MACOS_CONCERNS" ]; then selected="$MACOS_CONCERNS"; fi
-          concerns=''; artifact_concerns=''
-          for step in test typecheck e2e package; do
-            case " $selected " in
-              *" $step "*)
-                if [ -n "$MACOS_CONCERNS" ] || [ -e "bin/$step.sh" ] || [ -L "bin/$step.sh" ]; then
-                  artifact_concerns="${artifact_concerns:+$artifact_concerns-}$step"
-                  case "$step" in test|e2e) concerns="$concerns $step" ;; esac
-                fi ;;
-            esac
-          done
-          echo "concerns=$concerns" >> "$GITHUB_OUTPUT"
-          echo "artifact-concerns=${artifact_concerns:-none}" >> "$GITHUB_OUTPUT"
-          for step in test typecheck e2e package; do
-            case " $selected " in *" $step "*) ;; *) continue ;; esac
+          selected="$(
+            if [ "${CI_IMAGE:-false}" = true ]; then
+              export MISE_OVERRIDE_CONFIG_FILENAMES=/opt/standards/mise/standards.toml
+            fi
+            python3 "$RUNNER_TEMP/test-gate-policy.py" --select macos
+          )"
+          for step in $selected; do
             script="bin/$step.sh"
-            if [ -z "$MACOS_CONCERNS" ] && [ ! -e "$script" ] && [ ! -L "$script" ]; then continue; fi
             if [ ! -f "$script" ] || [ ! -x "$script" ]; then
               echo "::error::macOS concern $step requires executable $script"
               exit 1

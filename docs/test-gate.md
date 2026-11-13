@@ -56,8 +56,9 @@ skipped. Linux alone, Linux with a declared macOS leg, and macOS shape are disti
 cases. Failed, cancelled or unexpectedly skipped legs fail the aggregate. An existing
 reasoned Opt-out still succeeds through the applicable leg's policy step.
 
-Script existence declares applicability. Non-executable scripts fail. No test/e2e
-script means no JUnit obligation, not an automatic Opt-out. Tests clear their own
+Script existence declares applicability, except for an explicit per-concern Opt-out
+below. Non-executable scripts fail. No test/e2e script means no JUnit obligation,
+not an automatic Opt-out. Tests clear their own
 report directory before execution. Linux non-image jobs tear down Compose services
 and dependency volumes even on failure; external organization caches survive.
 
@@ -155,8 +156,8 @@ test-gate-<leg>-<concerns>-<kind>-<attempt>[-<representative>]
 ```
 
 - `leg` is `linux` or `macos`, taken from the execution job id.
-- `concerns` is the applicable concern set in `test-typecheck-e2e-package` order,
-  joined with hyphens, or `none`. It is announced before scripts run, not reduced
+- `concerns` is the applicable concern set, excluding per-concern Opt-outs, in
+  `test-typecheck-e2e-package` order, joined with hyphens, or `none`. It is announced before scripts run, not reduced
   when one fails. macOS shape mode currently selects only `test`; leg mode uses
   its declared concerns in canonical order.
 - `kind` is `reports` or `package`.
@@ -250,8 +251,8 @@ The caller's concurrency group remains occupied through completion.
 
 ## Exceptions
 
-Missing `.github/standards.toml` means enforcement is enabled. Either independent
-exception may contain only a non-empty string reason:
+Missing `.github/standards.toml` means enforcement is enabled. Each whole-component
+exception requires a non-empty string reason:
 
 ```toml
 [test-gate]
@@ -268,6 +269,34 @@ when this file exists; CI Images select the Base Image's interpreter independent
 of older repository pins. JUnit validation uses only the Python XML standard library.
 The package and org audit own the other policy readers. Retired workflow comments
 do not opt out.
+
+### Per-concern Opt-out
+
+A repository can opt out of one concern while keeping every other applicable
+concern enforced. This is an exception listed by `org-ops standards status`, not a
+replacement for bringing the concern back into CI. Record the reason and tracking
+issue in the same policy file:
+
+```toml
+[test-gate.e2e]
+off = "The wire suite needs a macOS host that can run a virtual machine; no CI runner can today. Tracked in https://github.com/Rubio-Enterprises/noVNC-ARD/issues/124"
+```
+
+The supported concern tables are `test-gate.test`, `test-gate.typecheck`,
+`test-gate.e2e` and `test-gate.package`. The script stays in `bin/` for manual
+execution and the lifecycle Check still requires it. Both Linux and macOS legs
+(shape and declared-concern modes) omit the concern, print a notice naming it and
+pointing to the recorded reason, and exclude it from the artifact name. No JUnit
+evidence is required for an opted-out test/e2e concern; an opted-out package is
+not attempted or uploaded. Other concerns and the aggregate result are unchanged.
+This also applies to merge groups and default-branch `test-gate-execution` calls.
+
+Unknown concern names, non-table entries, missing/empty/non-string `off` reasons,
+and per-concern entries combined with whole-gate `test-gate.off` fail closed. An
+entry also fails if its `bin/<concern>.sh` no longer exists: remove stale entries.
+`scripts/test-gate-policy.py` is the single policy and concern-selection reader
+used by both execution jobs. Each job stages it in runner temp, removes the
+central checkout before repository setup, then selects concerns after setup.
 
 Only read-only contents/package permissions are requested. Test Gate does not
 publish images, mint OIDC, persist reader credentials or forward all secrets.
@@ -303,8 +332,10 @@ real property routing is separately covered by contract tests and injection cana
 
 For an unmerged central change, point the workflow ref and
 `qualification-central-ref` at its branch. The latter checks out the candidate
-JUnit, macOS tools and hosted Docker preparation actions for local composite calls;
-production checks out the same actions from central main. Each checkout exists only while
+JUnit, macOS tools and hosted Docker preparation actions for local composite calls.
+The shared policy reader also uses `qualification-central-ref`, including on a
+normal non-qualification call for pre-merge proof. It defaults to central main;
+production checks out the other actions from central main. Each checkout exists only while
 its action is needed. `actions/checkout` requires a path inside `GITHUB_WORKSPACE`,
 so the early checkout must be removed rather than placed under runner temp.
 A conditional remote action reference would still load its manifest before the
