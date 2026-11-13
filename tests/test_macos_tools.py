@@ -178,9 +178,9 @@ def test_tool_homes_are_isolated_before_every_install_and_exported(provision):
         'GOCACHE': str(home / 'cache/go-build'),
         'npm_config_cache': str(home / 'cache/npm'),
         'PNPM_HOME': str(home / 'data/pnpm'),
-        'npm_config_store_dir': str(home / 'cache/pnpm/store'),
-        'npm_config_cache_dir': str(home / 'cache/pnpm'),
-        'npm_config_state_dir': str(home / 'state/pnpm'),
+        'pnpm_config_store_dir': str(home / 'cache/pnpm/store'),
+        'pnpm_config_cache_dir': str(home / 'cache/pnpm'),
+        'pnpm_config_state_dir': str(home / 'state/pnpm'),
     }
     inherited = {name: str(runner / 'shared-user-home' / name) for name in expected}
     result, calls, paths, env_text = run(STANDARDS_SOURCE='', **inherited)
