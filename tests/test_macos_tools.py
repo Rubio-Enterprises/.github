@@ -108,7 +108,8 @@ else:
     if os.environ.get('REAL_MISE'):
         sys.exit(subprocess.run([os.environ['REAL_MISE'], *sys.argv[1:]]).returncode)
     data = os.environ['MISE_DATA_DIR']
-    print(json.dumps({'PATH': data + '/installs/node/bin:' + data + '/installs/bats/bin:/usr/bin',
+    cargo = os.environ.get('CARGO_HOME', os.path.expanduser('~/.cargo'))
+    print(json.dumps({'PATH': data + '/installs/node/bin:' + data + '/installs/bats/bin:' + cargo + '/bin:/usr/bin',
                       'GOROOT': data + '/installs/go', 'FIXTURE': os.environ.get('VALUE', 'safe')}))
 '''
     for name in ('mise', 'npm'):
@@ -155,12 +156,43 @@ def test_candidate_installs_locked_repo_then_only_named_runners_and_exports(prov
             assert call['env'][name] == value
     for name, value in expected.items():
         assert f'{name}={value}\n' in env_text
-    assert paths.splitlines() == [str(home / 'data/installs/bats/bin'), str(home / 'data/installs/node/bin')]
+    assert paths.splitlines() == [str(home / 'data/cargo/bin'),
+                                  str(home / 'data/installs/bats/bin'), str(home / 'data/installs/node/bin')]
     assert f'GOROOT={home}/data/installs/go\n' in env_text
     assert 'fixture-token' not in result.stdout + result.stderr + env_text + paths
     assert (source / 'mise/standards.lock').read_text() == '# base-lock\n'
     assert not (source / 'mise/mise.lock').exists()
     assert not (repo / '.mise').exists()
+
+
+def test_tool_homes_are_isolated_before_every_install_and_exported(provision):
+    run, _, _, runner = provision
+    home = runner / 'macos-tools'
+    expected = {
+        'RUSTUP_HOME': str(home / 'data/rustup'),
+        'CARGO_HOME': str(home / 'data/cargo'),
+        'UV_PYTHON_INSTALL_DIR': str(home / 'data/uv-python'),
+        'UV_CACHE_DIR': str(home / 'cache/uv'),
+        'GOPATH': str(home / 'data/go'),
+        'GOMODCACHE': str(home / 'cache/go-mod'),
+        'GOCACHE': str(home / 'cache/go-build'),
+        'npm_config_cache': str(home / 'cache/npm'),
+        'PNPM_HOME': str(home / 'data/pnpm'),
+        'npm_config_store_dir': str(home / 'cache/pnpm/store'),
+    }
+    inherited = {name: str(runner / 'shared-user-home' / name) for name in expected}
+    result, calls, paths, env_text = run(STANDARDS_SOURCE='', **inherited)
+    assert result.returncode == 0, result.stderr
+    assert calls[0]['tool'] == 'npm'
+    for call in calls:
+        for name, value in expected.items():
+            assert call['env'][name] == value, (call['args'], name)
+    for name, value in expected.items():
+        assert f'{name}={value}\n' in env_text
+    assert str(home / 'data/cargo/bin') in paths.splitlines()
+    assert all(Path(path).is_relative_to(home / 'data') for path in paths.splitlines())
+    assert '/usr/bin' not in paths.splitlines()
+    assert 'shared-user-home' not in env_text + paths
 
 
 @pytest.mark.parametrize(('tag', 'version'), [('main', 'latest'), ('v5.1.4', '5.1.4'), ('5.1.4', '5.1.4')])
@@ -247,6 +279,20 @@ def test_real_mise_environment_keeps_repository_precedence(provision):
     assert 'REPO_ONLY=repo\n' in env
     assert 'BASE_ONLY=base\n' in env
     assert 'SHARED=repo\n' in env
+
+
+def test_real_mise_rust_environment_keeps_cargo_inside_the_path_boundary(provision):
+    run, repo, source, runner = provision
+    (repo / 'image/mise.toml').write_text('[tools]\nrust = "1.99.1"\n')
+    (source / 'mise/standards.toml').write_text('[tools]\n')
+    data = runner / 'macos-tools/data'
+    (data / 'installs/rust/1.99.1').mkdir(parents=True)
+    result, _, paths, env = run(REAL_MISE=shutil.which('mise'))
+    assert result.returncode == 0, result.stderr
+    assert str(data / 'cargo/bin') in paths.splitlines()
+    assert f'CARGO_HOME={data}/cargo\n' in env
+    assert f'RUSTUP_HOME={data}/rustup\n' in env
+    assert all(Path(path).is_relative_to(data) for path in paths.splitlines())
 
 
 def test_invalid_environment_cannot_inject_github_commands(provision):
