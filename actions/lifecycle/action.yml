@@ -1,0 +1,31 @@
+name: Lifecycle dispatch
+description: Stage the shared dispatcher and optionally run one repository recipe
+inputs:
+  recipe:
+    description: Recipe to run; empty stages the dispatcher for a caller-owned loop
+    default: ''
+  mode:
+    description: image for direct scripts, compose for just, or macos for native setup/check spelling
+    default: compose
+outputs:
+  runner:
+    description: Staged shell script accepting mode and one recipe name
+    value: ${{ steps.stage.outputs.runner }}
+runs:
+  using: composite
+  steps:
+    - name: Stage dispatcher outside the repository
+      id: stage
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/lifecycle"
+        cp "$GITHUB_ACTION_PATH/run.sh" "$RUNNER_TEMP/lifecycle/run.sh"
+        cp "$GITHUB_ACTION_PATH/../macos-tools/run-recipe.sh" "$RUNNER_TEMP/lifecycle/macos-recipe.sh"
+        echo "runner=$RUNNER_TEMP/lifecycle/run.sh" >> "$GITHUB_OUTPUT"
+    - name: Run recipe
+      if: inputs.recipe != ''
+      shell: bash
+      env:
+        RECIPE: ${{ inputs.recipe }}
+        MODE: ${{ inputs.mode }}
+      run: bash "$RUNNER_TEMP/lifecycle/run.sh" "$MODE" "$RECIPE"

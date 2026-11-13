@@ -45,7 +45,10 @@ def test_shared_action_uses_test_gate_dependency_interface_without_hooks():
     assert 'continue-on-error' not in step
     gate = document('.github/workflows/test-gate.yml')['jobs']['test-gate-linux']['steps']
     setup = next(step for step in gate if step.get('name') == 'Set up dependencies')
-    assert 'if [ "$CI_IMAGE" = true ]; then\n  ' + step['run'] + '\nelse' in setup['run']
+    dispatcher = (ROOT / 'actions/lifecycle/run.sh').read_text()
+    assert 'image) exec "bin/$recipe.sh"' in dispatcher
+    assert 'if [ "$CI_IMAGE" = true ]; then mode=image; fi' in setup['run']
+    assert 'bash "$RUNNER_TEMP/lifecycle/run.sh" "$mode" setup' in setup['run']
     assert setup['env'] == tokens
 
 

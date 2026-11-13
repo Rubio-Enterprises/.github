@@ -146,8 +146,14 @@ jobs:
           ref: ${{ inputs.qualification-central-ref || 'main' }}
           path: .cache/central-test-gate
           persist-credentials: false
-          sparse-checkout: scripts/test-gate-policy.py
+          sparse-checkout: |
+            scripts/test-gate-policy.py
+            actions/lifecycle
+            actions/macos-tools
+            actions/release-asset
           sparse-checkout-cone-mode: false
+      - name: Stage Lifecycle dispatcher
+        uses: ./.cache/central-test-gate/actions/lifecycle # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
       - name: Stage Test Gate policy reader
         run: |
           cp .cache/central-test-gate/scripts/test-gate-policy.py "$RUNNER_TEMP/test-gate-policy.py"
@@ -213,12 +219,9 @@ jobs:
           test ! -e .cache/central-test-gate
           test ! -L .cache/central-test-gate
           echo 'Central checkout absent before repository setup: .cache/central-test-gate'
-          if [ "$CI_IMAGE" = true ]; then
-            bin/setup.sh
-          else
-            just build
-            just setup
-          fi
+          mode=compose
+          if [ "$CI_IMAGE" = true ]; then mode=image; fi
+          bash "$RUNNER_TEMP/lifecycle/run.sh" "$mode" setup
       - name: Report hosted Docker disk use
         if: ${{ always() && steps.policy.outputs.opted-out == 'false' && env.CI_IMAGE != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux' }}
         run: |
@@ -243,7 +246,9 @@ jobs:
             case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
             if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
             echo "::group::$script"
-            if [ "$CI_IMAGE" = true ]; then "$script"; else just "$step"; fi
+            mode=compose
+            if [ "$CI_IMAGE" = true ]; then mode=image; fi
+            bash "$RUNNER_TEMP/lifecycle/run.sh" "$mode" "$step"
             echo '::endgroup::'
           done
       # Local actions let Release Check qualify a candidate absent from main
@@ -332,8 +337,14 @@ jobs:
           ref: ${{ inputs.qualification-central-ref || 'main' }}
           path: .cache/central-test-gate
           persist-credentials: false
-          sparse-checkout: scripts/test-gate-policy.py
+          sparse-checkout: |
+            scripts/test-gate-policy.py
+            actions/lifecycle
+            actions/macos-tools
+            actions/release-asset
           sparse-checkout-cone-mode: false
+      - name: Stage Lifecycle dispatcher
+        uses: ./.cache/central-test-gate/actions/lifecycle # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
       - name: Stage Test Gate policy reader
         run: |
           cp .cache/central-test-gate/scripts/test-gate-policy.py "$RUNNER_TEMP/test-gate-policy.py"
@@ -401,11 +412,9 @@ jobs:
           test ! -e .cache/central-test-gate
           test ! -L .cache/central-test-gate
           echo 'Central checkout absent before repository setup: .cache/central-test-gate'
-          if [ -n "$MACOS_CONCERNS" ]; then
-            bin/setup.sh
-          else
-            bash "$RUNNER_TEMP/macos-recipe.sh" setup
-          fi
+          mode=macos
+          if [ -n "$MACOS_CONCERNS" ]; then mode=image; fi
+          bash "$RUNNER_TEMP/lifecycle/run.sh" "$mode" setup
       - name: Save macOS tool downloads
         if: steps.policy.outputs.opted-out != 'true' && steps.macos-downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -435,7 +444,9 @@ jobs:
             case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
             if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
             echo "::group::$script"
-            if [ -n "$MACOS_CONCERNS" ]; then "$script"; else just "$step"; fi
+            mode=macos
+            if [ -n "$MACOS_CONCERNS" ]; then mode=image; fi
+            bash "$RUNNER_TEMP/lifecycle/run.sh" "$mode" "$step"
             echo '::endgroup::'
           done
       # Local actions let Release Check qualify a candidate absent from main
