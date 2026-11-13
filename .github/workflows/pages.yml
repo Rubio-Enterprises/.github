@@ -11,6 +11,19 @@ name: pages (reusable)
         description: Repository-relative site directory containing index.html, without symlinks
         type: string
         required: true
+      app-repositories:
+        description: Optional comma or newline-separated repository names in the caller's owner for read-only build access
+        type: string
+        default: ''
+      cache-path:
+        description: Optional repository-relative cache directory persisted between builds
+        type: string
+        default: ''
+    secrets:
+      app-client-id:
+        required: false
+      app-private-key:
+        required: false
 
 permissions:
   contents: read
@@ -56,16 +69,29 @@ jobs:
             exit 1
           fi
 
+      - name: Validate App credentials
+        if: inputs.app-repositories != ''
+        env:
+          APP_REPOSITORIES: ${{ inputs.app-repositories }}
+          APP_CLIENT_ID_PRESENT: ${{ secrets.app-client-id != '' }}
+          APP_PRIVATE_KEY_PRESENT: ${{ secrets.app-private-key != '' }}
+        shell: bash
+        run: |
+          if [[ ! "$APP_REPOSITORIES" =~ [^[:space:],] ]] || [ "$APP_CLIENT_ID_PRESENT" != true ] || [ "$APP_PRIVATE_KEY_PRESENT" != true ]; then
+            echo '::error::pages: App access requires a nonempty repository list and both App secrets.' >&2
+            exit 1
+          fi
+
       - name: Read Pages settings
         id: pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
       - name: Prepare hosted Docker disk
         if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
-        uses: Rubio-Enterprises/.github/actions/prepare-hosted-docker@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        uses: Rubio-Enterprises/.github/actions/prepare-hosted-docker@main
       - name: Install just
         if: needs.route.outputs.ci-image != 'true'
-        uses: Rubio-Enterprises/.github/actions/setup-just@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        uses: Rubio-Enterprises/.github/actions/setup-just@main
       - name: Log in to GHCR for dev image builds
         if: needs.route.outputs.ci-image != 'true' && runner.os == 'Linux'
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
@@ -78,12 +104,12 @@ jobs:
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
       - name: Install mise if missing on macOS
         if: runner.os == 'macOS'
-        uses: Rubio-Enterprises/.github/actions/macos-tools@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        uses: Rubio-Enterprises/.github/actions/macos-tools@main
         with:
           provision: 'false'
 
       - name: Set up dependencies
-        uses: Rubio-Enterprises/.github/actions/lifecycle@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        uses: Rubio-Enterprises/.github/actions/lifecycle@main
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -91,11 +117,43 @@ jobs:
         with:
           mode: ${{ env.LIFECYCLE_MODE }}
           recipe: setup
+      - name: Validate cache directory
+        id: cache-path
+        if: inputs.cache-path != ''
+        uses: Rubio-Enterprises/.github/actions/pages-directory@main
+        with:
+          path: ${{ inputs.cache-path }}
+          purpose: cache
+      - name: Restore build cache
+        id: cache
+        if: inputs.cache-path != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.cache-path.outputs.relative-path }}
+          key: ${{ steps.cache-path.outputs.cache-prefix }}-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache-path.outputs.cache-prefix }}-
+      - name: Verify restored cache directory
+        if: inputs.cache-path != ''
+        uses: Rubio-Enterprises/.github/actions/pages-directory@main
+        with:
+          path: ${{ inputs.cache-path }}
+          purpose: cache
+      - name: Mint read-only source token
+        id: app-token
+        if: inputs.app-repositories != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ inputs.app-repositories }}
+          permission-contents: read
       - name: Build the site
-        uses: Rubio-Enterprises/.github/actions/lifecycle@b17ea4cb64184425e90a1e490cd3d27a21b8cd1f # central main
+        id: build
+        uses: Rubio-Enterprises/.github/actions/lifecycle@main
         env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           NODE_AUTH_TOKEN: ${{ github.token }}
           SITE_URL: ${{ steps.pages.outputs.origin }}
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
@@ -103,47 +161,42 @@ jobs:
           mode: ${{ env.LIFECYCLE_MODE }}
           recipe: ${{ inputs.recipe }}
 
-      - name: Verify the site directory
-        id: site
+      - name: Verify cache directory after build
+        id: cache-after
+        if: ${{ !cancelled() && steps.cache-path.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        uses: Rubio-Enterprises/.github/actions/pages-directory@main
+        with:
+          path: ${{ inputs.cache-path }}
+          purpose: cache
+      - name: Plan cache save
+        id: cache-key
+        if: ${{ !cancelled() && steps.cache-after.outcome == 'success' }}
         env:
-          SITE_PATH: ${{ inputs.path }}
+          CACHE_PREFIX: ${{ steps.cache-path.outputs.cache-prefix }}
+          CACHE_DIGEST: ${{ hashFiles(format('{0}/**', steps.cache-after.outputs.relative-path)) }}
+          MATCHED_KEY: ${{ steps.cache.outputs.cache-matched-key }}
         shell: bash
         run: |
-          src="${SITE_PATH%/}"
-          case "$src" in
-            ''|/*|..|../*|*/..|*/../*|*$'\n'*|*$'\r'*)
-              echo '::error::pages: path must be a repository-relative site directory without parent segments or newlines.' >&2
-              exit 1 ;;
-          esac
-          parent="$src"
-          while :; do
-            if [ -L "$parent" ]; then
-              echo '::error::pages: site paths must not traverse symlinks.' >&2
-              exit 1
-            fi
-            case "$parent" in */*) parent="${parent%/*}" ;; *) break ;; esac
-          done
-          if [ ! -d "$src" ] || [ ! -f "$src/index.html" ]; then
-            echo '::error::pages: the site directory must exist and contain index.html.' >&2
-            exit 1
+          if [ -n "$CACHE_DIGEST" ] && [ "$CACHE_PREFIX-$CACHE_DIGEST" != "$MATCHED_KEY" ]; then
+            printf 'key=%s-%s\nsave=true\n' "$CACHE_PREFIX" "$CACHE_DIGEST" >> "$GITHUB_OUTPUT"
           fi
-          src="$(cd -- "$src" && pwd -P)"
-          if [ "$src" = "$(pwd -P)" ]; then
-            echo '::error::pages: the repository root is not a site directory.' >&2
-            exit 1
-          fi
-          # upload-pages-artifact dereferences symlinks, including targets outside the site
-          links="$(find "$src" -type l -print)"
-          if [ -n "$links" ]; then
-            echo '::error::pages: symlinks are not publishable.' >&2
-            exit 1
-          fi
-          printf 'dir=%s\n' "$src" >> "$GITHUB_OUTPUT"
+      - name: Save build cache
+        if: ${{ !cancelled() && steps.cache-key.outputs.save == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.cache-after.outputs.relative-path }}
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Verify the site directory
+        id: site
+        uses: Rubio-Enterprises/.github/actions/pages-directory@main
+        with:
+          path: ${{ inputs.path }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: ${{ steps.site.outputs.dir }}
+          path: ${{ steps.site.outputs.path }}
       - name: Clean up dependency volumes and services
         if: ${{ always() && needs.route.outputs.ci-image != 'true' && runner.os == 'Linux' }}
         run: |

@@ -17,6 +17,7 @@ WORKFLOW = document('.github/workflows/pages.yml')
 BUILD = WORKFLOW['jobs']['build']
 DEPLOY = WORKFLOW['jobs']['deploy']
 ACTION = document('actions/lifecycle/action.yml')
+DIRECTORY = ROOT / 'actions/pages-directory'
 
 
 def step(name):
@@ -26,17 +27,25 @@ def step(name):
 def shell(root, name, **env):
     output = root / 'output'
     output.write_text('')
-    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', step(name)['run']], cwd=root,
+    body = step(name).get('run')
+    if name == 'Verify the site directory':
+        body = 'bash "$GITHUB_ACTION_PATH/validate.sh"'
+        env = {**env, 'GITHUB_ACTION_PATH': str(DIRECTORY),
+               'DIRECTORY_PATH': env['SITE_PATH'], 'PURPOSE': 'site'}
+    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', body], cwd=root,
                             env={**os.environ, 'GITHUB_OUTPUT': str(output), **env},
                             capture_output=True, text=True)
     return result, output.read_text()
 
 
-def test_interface_has_only_required_path_and_default_package_recipe():
+def test_interface_keeps_base_inputs_and_only_two_optional_capabilities():
     assert set(WORKFLOW['on']) == {'workflow_call'}
     interface = WORKFLOW['on']['workflow_call']
-    assert set(interface) == {'inputs'}
-    assert set(interface['inputs']) == {'recipe', 'path'}
+    assert set(interface) == {'inputs', 'secrets'}
+    assert set(interface['inputs']) == {'recipe', 'path', 'app-repositories', 'cache-path'}
+    assert interface['inputs']['app-repositories']['default'] == ''
+    assert interface['inputs']['cache-path']['default'] == ''
+    assert interface['secrets'] == {'app-client-id': {'required': False}, 'app-private-key': {'required': False}}
     assert interface['inputs']['recipe']['type'] == 'string'
     assert interface['inputs']['recipe']['default'] == 'package'
     assert interface['inputs']['path']['type'] == 'string'
@@ -62,7 +71,10 @@ def test_dispatch_is_shared_and_receives_pages_url_and_job_token():
     assert setup['with'] == {'mode': '${{ env.LIFECYCLE_MODE }}', 'recipe': 'setup'}
     assert build['with'] == {'mode': '${{ env.LIFECYCLE_MODE }}', 'recipe': '${{ inputs.recipe }}'}
     for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'NODE_AUTH_TOKEN'):
-        assert setup['env'][name] == build['env'][name] == '${{ github.token }}'
+        assert setup['env'][name] == '${{ github.token }}'
+    for name in ('GH_TOKEN', 'GITHUB_TOKEN'):
+        assert build['env'][name] == '${{ steps.app-token.outputs.token || github.token }}'
+    assert build['env']['NODE_AUTH_TOKEN'] == '${{ github.token }}'
     assert build['env']['SITE_URL'] == '${{ steps.pages.outputs.origin }}'
     assert build['env']['BASE_PATH'] == '${{ steps.pages.outputs.base_path }}'
     assert step('Read Pages settings')['id'] == 'pages'
@@ -101,19 +113,20 @@ def test_deployment_matches_codewiki_lock_environment_and_action_pins():
     assert DEPLOY['steps'] == codewiki['jobs']['deploy']['steps']
     upload = step('Upload Pages artifact')
     assert upload['uses'] == codewiki['jobs']['build']['steps'][-1]['uses']
-    assert upload['with'] == {'path': '${{ steps.site.outputs.dir }}'}
+    assert upload['with'] == {'path': '${{ steps.site.outputs.path }}'}
     assert step('Verify the site directory')['id'] == 'site'
 
 
-def test_every_action_is_sha_pinned_and_there_are_no_repository_hooks():
+def test_first_party_actions_follow_main_and_third_party_actions_are_pinned():
     for job in WORKFLOW['jobs'].values():
         for s in job.get('steps', []):
             if 'uses' in s:
-                assert re.search(r'@[a-f0-9]{40}$', s['uses']), s
-    assert not any('create-github-app-token' in s.get('uses', '') or 'actions/cache' in s.get('uses', '')
-                   for s in BUILD['steps'])
-    assert 'secrets.' not in json.dumps(WORKFLOW)
+                if s['uses'].startswith('Rubio-Enterprises/.github/actions/'):
+                    assert s['uses'].endswith('@main'), s
+                else:
+                    assert re.search(r'@[a-f0-9]{40}$', s['uses']), s
     assert 'github.ref' not in json.dumps(WORKFLOW)
+    assert not any('hook' in name for name in WORKFLOW['on']['workflow_call']['inputs'])
 
 
 def test_runner_bootstrap_and_compose_teardown_are_not_used_on_images_or_macos():
@@ -162,8 +175,10 @@ def test_site_path_is_verified_and_emitted_without_shell_interpolation(tmp_path,
     (site / 'index.html').write_text('site')
     result, output = shell(tmp_path, 'Verify the site directory', SITE_PATH=path)
     assert result.returncode == 0, result.stderr
-    assert output == f'dir={site.resolve()}\n'
-    assert '${{ inputs.path }}' not in step('Verify the site directory')['run']
+    assert dict(line.split('=', 1) for line in output.splitlines()) == {
+        'path': str(site.resolve()), 'relative-path': str(site.resolve().relative_to(tmp_path))}
+    assert step('Verify the site directory')['with'] == {'path': '${{ inputs.path }}'}
+    assert '${{ inputs.path }}' not in (DIRECTORY / 'validate.sh').read_text()
 
 
 @pytest.mark.parametrize('path', ['', '/', '/etc', '..', '../site', 'site/..', 'site/../dist', '.', './',

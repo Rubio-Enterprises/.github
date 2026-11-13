@@ -1,0 +1,28 @@
+name: Validate Pages directory
+description: Validate a site or optional cache directory without following symlinks
+inputs:
+  path:
+    description: Repository-relative directory
+    required: true
+  purpose:
+    description: site requires index.html; cache may start empty and must be a literal glob-free path
+    default: site
+outputs:
+  path:
+    description: Verified absolute directory
+    value: ${{ steps.validate.outputs.path }}
+  relative-path:
+    description: Normalized repository-relative directory
+    value: ${{ steps.validate.outputs.relative-path }}
+  cache-prefix:
+    description: Cache namespace for this directory, runner OS and architecture
+    value: ${{ steps.validate.outputs.cache-prefix }}
+runs:
+  using: composite
+  steps:
+    - id: validate
+      shell: bash
+      env:
+        DIRECTORY_PATH: ${{ inputs.path }}
+        PURPOSE: ${{ inputs.purpose }}
+      run: bash "$GITHUB_ACTION_PATH/validate.sh"
