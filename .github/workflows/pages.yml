@@ -77,7 +77,7 @@ jobs:
           APP_PRIVATE_KEY_PRESENT: ${{ secrets.app-private-key != '' }}
         shell: bash
         run: |
-          if [[ ! "$APP_REPOSITORIES" =~ [^[:space:],] ]] || [ "$APP_CLIENT_ID_PRESENT" != true ] || [ "$APP_PRIVATE_KEY_PRESENT" != true ]; then
+          if [[ ! "$APP_REPOSITORIES" =~ [a-zA-Z0-9_.-] ]] || [ "$APP_CLIENT_ID_PRESENT" != true ] || [ "$APP_PRIVATE_KEY_PRESENT" != true ]; then
             echo '::error::pages: App access requires a nonempty repository list and both App secrets.' >&2
             exit 1
           fi

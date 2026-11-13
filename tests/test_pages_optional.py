@@ -63,6 +63,7 @@ def test_only_build_receives_the_scoped_app_token_and_node_keeps_the_job_token()
     ('one\ntwo', 'client', 'private-key', True), ('one,two', 'client', 'private-key', True),
     ('one', '', 'private-key', False), ('one', 'client', '', False),
     (' ', 'client', 'private-key', False), (' , \n,\t', 'client', 'private-key', False),
+    ('\ufeff,\u00a0', 'client', 'private-key', False),
 ])
 def test_partial_or_empty_app_scope_fails_without_logging_secrets(tmp_path, repositories, client, key, valid):
     result, output = shell(tmp_path, 'Validate App credentials', APP_REPOSITORIES=repositories,
