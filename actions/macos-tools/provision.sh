@@ -30,6 +30,8 @@ export GOCACHE="$MISE_CACHE_DIR/go-build"
 export npm_config_cache="$MISE_CACHE_DIR/npm"
 export PNPM_HOME="$MISE_DATA_DIR/pnpm"
 export npm_config_store_dir="$MISE_CACHE_DIR/pnpm/store"
+export npm_config_cache_dir="$MISE_CACHE_DIR/pnpm"
+export npm_config_state_dir="$MISE_STATE_DIR/pnpm"
 mkdir -p "$MISE_CONFIG_DIR" "$MISE_SYSTEM_CONFIG_DIR"
 : > "$MISE_GLOBAL_CONFIG_FILE"
 

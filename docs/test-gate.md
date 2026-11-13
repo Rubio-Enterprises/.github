@@ -69,8 +69,10 @@ mise install and exports them to setup and Lifecycle steps. All paths are below
 | uv | `UV_PYTHON_INSTALL_DIR=uv-python` | `UV_CACHE_DIR=uv` |
 | Go | `GOPATH=go` | `GOMODCACHE=go-mod`, `GOCACHE=go-build` |
 | npm | Global tools stay in mise's installed Node prefix | `npm_config_cache=npm`, including the initial standards package download |
-| pnpm | `PNPM_HOME=pnpm` | `npm_config_store_dir=pnpm/store` |
+| pnpm | `PNPM_HOME=pnpm` | `npm_config_store_dir=pnpm/store`, `npm_config_cache_dir=pnpm` |
 
+pnpm's update-check state uses `npm_config_state_dir` below `state/pnpm`.
+Setting `PNPM_HOME` alone does not relocate its metadata cache or update-check state.
 These override inherited runner-level values. The exporter still accepts PATH
 entries only below `MISE_DATA_DIR`; Cargo's `data/cargo/bin` satisfies that boundary.
 No external PATH directories are added. Only mise's download store is restored
