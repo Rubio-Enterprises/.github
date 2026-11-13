@@ -88,7 +88,7 @@ def test_cache_restore_save_guards_order_and_content_addressed_keys():
         assert call['with'] == {'path': '${{ inputs.cache-path }}', 'purpose': 'cache'}
     assert restore['if'] == "inputs.cache-path != ''"
     assert restore['with'] == {
-        'path': '${{ steps.cache-path.outputs.relative-path }}',
+        'path': './${{ steps.cache-path.outputs.relative-path }}/',
         'key': '${{ steps.cache-path.outputs.cache-prefix }}-restore-${{ github.run_id }}-${{ github.run_attempt }}',
         'restore-keys': '${{ steps.cache-path.outputs.cache-prefix }}-',
     }
@@ -96,11 +96,11 @@ def test_cache_restore_save_guards_order_and_content_addressed_keys():
     assert plan['if'] == "${{ !cancelled() && steps.cache-after.outcome == 'success' }}"
     assert plan['env'] == {
         'CACHE_PREFIX': '${{ steps.cache-path.outputs.cache-prefix }}',
-        'CACHE_DIGEST': "${{ hashFiles(format('{0}/**', steps.cache-after.outputs.relative-path)) }}",
+        'CACHE_DIGEST': "${{ hashFiles(format('./{0}/**', steps.cache-after.outputs.relative-path)) }}",
         'MATCHED_KEY': '${{ steps.cache.outputs.cache-matched-key }}',
     }
     assert save['if'] == "${{ !cancelled() && steps.cache-key.outputs.save == 'true' }}"
-    assert save['with'] == {'path': '${{ steps.cache-after.outputs.relative-path }}',
+    assert save['with'] == {'path': './${{ steps.cache-after.outputs.relative-path }}/',
                             'key': '${{ steps.cache-key.outputs.key }}'}
     assert restore['uses'] == 'actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
     assert save['uses'] == 'actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
@@ -126,6 +126,15 @@ def test_cache_path_creates_empty_directory_with_stable_per_path_and_runner_name
         result, other = validate_cache(tmp_path, path, os_name, arch)
         assert result.returncode == 0, result.stderr
         assert other['cache-prefix'] != first['cache-prefix']
+
+
+@pytest.mark.parametrize('path', ['~/.cache/tool', '#cache', ' leading', 'trailing '])
+def test_literal_cache_names_stay_inside_the_workspace(tmp_path, path):
+    result, output = validate_cache(tmp_path, path)
+    assert result.returncode == 0, result.stderr
+    assert output['relative-path'] == path
+    assert Path(output['path']).is_relative_to(tmp_path)
+    assert (tmp_path / path).is_dir()
 
 
 @pytest.mark.parametrize('path', ['', '.', './', '..', '../outside', '/etc', '.cache/../other',

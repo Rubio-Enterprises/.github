@@ -129,7 +129,7 @@ jobs:
         if: inputs.cache-path != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.cache-path.outputs.relative-path }}
+          path: ./${{ steps.cache-path.outputs.relative-path }}/
           key: ${{ steps.cache-path.outputs.cache-prefix }}-restore-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ${{ steps.cache-path.outputs.cache-prefix }}-
       - name: Verify restored cache directory
@@ -173,7 +173,7 @@ jobs:
         if: ${{ !cancelled() && steps.cache-after.outcome == 'success' }}
         env:
           CACHE_PREFIX: ${{ steps.cache-path.outputs.cache-prefix }}
-          CACHE_DIGEST: ${{ hashFiles(format('{0}/**', steps.cache-after.outputs.relative-path)) }}
+          CACHE_DIGEST: ${{ hashFiles(format('./{0}/**', steps.cache-after.outputs.relative-path)) }}
           MATCHED_KEY: ${{ steps.cache.outputs.cache-matched-key }}
         shell: bash
         run: |
@@ -184,7 +184,7 @@ jobs:
         if: ${{ !cancelled() && steps.cache-key.outputs.save == 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.cache-after.outputs.relative-path }}
+          path: ./${{ steps.cache-after.outputs.relative-path }}/
           key: ${{ steps.cache-key.outputs.key }}
 
       - name: Verify the site directory

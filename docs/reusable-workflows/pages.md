@@ -103,7 +103,9 @@ After setup, the workflow validates the directory, restores the newest matching
 cache by prefix and validates the restored tree before the recipe runs. The
 namespace includes runner OS, architecture and a stable hash of the normalized
 relative directory. Restore/save use that relative path so workspace location is
-not a per-run key component.
+not a per-run key component. A `./` prefix and trailing slash keep literal names
+from becoming home-directory patterns, comments or trimmed whitespace in the
+underlying Actions globber; the content-hash pattern uses the same prefix.
 
 After any attempted build, including a failed build, the workflow revalidates the
 directory and computes its content digest with GitHub's `hashFiles`. A nonempty
