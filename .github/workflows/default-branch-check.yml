@@ -284,7 +284,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: Rubio-Enterprises/.github/.github/workflows/test-gate.yml@main
+    uses: Rubio-Enterprises/.github/.github/workflows/test-gate.yml@chore/probe-gate-workflow-context
   test-gate-main:
     name: test-gate-main / test-gate
     needs: [evidence, test-gate-execution]
