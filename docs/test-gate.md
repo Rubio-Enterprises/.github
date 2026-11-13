@@ -59,6 +59,28 @@ and `image/mise.lock`, without a restore prefix. Setup and Lifecycle steps recei
 that still use a checkout-local cache simply do not consume this restored store.
 Installed tools are not cached.
 
+Leg-mode provisioning sets runtime homes before the package download or either
+mise install and exports them to setup and Lifecycle steps. All paths are below
+`$RUNNER_TEMP/macos-tools`, not the persistent runner user's home:
+
+| Runtime | Data under `data/` | Regenerable files under `cache/` |
+| --- | --- | --- |
+| Rust | `RUSTUP_HOME=rustup`, `CARGO_HOME=cargo` | Cargo uses its isolated home for registry/build downloads |
+| uv | `UV_PYTHON_INSTALL_DIR=uv-python` | `UV_CACHE_DIR=uv` |
+| Go | `GOPATH=go` | `GOMODCACHE=go-mod`, `GOCACHE=go-build` |
+| npm | Global tools stay in mise's installed Node prefix | `npm_config_cache=npm`, including the initial standards package download |
+| pnpm | `PNPM_HOME=pnpm` | `pnpm_config_store_dir=pnpm/store`, `pnpm_config_cache_dir=pnpm` |
+
+pnpm's update-check state uses `pnpm_config_state_dir` below `state/pnpm`.
+Setting `PNPM_HOME` alone does not relocate its metadata cache or update-check state.
+These override inherited runner-level values. The exporter still accepts PATH
+entries only below `MISE_DATA_DIR`; Cargo's `data/cargo/bin` satisfies that boundary.
+No external PATH directories are added. Only mise's download store is restored
+across jobs; the other stores above remain job-local. `HOME`, XDG locations,
+repository dependencies and project build directories are not relocated. Shape
+mode (`provision: false`) does not run provisioning or set these variables;
+repository macOS helpers continue to own its runtime homes.
+
 The aggregate requires every expected leg to succeed and every unexpected leg to be
 skipped. Linux alone, Linux with a declared macOS leg, and macOS shape are distinct
 cases. Failed, cancelled or unexpectedly skipped legs fail the aggregate. An existing

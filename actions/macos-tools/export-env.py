@@ -9,6 +9,9 @@ ISOLATION = (
     'MISE_SYSTEM_CONFIG_DIR', 'MISE_SHIMS_DIR', 'MISE_GLOBAL_CONFIG_FILE',
     'MISE_TRUSTED_CONFIG_PATHS', 'MISE_YES', 'MISE_AUTO_INSTALL',
     'MISE_OVERRIDE_CONFIG_FILENAMES',
+    'RUSTUP_HOME', 'CARGO_HOME', 'UV_PYTHON_INSTALL_DIR', 'UV_CACHE_DIR',
+    'GOPATH', 'GOMODCACHE', 'GOCACHE', 'npm_config_cache', 'PNPM_HOME',
+    'pnpm_config_store_dir', 'pnpm_config_cache_dir', 'pnpm_config_state_dir',
 )
 
 
