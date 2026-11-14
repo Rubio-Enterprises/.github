@@ -327,6 +327,9 @@ entry also fails if its `bin/<concern>.sh` no longer exists: remove stale entrie
 `scripts/test-gate-policy.py` is the single policy and concern-selection reader
 used by both execution jobs. Each job stages it in runner temp, removes the
 central checkout before repository setup, then selects concerns after setup.
+On macOS, `actions/setup-python` supplies Python 3.13 for both reads without
+changing the job's toolchain PATH. The absolute interpreter path stays stable
+when repository tools are provisioned.
 
 Only read-only contents/package permissions are requested. Test Gate does not
 publish images, mint OIDC, persist reader credentials or forward all secrets.

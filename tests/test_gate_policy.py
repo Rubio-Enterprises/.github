@@ -103,6 +103,18 @@ def test_staged_policy_reader_source_is_retained(job):
     assert READER.is_file(), 'Retain the reader source while the workflow stages it, including on revert'
 
 
+def test_macos_policy_uses_provisioned_python_for_both_reads():
+    steps = WORKFLOW['jobs']['test-gate-macos']['steps']
+    setup = step('Set up policy Python', 'test-gate-macos')
+    assert setup['uses'].startswith('actions/setup-python@')
+    assert setup['with']['python-version'] == '3.13'
+    for name in ('Check Test Gate policy', 'Run Lifecycle Scripts'):
+        reader = step(name, 'test-gate-macos')
+        assert steps.index(setup) < steps.index(reader)
+        assert reader['env']['POLICY_PYTHON'] == '${{ steps.policy-python.outputs.python-path }}'
+        assert '"$POLICY_PYTHON" "$RUNNER_TEMP/test-gate-policy.py"' in reader['run']
+
+
 def test_every_concern_computing_job_uses_one_reader_and_default_branch_delegates():
     for job in ('test-gate-linux', 'test-gate-macos'):
         assert 'test-gate-policy.py' in step('Check Test Gate policy', job)['run']

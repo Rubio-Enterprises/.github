@@ -207,7 +207,7 @@ def test_split_structure_shared_policy_and_evidence_contract():
     assert jobs['test-gate']['permissions'] == {}
     assert jobs['test-gate']['needs'] == ['route', 'qualification', 'test-gate-linux', MACOS]
     assert 'always()' in jobs['test-gate']['if']
-    for name in ('Require successful project routing or an authorized Release Check', 'Check Test Gate policy',
+    for name in ('Require successful project routing or an authorized Release Check',
                  'Check out central JUnit action', 'Require JUnit evidence'):
         assert step(name) == step(name, MACOS)
     for name in ('qualification-platform', 'qualification-macos-concerns'):
