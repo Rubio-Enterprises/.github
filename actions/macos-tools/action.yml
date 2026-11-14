@@ -5,7 +5,7 @@ inputs:
     description: Set to false to install mise only
     default: 'true'
   runners:
-    description: Space-separated runner tool names from the base lock
+    description: Space-separated runner tool names from the base lock; empty provisions repository tools only
     default: aqua:gotestyourself/gotestsum aqua:nextest-rs/nextest/cargo-nextest aqua:bats-core/bats-core aqua:cpisciotta/xcbeautify
   standards-source:
     description: Candidate standards directory containing mise; empty uses the Dockerfile base version

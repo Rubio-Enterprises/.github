@@ -51,6 +51,11 @@ The macOS job has two modes, neither using Docker:
   A declared missing or non-executable script fails. Locked installation fails if
   macOS lock entries are missing. The Linux job remains unchanged.
 
+Host-native lanes on Linux or macOS can use `actions/macos-tools` with
+`provision: true` and `runners: ''` to install only repository tools from
+`image/mise.toml` and `image/mise.lock`, without downloading the base package.
+The lock must contain entries for the runner's OS and architecture.
+
 Both central macOS jobs restore and save mise's content-addressed download store at
 `${{ runner.temp }}/macos-tools/cache/downloads-cas`, keyed by runner OS, architecture
 and `image/mise.lock`, without a restore prefix. Setup and Lifecycle steps receive
