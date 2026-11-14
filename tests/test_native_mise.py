@@ -61,7 +61,7 @@ def test_bad_checksum_failed_download_and_unsupported_platform_fail_closed(relea
     elif failure == '403':
         state['status'] = 403
     else:
-        env.update(TEST_OS='Linux', TEST_ARCH='x86_64')
+        env.update(TEST_OS='FreeBSD', TEST_ARCH='x86_64')
         result = subprocess.run(['bash', str(release_fixture[0] / 'actions/macos-tools/install-mise.sh')], env=env, capture_output=True)
         assert result.returncode != 0
         assert not state['requests']

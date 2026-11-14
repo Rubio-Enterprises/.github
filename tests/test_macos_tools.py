@@ -221,12 +221,23 @@ def test_external_failures_stop_without_exporting_partial_environment(provision,
     assert len(calls) == (2 if failure == 'runners' else 1)
 
 
-def test_empty_runner_list_cannot_install_all_base_checks(provision):
-    run, _, _, _ = provision
-    result, calls, paths, env = run(RUNNERS='')
-    assert result.returncode != 0
-    assert 'runner tool names are required' in result.stderr
-    assert not calls and not paths and not env
+@pytest.mark.parametrize('candidate', [True, False])
+def test_empty_runner_list_installs_only_repository_and_exports(provision, candidate):
+    run, repo, source, runner = provision
+    if candidate:
+        shutil.rmtree(source)
+    else:
+        (repo / 'Dockerfile').unlink()
+    result, calls, paths, env = run(RUNNERS='', STANDARDS_SOURCE=str(source) if candidate else '')
+    assert result.returncode == 0, result.stderr
+    assert [(c['tool'], c['args']) for c in calls] == [
+        ('mise', ['install', '--locked']), ('mise', ['env', '--json'])]
+    config = str(repo / 'image/mise.toml')
+    assert all(c['env']['MISE_OVERRIDE_CONFIG_FILENAMES'] == config for c in calls)
+    assert f'MISE_OVERRIDE_CONFIG_FILENAMES={config}\n' in env
+    assert f'MISE_DATA_DIR={runner}/macos-tools/data\n' in env
+    assert paths and 'GOROOT=' in env
+    assert not (runner / 'macos-tools/base/mise/standards.toml').exists()
 
 
 def test_missing_candidate_lock_fails_without_installing(provision):

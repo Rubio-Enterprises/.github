@@ -225,6 +225,24 @@ def test_only_the_exact_installed_version_is_reused(release_fixture, tool, match
     assert bool(state['requests']) is not matching
 
 
+@pytest.mark.parametrize(('os_name', 'arch', 'key', 'suffix'), [
+    ('Linux', 'x86_64', 'mise-Linux-X64', 'linux-x64'),
+    ('Linux', 'aarch64', 'mise-Linux-ARM64', 'linux-arm64'),
+    ('Darwin', 'x86_64', 'mise-macOS-X64', 'macos-x64'),
+    ('Darwin', 'arm64', 'mise-macOS-ARM64', 'macos-arm64'),
+])
+def test_mise_bootstrap_platforms(release_fixture, os_name, arch, key, suffix):
+    source, pins, state, env, _ = release_fixture
+    tag = pins[key]['tag']
+    asset = f'mise-{tag}-{suffix}.tar.gz'
+    env.update(TEST_OS=os_name, TEST_ARCH=arch)
+    result = subprocess.run(['bash', str(source / 'actions/macos-tools/install-mise.sh')],
+                            env=env, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert state['downloads'] == [('jdx/mise', tag, asset)]
+    assert (Path(env['RUNNER_TEMP']) / 'mise/bin/mise').is_file()
+
+
 def test_literal_pins_and_renovate_digest_tracking():
     pins = json.loads((ROOT / 'actions/release-asset/pins.json').read_text())
     config = json.loads((ROOT / 'renovate.json').read_text())
