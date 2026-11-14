@@ -37,7 +37,8 @@ def run_shell(name, root, job='test-gate-linux', **env):
     output.write_text('')
     result = subprocess.run(
         ['bash', '-e', '-o', 'pipefail', '-c', step(name, job)['run']], cwd=root,
-        env={**os.environ, 'GITHUB_OUTPUT': str(output), 'RUNNER_TEMP': str(root), **env},
+        env={**os.environ, 'GITHUB_OUTPUT': str(output), 'RUNNER_TEMP': str(root),
+             'POLICY_PYTHON': sys.executable, **env},
         capture_output=True, text=True,
     )
     return result, output.read_text()
