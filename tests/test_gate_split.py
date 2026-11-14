@@ -198,6 +198,14 @@ def test_existing_qualification_callers_infer_platform_once(tmp_path, platform, 
     assert output == f'platform={expected}\n'
 
 
+def test_macos_installs_just_in_both_modes_before_setup():
+    install = step('Install just', MACOS)
+    assert install['if'] == "steps.policy.outputs.opted-out != 'true'"
+    assert install['uses'] == 'Rubio-Enterprises/.github/actions/setup-just@main'
+    steps = WORKFLOW['jobs'][MACOS]['steps']
+    assert steps.index(install) < steps.index(step('Set up dependencies', MACOS))
+
+
 def test_split_structure_shared_policy_and_evidence_contract():
     jobs = WORKFLOW['jobs']
     assert jobs[MACOS]['name'] == MACOS
