@@ -34,8 +34,8 @@ and single-recipe execution. The workflow retains concern selection, script chec
 report cleanup, outputs and log groups. The dispatcher is staged alongside the
 policy reader in runner temp before the central checkout is removed.
 
-The macOS job has two modes, neither using Docker:
-- **Shape mode:** when the whole Test Gate runs on macOS, install just and bootstrap
+The macOS job installs just in both modes when the gate is enabled. Neither mode uses Docker:
+- **Shape mode:** when the whole Test Gate runs on macOS, bootstrap
   mise through `actions/macos-tools` with `provision: false`. Run `setup-macos`
   when listed by `just --summary`, otherwise `setup-native`, then each existing
   concern through `just test`, `just typecheck`, `just e2e` and `just package`, in
