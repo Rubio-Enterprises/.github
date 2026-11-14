@@ -49,7 +49,7 @@ def repository(tmp_path):
            'GITHUB_OUTPUT': str(tmp_path / 'output'), 'GH_TOKEN': 'read-token',
            'NODE_AUTH_TOKEN': 'package-token', 'SITE_URL': 'https://example.test', 'BASE_PATH': '/site',
            'BUILD_STATUS': '0', 'RECIPE_STATUS': '0', 'SUMMARY_STATUS': '0',
-           'RECIPES': 'setup-native setup-macos check-native check-macos'}
+           'RECIPES': 'setup-macos check-macos'}
 
     def run(mode, recipe, **overrides):
         return subprocess.run(['bash', str(runner), mode, recipe], cwd=tmp_path,
@@ -60,8 +60,8 @@ def repository(tmp_path):
 @pytest.mark.parametrize('mode,recipe,expected', [
     ('image', 'setup', ['script setup']), ('image', 'site-build', ['script site-build']),
     ('compose', 'setup', ['just build', 'just setup']), ('compose', 'site-build', ['just site-build']),
-    ('macos', 'setup', ['just --summary', 'just setup-macos']),
-    ('macos', 'check', ['just --summary', 'just check-macos']),
+    ('macos', 'setup', ['just setup-macos']),
+    ('macos', 'check', ['just check-macos']),
     ('macos', 'test', ['just test']), ('macos', 'site-build', ['just site-build']),
 ])
 def test_dispatch_commands_environment_outputs_and_no_report_side_effects(repository, mode, recipe, expected):
@@ -85,7 +85,7 @@ def test_failure_status_is_preserved_without_retry(repository, mode, recipe):
     result = run(mode, recipe, RECIPE_STATUS='23')
     assert result.returncode == 23
     calls = (root / 'calls').read_text().splitlines()
-    assert len(calls) == (2 if recipe == 'setup' and mode != 'image' else 1)
+    assert len(calls) == (2 if recipe == 'setup' and mode == 'compose' else 1)
 
 
 def test_build_failure_stops_before_setup(repository):
@@ -121,7 +121,7 @@ def test_stage_is_self_contained_after_central_checkout_removal(repository):
     stage(root, source / 'lifecycle')
     shutil.rmtree(root / 'central')
     assert run('macos', 'setup').returncode == 0
-    assert (root / 'calls').read_text().splitlines() == ['just --summary', 'just setup-macos']
+    assert (root / 'calls').read_text().splitlines() == ['just setup-macos']
 
 
 def test_composite_direct_recipe_uses_the_same_dispatcher(repository):

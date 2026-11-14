@@ -37,12 +37,11 @@ policy reader in runner temp before the central checkout is removed.
 The macOS job installs just in both modes when the gate is enabled. Neither mode uses Docker:
 - **Shape mode:** when the whole Test Gate runs on macOS, bootstrap
   mise through `actions/macos-tools` with `provision: false`. Run `setup-macos`
-  when listed by `just --summary`, otherwise `setup-native`, then each existing
+  then each existing
   concern through `just test`, `just typecheck`, `just e2e` and `just package`, in
   that order. The shared policy reader selects the same applicable concerns as
   Linux, including per-concern Opt-outs. Both `test` and `e2e` require executed
-  JUnit cases. No concern is skipped because the runner is macOS. The small shared
-  `run-recipe.sh` compatibility script is removed after the recipe rename sweep.
+  JUnit cases. No concern is skipped because the runner is macOS.
 - **Leg mode:** a Linux test route can declare additional concerns in the organization
   multi-select property `ci-test-macos`, through reviewed OpenTofu configuration.
   Provision locked repository tools and the base's four runners through
