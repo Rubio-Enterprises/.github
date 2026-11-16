@@ -373,7 +373,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/gate-source"
           tar -xzf "$RUNNER_TEMP/gate-candidate/source.tar.gz" -C "$RUNNER_TEMP/gate-source"
-          echo "STANDARDS_NATIVE_CONFIG=$RUNNER_TEMP/gate-source/config" >> "$GITHUB_ENV"
+          echo "STANDARDS_MACOS_CONFIG=$RUNNER_TEMP/gate-source/config" >> "$GITHUB_ENV"
       - name: Install just
         if: steps.policy.outputs.opted-out != 'true'
         uses: Rubio-Enterprises/.github/actions/setup-just@main

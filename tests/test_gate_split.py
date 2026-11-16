@@ -256,14 +256,11 @@ def test_download_cache_and_step_scoped_tokens(filename, job):
 
 
 @pytest.mark.parametrize(('recipes', 'command', 'expected'), [
-    ('setup-native check-native', 'setup', 'setup-native'),
-    ('setup-native setup-macos check-native', 'setup', 'setup-macos'),
     ('setup-macos check-macos', 'setup', 'setup-macos'),
-    ('check-native setup-native', 'check', 'check-native'),
-    ('check-native check-macos', 'check', 'check-macos'),
+    ('setup-macos check-macos', 'check', 'check-macos'),
 ])
 @pytest.mark.parametrize('failure', [False, True])
-def test_recipe_compatibility_selects_from_summary_and_never_retries(tmp_path, recipes, command, expected, failure):
+def test_recipe_uses_macos_name_and_never_retries(tmp_path, recipes, command, expected, failure):
     binary = tmp_path / 'just'
     binary.write_text('#!/bin/sh\n'
                       'echo "$*" >> "$CALLS"\n'
@@ -276,16 +273,16 @@ def test_recipe_compatibility_selects_from_summary_and_never_retries(tmp_path, r
                                  'CALLS': str(tmp_path / 'calls'), 'RECIPES': recipes,
                                  'STATUS': '7' if failure else '0'})
     assert result.returncode == (7 if failure else 0), result.stderr
-    assert (tmp_path / 'calls').read_text().splitlines() == ['--summary', expected]
+    assert (tmp_path / 'calls').read_text().splitlines() == [expected]
 
 
-def test_recipe_summary_failure_cannot_trigger_execution(tmp_path):
+def test_unsupported_recipe_cannot_trigger_execution(tmp_path):
     binary = tmp_path / 'just'
     binary.write_text('#!/bin/sh\necho "$*" >> "$CALLS"\nexit 9\n')
     binary.chmod(0o755)
-    result = subprocess.run(['bash', str(ROOT / 'actions/macos-tools/run-recipe.sh'), 'check'],
+    result = subprocess.run(['bash', str(ROOT / 'actions/macos-tools/run-recipe.sh'), 'unexpected'],
                             cwd=tmp_path, capture_output=True, text=True,
                             env={**os.environ, 'PATH': f'{tmp_path}:{os.environ["PATH"]}',
                                  'CALLS': str(tmp_path / 'calls')})
-    assert result.returncode == 9
-    assert (tmp_path / 'calls').read_text().splitlines() == ['--summary']
+    assert result.returncode != 0
+    assert not (tmp_path / 'calls').exists()
