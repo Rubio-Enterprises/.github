@@ -310,6 +310,50 @@ class RenovateConfigContractTests(unittest.TestCase):
                 })
                 self.assertTrue(resolved["automerge"])
 
+    def test_coupled_earendil_updates_keep_the_standing_policy(self) -> None:
+        for update, version, held in (("minor", "1.3.0", False), ("major", "1.3.0", True), ("patch", "0.9.0", True)):
+            dependency = {
+                "manager": "npm", "datasource": "npm", "depName": "@earendil-works/pi-ai",
+                "packageName": "@earendil-works/pi-ai", "currentVersion": version,
+                "updateType": update,
+            }
+            with self.subTest(update=update, version=version):
+                result = _resolve_dependency(dependency)
+                self.assertEqual(result["groupSlug"], "earendil-works-packages")
+                self.assertEqual(result["draftPR"], held)
+                self.assertEqual(result["automerge"], not held)
+        group = _rule_with_group("earendil-works packages")
+        self.assertFalse(group["separateMajorMinor"])
+        self.assertFalse(_selector_matches(group["matchPackageNames"], "@earendil-works-other/pi-ai"))
+
+    def test_dockerfile_python_manager_and_minor_hold(self) -> None:
+        manager = next(item for item in CONFIG["customManagers"] if item.get("packageNameTemplate") == "python/cpython")
+        self.assertEqual(manager["datasourceTemplate"], "github-tags")
+        self.assertEqual(manager["extractVersionTemplate"], r"^v(?<version>\S+)")
+        matcher = _python_regex(manager["matchStrings"][0])
+        self.assertEqual(matcher.search("ENV UV_PYTHON=3.14.6\n").group("currentValue"), "3.14.6")
+        for invalid in ("ENV UV_PYTHON_DOWNLOADS=never", "ENV UV_PYTHON=3.14", "# ENV UV_PYTHON=3.14.6"):
+            self.assertIsNone(matcher.search(invalid))
+        dependency = {"depName": "python", "packageName": "python/cpython", "datasource": "github-tags", "currentVersion": "3.14.6"}
+        for manager_name in ("mise", "custom.regex"):
+            for update, automerge in (("minor", False), ("patch", True), ("major", False)):
+                with self.subTest(manager=manager_name, update=update):
+                    resolved = _resolve_dependency({**dependency, "manager": manager_name, "updateType": update})
+                    self.assertEqual(resolved["groupSlug"], "python-runtime")
+                    self.assertEqual(resolved["automerge"], automerge)
+                    self.assertEqual(resolved["draftPR"], update == "major")
+
+    def test_workflow_python_minor_does_not_hold_other_actions(self) -> None:
+        dependency = {"manager": "github-actions", "depType": "uses-with", "datasource": "github-releases", "depName": "python", "packageName": "actions/python-versions", "currentVersion": "3.13.0"}
+        minor = _resolve_dependency({**dependency, "updateType": "minor"})
+        self.assertEqual(minor["groupSlug"], "workflow-python")
+        self.assertFalse(minor["automerge"])
+        patch = _resolve_dependency({**dependency, "updateType": "patch"})
+        self.assertTrue(patch["automerge"])
+        action = _resolve_dependency({**dependency, "depType": "action", "datasource": "github-tags", "depName": "actions/checkout", "packageName": "actions/checkout", "updateType": "minor"})
+        self.assertEqual(action["groupSlug"], "github-actions")
+        self.assertTrue(action["automerge"])
+
     def test_generated_sidecars_are_not_independent_manager_inputs(self) -> None:
         # ignorePaths replaces the inherited list from :ignoreModulesAndTests.
         self.assertEqual(CONFIG.get("ignorePaths"), [

@@ -191,6 +191,27 @@
       "groupSlug": "github-actions"
     },
     {
+      "description": "Keep the Python input separate from action updates so its minor-version hold does not hold the action group.",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["uses-with"],
+      "matchDepNames": ["python"],
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["actions/python-versions"],
+      "groupName": "workflow python",
+      "groupSlug": "workflow-python"
+    },
+    {
+      "description": "Require human review of Python minor updates in workflow inputs without holding other actions.",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["uses-with"],
+      "matchDepNames": ["python"],
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["actions/python-versions"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
       "matchManagers": ["github-actions"],
       "matchDepNames": ["aquasecurity/trivy-action"],
       "extractVersion": "^v?(?<version>.+)$"
@@ -313,6 +334,33 @@
       "pinDigests": false
     },
     {
+      "description": "Update npm packages in the earendil-works family together, including major updates.",
+      "matchDatasources": ["npm"],
+      "matchPackageNames": ["/^@earendil-works\\//"],
+      "groupName": "earendil-works packages",
+      "groupSlug": "earendil-works-packages",
+      "separateMajorMinor": false
+    },
+    {
+      "description": "Update the Dockerfile Python pin with the repository mise Python pin.",
+      "matchManagers": ["mise", "custom.regex"],
+      "matchDepNames": ["python"],
+      "matchDatasources": ["github-tags"],
+      "matchPackageNames": ["python/cpython"],
+      "groupName": "python runtime",
+      "groupSlug": "python-runtime"
+    },
+    {
+      "description": "Hold Dockerfile Python minor updates for the same review as mise Python pins.",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["python"],
+      "matchDatasources": ["github-tags"],
+      "matchPackageNames": ["python/cpython"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
       "description": "Majors and pre-1.0 updates are held drafts, never auto-merged. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher.",
       "matchJsonata": [
         "updateType = 'major' or $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/)"
@@ -325,6 +373,16 @@
     }
   ],
   "customManagers": [
+    {
+      "description": "Track the Dockerfile interpreter pin using the same source as the mise Python tool.",
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": ["(?m)^ENV UV_PYTHON=(?<currentValue>\\d+\\.\\d+\\.\\d+)[ \\t]*$"],
+      "depNameTemplate": "python",
+      "packageNameTemplate": "python/cpython",
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^v(?<version>\\S+)"
+    },
     {
       "customType": "regex",
       "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
