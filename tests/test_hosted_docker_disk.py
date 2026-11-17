@@ -19,8 +19,7 @@ HOSTED_DOCKER_JOBS = [
      COMPOSE + "steps.trivy.outputs.cache-hit != 'true' && " + HOSTED_LINUX, 'main'),
     ('workflow-validation.yml', 'validate', HOSTED_LINUX, '${{ github.sha }}'),
     ('e2e.yml', 'e2e', COMPOSE + HOSTED_LINUX, 'main'),
-    ('release-please.yml', 'release-please',
-     "steps.pr.outputs.branch != '' && hashFiles('uv.lock') != '' && " + HOSTED_LINUX, 'main'),
+    ('release-please.yml', 'lock', HOSTED_LINUX, 'main'),
     ('app-image-pipeline.yml', 'build-arm64', HOSTED_LINUX, 'main'),
     ('app-image-pipeline.yml', 'smoke', HOSTED_LINUX, 'main'),
     ('app-image-pipeline.yml', 'test', HOSTED_LINUX, 'main'),
@@ -141,6 +140,23 @@ def test_preparation_checkout_is_removed_before_repository_code(tmp_path, symlin
     assert result.returncode == 0, result.stderr
     assert not checkout.exists() and not checkout.is_symlink()
     assert (foreign / 'README.md').read_text() == 'foreign root file'
+
+
+def test_release_lock_job_preserves_preparation_gates_and_order():
+    jobs = document('.github/workflows/release-please.yml')['jobs']
+    lock = jobs['lock']
+    assert lock['needs'] == 'release'
+    assert lock['if'] == "needs.release.outputs.number != '' && needs.release.outputs.has-lock == 'true'"
+    steps = lock['steps']
+    checkout = next(i for i, s in enumerate(steps) if s.get('with', {}).get('ref') == '${{ needs.release.outputs.branch }}')
+    prepare = next(i for i, s in enumerate(steps) if s.get('name') == 'Check out central Docker preparation action')
+    setup = next(i for i, s in enumerate(steps) if '/actions/setup-just@' in s.get('uses', ''))
+    login = next(i for i, s in enumerate(steps) if s.get('uses', '').startswith('docker/login-action@'))
+    assert checkout < prepare < prepare + 2 < setup < login
+    assert not any('chmod' in s.get('run', '') for s in steps)
+    text = (ROOT / '.github/workflows/release-please.yml').read_text()
+    assert ('uses: ./.cache/central-test-gate/actions/prepare-hosted-docker '
+            '# zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code') in text
 
 
 def action_step():

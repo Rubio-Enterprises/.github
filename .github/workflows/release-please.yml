@@ -6,22 +6,25 @@ name: release-please
 "on":
   workflow_call:
     outputs:
-      release_created: { value: "${{ jobs.release-please.outputs.release_created }}" }
-      tag_name: { value: "${{ jobs.release-please.outputs.tag_name }}" }
-      version: { value: "${{ jobs.release-please.outputs.version }}" }
-      prs_created: { value: "${{ jobs.release-please.outputs.prs_created }}" }
+      release_created: { value: "${{ jobs.release.outputs.release_created }}" }
+      tag_name: { value: "${{ jobs.release.outputs.tag_name }}" }
+      version: { value: "${{ jobs.release.outputs.version }}" }
+      prs_created: { value: "${{ jobs.release.outputs.prs_created }}" }
 permissions:
   contents: read
   packages: read # internal base image for the uv.lock refresh
 jobs:
-  release-please:
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+  release:
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     timeout-minutes: 15
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
       prs_created: ${{ steps.release.outputs.prs_created }}
+      number: ${{ steps.pr.outputs.number }}
+      branch: ${{ steps.pr.outputs.branch }}
+      has-lock: ${{ steps.pr.outputs.has-lock }}
     steps:
       - id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -36,21 +39,53 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-      # The open release PR, whether or not this run opened it, so a re-run repairs a failed one.
       - id: pr
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: >-
-          gh pr list -R "$GITHUB_REPOSITORY" --label 'autorelease: pending' --limit 1 --json number,headRefName
-          --jq '.[] | "number=\(.number)\nbranch=\(.headRefName)"' >>"$GITHUB_OUTPUT"
-      - if: steps.pr.outputs.branch != ''
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+          ACTION_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          pr=$(jq -c '{number, branch: .headBranchName} | select(.number and .branch)' <<<"${ACTION_PR:-null}")
+          # The label fallback also repairs runs where the action did not update the open PR.
+          if [ -z "$pr" ]; then
+            for attempt in 1 2 3; do
+              prs=$(gh pr list -R "$GITHUB_REPOSITORY" --label 'autorelease: pending' --limit 1 --json number,headRefName)
+              pr=$(jq -c '.[0] | select(.) | {number, branch: .headRefName}' <<<"$prs")
+              [ -n "$pr" ] && break
+              if [ "$attempt" -lt 3 ]; then sleep 2; fi
+            done
+          fi
+          [ -n "$pr" ] || exit 0
+          number=$(jq -r '.number' <<<"$pr")
+          branch=$(jq -r '.branch' <<<"$pr")
+          printf 'number=%s\nbranch=%s\n' "$number" "$branch" >>"$GITHUB_OUTPUT"
+          if response=$(gh api --include --method GET "repos/$GITHUB_REPOSITORY/contents/uv.lock" -f "ref=$branch"); then
+            echo 'has-lock=true' >>"$GITHUB_OUTPUT"
+          elif [[ "$response" == HTTP/*' 404 '* ]]; then
+            echo 'has-lock=false' >>"$GITHUB_OUTPUT"
+          else
+            echo '::error::Could not determine whether the release PR has a root uv.lock'
+            exit 1
+          fi
+
+  lock:
+    needs: release
+    if: needs.release.outputs.number != '' && needs.release.outputs.has-lock == 'true'
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').docker || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 15
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          ref: ${{ steps.pr.outputs.branch }}
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.release.outputs.branch }}
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
       - name: Check out central Docker preparation action
-        if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != '' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/.github
@@ -59,22 +94,19 @@ jobs:
           persist-credentials: false
           sparse-checkout: actions/prepare-hosted-docker
       - name: Prepare hosted Docker disk
-        if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != '' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
       - name: Remove central Docker preparation checkout
-        if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != '' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         run: rm -rf .cache/central-test-gate
-      - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
-        uses: Rubio-Enterprises/.github/actions/setup-just@main
-      - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+      - uses: Rubio-Enterprises/.github/actions/setup-just@main
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - if: steps.pr.outputs.branch != '' && hashFiles('uv.lock') != ''
-        env:
-          BRANCH: ${{ steps.pr.outputs.branch }}
+      - env:
+          BRANCH: ${{ needs.release.outputs.branch }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           just build
@@ -85,10 +117,25 @@ jobs:
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" \
             git push origin "HEAD:$BRANCH"
-      - if: steps.pr.outputs.number != ''
-        env:
+
+  arm:
+    needs: [release, lock]
+    if: >-
+      ${{ !cancelled() && needs.release.result == 'success' && needs.release.outputs.number != '' &&
+          (needs.lock.result == 'success' || needs.lock.result == 'skipped') }}
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 15
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR: ${{ steps.pr.outputs.number }}
+          PR: ${{ needs.release.outputs.number }}
         run: |
           method=--merge # shared-history forks allow merge commits only
           if [ "$(gh repo view "$GITHUB_REPOSITORY" --json squashMergeAllowed --jq .squashMergeAllowed)" = true ]; then method=--squash; fi
