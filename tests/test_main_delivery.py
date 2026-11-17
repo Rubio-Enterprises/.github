@@ -23,6 +23,8 @@ class MainDeliveryTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release-please.yml").read_text()
         triggers = workflow.split('"on":', 1)[1].split("\npermissions:", 1)[0]
         self.assertIn("workflow_call:", triggers)
+        self.assertNotIn("inputs:", triggers)
+        self.assertNotIn("secrets:", triggers)
         for event in ("push:", "pull_request:", "schedule:", "workflow_dispatch:", "release:"):
             self.assertNotIn(event, triggers)
 
