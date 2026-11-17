@@ -50,7 +50,7 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 def run_route(*, route='auto', runners=None, admitted=None, repository=None,
               name='org-ops', owner='Rubio-Enterprises', properties=None, api_error=False,
               event_name='push', event=None, comparison=None, compare_error=False,
-              inspect_image_inputs=False):
+              inspect_image_inputs=False, run_attempt=1):
     repo = {'id': ID, 'private': True, 'default_branch': 'main', 'custom_properties': {
         'ci-platform': 'linux', 'ci-size': 'small', 'ci-test-macos': None,
     }}
@@ -59,6 +59,7 @@ def run_route(*, route='auto', runners=None, admitted=None, repository=None,
     payload = {
         'script': SCRIPT,
         'context': {'repo': {'owner': owner, 'repo': name}, 'eventName': event_name,
+                    'runAttempt': run_attempt,
                     'payload': {**(event or {}), 'repository': repo}},
         'properties': properties if properties is not None else [
             {'property_name': 'ci-platform', 'value': 'linux'},
@@ -142,6 +143,25 @@ class ProjectRouteTests(unittest.TestCase):
                                               {'property_name': 'ci-size', 'value': 'medium'},
                                           ])
                 self.assertEqual(result['calls'], [{
+                    'path': 'GET /repos/{owner}/{repo}/properties/values',
+                    'args': {'owner': 'Rubio-Enterprises', 'repo': 'org-ops'},
+                }])
+
+    def test_rerun_reads_live_properties_instead_of_the_event_snapshot(self):
+        live = [{'property_name': 'ci-platform', 'value': 'linux'},
+                {'property_name': 'ci-size', 'value': 'medium'},
+                {'property_name': 'ci-test-route', 'value': None},
+                {'property_name': 'ci-test-macos', 'value': None}]
+        snapshot = {'custom_properties': {'ci-platform': 'linux', 'ci-size': 'small',
+                                          'ci-test-route': None, 'ci-test-macos': None}}
+        for route in ('auto', 'linux', 'test'):
+            with self.subTest(route=route):
+                first = self.assert_route([f'ci-{ID}-org-ops-small'], image=True, route=route,
+                                          repository=snapshot, properties=live)
+                self.assertEqual(first['calls'], [])
+                rerun = self.assert_route([f'ci-{ID}-org-ops-medium'], image=True, route=route,
+                                          repository=snapshot, properties=live, run_attempt=2)
+                self.assertEqual(rerun['calls'], [{
                     'path': 'GET /repos/{owner}/{repo}/properties/values',
                     'args': {'owner': 'Rubio-Enterprises', 'repo': 'org-ops'},
                 }])
