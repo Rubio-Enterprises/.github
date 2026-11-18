@@ -110,7 +110,9 @@ underlying Actions globber; the content-hash pattern uses the same prefix.
 After any attempted build, including a failed build, the workflow revalidates the
 directory and computes its content digest with GitHub's `hashFiles`. A nonempty
 cache is saved under `<namespace>-<content digest>` only when that differs from the
-restored key. An unchanged or empty cache is not saved. All post-build cache steps
+restored key. An unchanged or empty cache is not saved. The runner evaluates a
+step's `env` before its `if`, so the digest expression itself requires a nonempty
+validated path: without `cache-path` it hashes nothing. All post-build cache steps
 use `!cancelled()`, not `success()`: failures still retain useful reads, while
 cancelled jobs do not save. A cache save cannot make a failed build deploy.
 

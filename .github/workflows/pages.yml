@@ -171,9 +171,10 @@ jobs:
       - name: Plan cache save
         id: cache-key
         if: ${{ !cancelled() && steps.cache-after.outcome == 'success' }}
+        # The runner evaluates env before if; without the guard a skipped step hashes the workspace
         env:
           CACHE_PREFIX: ${{ steps.cache-path.outputs.cache-prefix }}
-          CACHE_DIGEST: ${{ hashFiles(format('./{0}/**', steps.cache-after.outputs.relative-path)) }}
+          CACHE_DIGEST: ${{ steps.cache-after.outputs.relative-path != '' && hashFiles(format('./{0}/**', steps.cache-after.outputs.relative-path)) || '' }}
           MATCHED_KEY: ${{ steps.cache.outputs.cache-matched-key }}
         shell: bash
         run: |

@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 
 import pytest
@@ -96,7 +97,8 @@ def test_cache_restore_save_guards_order_and_content_addressed_keys():
     assert plan['if'] == "${{ !cancelled() && steps.cache-after.outcome == 'success' }}"
     assert plan['env'] == {
         'CACHE_PREFIX': '${{ steps.cache-path.outputs.cache-prefix }}',
-        'CACHE_DIGEST': "${{ hashFiles(format('./{0}/**', steps.cache-after.outputs.relative-path)) }}",
+        'CACHE_DIGEST': ("${{ steps.cache-after.outputs.relative-path != '' && "
+                         "hashFiles(format('./{0}/**', steps.cache-after.outputs.relative-path)) || '' }}"),
         'MATCHED_KEY': '${{ steps.cache.outputs.cache-matched-key }}',
     }
     assert save['if'] == "${{ !cancelled() && steps.cache-key.outputs.save == 'true' }}"
@@ -170,6 +172,15 @@ def test_cache_validation_refuses_links_before_restore_and_after_build(tmp_path,
     result, output = validate_cache(tmp_path)
     assert result.returncode != 0
     assert output == {}
+
+
+def test_step_env_never_hashes_a_glob_built_from_an_empty_step_output():
+    # The runner evaluates a step's env before its if, so a skipped step still runs
+    # hashFiles; an empty output there turns './{0}/**' into the whole workspace.
+    for s in BUILD['steps']:
+        for name, value in s.get('env', {}).items():
+            for output in re.findall(r"hashFiles\(format\([^)]*?(steps\.[\w-]+\.outputs\.[\w-]+)", value):
+                assert value.startswith(f"${{{{ {output} != '' && hashFiles("), (s['name'], name)
 
 
 @pytest.mark.parametrize('digest,matched,save', [
