@@ -272,6 +272,43 @@ class RenovateConfigContractTests(unittest.TestCase):
             ),
         )
 
+    def test_node_runtime_pins_update_and_the_published_floor_is_held(self) -> None:
+        node = {
+            "repository": "Rubio-Enterprises/pi-agent-browser-native",
+            "depName": "node",
+            "packageName": "node",
+            "datasource": "node-version",
+            "updateType": "patch",
+        }
+        # Renovate 44's npm manager extracts package.json engines.node as
+        # depType "engines", depName "node"; that published floor is held.
+        floor = {
+            **node,
+            "manager": "npm",
+            "fileName": "package.json",
+            "depType": "engines",
+            "currentValue": ">=24.21.0",
+        }
+        self.assertFalse(_resolve_dependency(floor)["enabled"])
+
+        # The image pin, other engines and other dependency types keep updating.
+        for candidate in (
+            {**node, "manager": "mise", "fileName": "image/mise.toml", "currentValue": "24.21.0"},
+            {**floor, "depName": "npm", "packageName": "npm", "datasource": "npm"},
+            {**floor, "depType": "devEngines.runtime"},
+            {**floor, "depType": "volta"},
+            {
+                **floor,
+                "depType": "devDependencies",
+                "depName": "@types/node",
+                "packageName": "@types/node",
+                "datasource": "npm",
+                "currentValue": "24.19.1",
+            },
+        ):
+            with self.subTest(candidate=candidate):
+                self.assertNotIn("enabled", _resolve_dependency(candidate))
+
     def test_python_minor_bumps_are_manual_and_patch_pins_automerge(self) -> None:
         pins = (
             ("mise", "image/mise.toml"),
