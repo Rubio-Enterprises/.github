@@ -74,7 +74,8 @@ jobs:
             let macosConcerns = [];
             let platform = route === 'macos' ? 'macos' : 'linux';
             if (['auto', 'linux', 'test'].includes(route)) {
-              let properties = context.payload.repository?.custom_properties;
+              // A re-run replays the original event, so its property snapshot can be stale
+              let properties = context.runAttempt > 1 ? null : context.payload.repository?.custom_properties;
               if (!properties || !Object.hasOwn(properties, 'ci-platform') || !Object.hasOwn(properties, 'ci-size')
                   || (testRoute && (!Object.hasOwn(properties, 'ci-test-route') || !Object.hasOwn(properties, 'ci-test-macos')))) {
                 const { data } = await github.request('GET /repos/{owner}/{repo}/properties/values', context.repo);

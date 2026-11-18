@@ -20,7 +20,9 @@ jobs:
 The optional `route` input defaults to `auto`: `ci-platform=macos` selects `macos`; otherwise
 `ci-size` selects `small` or `medium`. These declarations are organization custom properties,
 not inferred from project files. When either property is missing from the event, the router reads
-the base repository's properties API. API errors fail the route rather than silently selecting small.
+the base repository's properties API. A re-run (`run_attempt` above 1) always reads that API,
+because it replays the original event's property snapshot. API errors fail the route rather
+than silently selecting small.
 Missing property values use their organization schema defaults, `linux` and `small`.
 
 The `linux` input selects `ci-size` regardless of `ci-platform`, with the same
