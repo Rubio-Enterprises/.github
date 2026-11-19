@@ -38,8 +38,9 @@ AGENT_SANDBOX_DEPS = [
 ]
 CLAUDE_CODE_DEP = "@anthropic-ai/claude-code"
 HELD_UPDATE_EXPRESSION = (
-    "updateType = 'major' or $contains(lockedVersion ? lockedVersion : "
-    "(currentVersion ? currentVersion : currentValue), /^v?0/)"
+    "updateType = 'major' or ($not(updateType in ['minor', 'patch']) and "
+    "$contains(lockedVersion ? lockedVersion : "
+    "(currentVersion ? currentVersion : currentValue), /^v?0/))"
 )
 HELD_POSTURE = {
     "draftPR": True,
@@ -131,9 +132,13 @@ def _rule_matches(
         if expression == "$exists(groupName) = false":
             matches.append("groupName" not in resolved)
         elif expression == HELD_UPDATE_EXPRESSION:
+            update_type = dependency.get("updateType")
             matches.append(
-                dependency.get("updateType") == "major"
-                or re.search(r"^v?0", compare_version) is not None
+                update_type == "major"
+                or (
+                    update_type not in ("minor", "patch")
+                    and re.search(r"^v?0", compare_version) is not None
+                )
             )
         else:
             raise AssertionError(f"unsupported test fixture JSONata: {expression}")
@@ -207,7 +212,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             if rule.get("automerge") is True
             and rule.get("platformAutomerge") is False
         ]
-        self.assertEqual(len(side_merge_rules), 4)
+        self.assertEqual(len(side_merge_rules), 5)
         for rule in CONFIG["packageRules"]:
             with self.subTest(rule=rule.get("description", rule.get("groupName"))):
                 self.assertIsNot(rule.get("platformAutomerge"), True)
@@ -348,7 +353,10 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertTrue(resolved["automerge"])
 
     def test_coupled_earendil_updates_keep_the_standing_policy(self) -> None:
-        for update, version, held in (("minor", "1.3.0", False), ("major", "1.3.0", True), ("patch", "0.9.0", True)):
+        for update, version, held in (
+            ("minor", "1.3.0", False), ("major", "1.3.0", True),
+            ("patch", "0.9.0", False), ("major", "0.9.0", True),
+        ):
             dependency = {
                 "manager": "npm", "datasource": "npm", "depName": "@earendil-works/pi-ai",
                 "packageName": "@earendil-works/pi-ai", "currentVersion": version,
@@ -450,7 +458,10 @@ class RenovateConfigContractTests(unittest.TestCase):
                         "currentVersion": version,
                         "updateType": update,
                     })
-                    held = update == "major" or version.lstrip("v").startswith("0.")
+                    pre_one = version.lstrip("v").startswith("0.")
+                    held = update == "major" or (
+                        pre_one and update not in ("minor", "patch")
+                    )
                     python_minor = name == "python" and update == "minor"
                     self.assertNotIn("enabled", resolved)
                     self.assertEqual(resolved["automerge"], not (held or python_minor))
@@ -663,7 +674,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertTrue(resolved.get("enabled", True))
         self.assertTrue(resolved["pinDigests"])
 
-    def test_dev_tool_majors_and_zero_x_are_held_in_every_repository(self) -> None:
+    def test_dev_tool_majors_are_held_and_zero_x_follows_the_pre_one_policy(self) -> None:
         dependency = {
             "repository": "Rubio-Enterprises/avr",
             "manager": "pep621",
@@ -689,9 +700,14 @@ class RenovateConfigContractTests(unittest.TestCase):
                         **dependency, "repository": repository,
                         "currentVersion": current, "updateType": update,
                     })
-                    self.assertEqual(
-                        {key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE
-                    )
+                    if update in ("minor", "patch"):
+                        self.assertTrue(resolved["automerge"])
+                        self.assertFalse(resolved["platformAutomerge"])
+                        self.assertFalse(resolved["draftPR"])
+                    else:
+                        self.assertEqual(
+                            {key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE
+                        )
                     self.assertEqual(resolved["rangeStrategy"], "pin")
                     self.assertEqual(
                         resolved["minimumReleaseAge"], None if update == "pin" else "7 days"
@@ -779,7 +795,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 npm dependencies",
                 "npm-pre-1-0",
-                False,
+                True,
             ),
             (
                 "v-prefixed pre-1.0 npm",
@@ -793,7 +809,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 npm dependencies",
                 "npm-pre-1-0",
-                False,
+                True,
             ),
             (
                 "stable Cargo",
@@ -821,7 +837,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 cargo dependencies",
                 "cargo-pre-1-0",
-                False,
+                True,
             ),
             (
                 "v-prefixed pre-1.0 Cargo",
@@ -835,7 +851,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 cargo dependencies",
                 "cargo-pre-1-0",
-                False,
+                True,
             ),
             (
                 "stable pin",
@@ -897,7 +913,7 @@ class RenovateConfigContractTests(unittest.TestCase):
 
         self.assertEqual(len(slugs_by_group), len(set(slugs_by_group.values())))
 
-    def test_major_and_pre_one_updates_are_held_drafts(self) -> None:
+    def test_majors_and_pre_one_pins_are_held_drafts(self) -> None:
         fixtures = [
             (
                 "stable patch remains automatic",
@@ -924,7 +940,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 True,
             ),
             (
-                "pre-one patch is held",
+                "pre-one patch is automatic",
                 {
                     "manager": "cargo",
                     "depName": "unstable-crate",
@@ -933,10 +949,10 @@ class RenovateConfigContractTests(unittest.TestCase):
                     "currentVersion": "0.9.0",
                     "updateType": "patch",
                 },
-                True,
+                False,
             ),
             (
-                "v-prefixed pre-one minor is held",
+                "v-prefixed pre-one minor is automatic",
                 {
                     "manager": "dockerfile",
                     "depName": "unstable-image",
@@ -944,6 +960,30 @@ class RenovateConfigContractTests(unittest.TestCase):
                     "fileName": "Dockerfile",
                     "currentVersion": "v0.9.0",
                     "updateType": "minor",
+                },
+                False,
+            ),
+            (
+                "pre-one major is held",
+                {
+                    "manager": "cargo",
+                    "depName": "unstable-crate",
+                    "packageName": "unstable-crate",
+                    "fileName": "Cargo.toml",
+                    "currentVersion": "0.9.0",
+                    "updateType": "major",
+                },
+                True,
+            ),
+            (
+                "v-prefixed pre-one pinDigest is held",
+                {
+                    "manager": "dockerfile",
+                    "depName": "unstable-image",
+                    "packageName": "unstable-image",
+                    "fileName": "Dockerfile",
+                    "currentVersion": "v0.9.0",
+                    "updateType": "pinDigest",
                 },
                 True,
             ),
@@ -977,7 +1017,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 ("1.2.3", "major"), ("v1.2.3", "major"),
                 *((current, update)
                   for current in ("0.9.0", "v0.9.0")
-                  for update in ("major", "minor", "patch", "pin", "digest", "pinDigest")),
+                  for update in ("major", "pin", "digest", "pinDigest")),
             ):
                 with self.subTest(name=name, current=current, update=update):
                     resolved = _resolve_dependency({
@@ -989,10 +1029,80 @@ class RenovateConfigContractTests(unittest.TestCase):
                         {key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE
                     )
 
+    def test_pre_one_minor_and_patch_automerge_except_under_named_holds(self) -> None:
+        named_holds = {"jdx/mise", "astral-sh/uv", "go"}
+        first_party = {
+            "Rubio-Enterprises/org-ops",
+            "github.com/Rubio-Enterprises/example",
+            "ghcr.io/rubio-enterprises/features/example",
+        }
+        fixtures = (
+            ("npm", "zero-npm", "package.json", "npm"),
+            ("cargo", "zero-crate", "Cargo.toml", "crate"),
+            ("custom.regex", "jdx/mise", ".github/workflows/e2e.yml", "github-releases"),
+            ("custom.regex", "astral-sh/uv", ".github/workflows/e2e.yml", "github-releases"),
+            ("npm", "typescript", "package.json", "npm"),
+            ("pep621", "typer", "pyproject.toml", "pypi"),
+            ("pep621", "rubio-cli-kit", "pyproject.toml", "pypi"),
+            ("custom.regex", "Rubio-Enterprises/org-ops", "home/.chezmoidata/uv-tools.toml", "github-tags"),
+            ("gomod", "go", "go.mod", "golang-version"),
+            ("gomod", "github.com/Rubio-Enterprises/example", "go.mod", "go"),
+            ("devcontainer", "ghcr.io/rubio-enterprises/features/example", ".devcontainer/devcontainer.json", "docker"),
+            ("github-actions", "actions/checkout", ".github/workflows/test-gate.yml", "github-tags"),
+            ("custom.regex", "aqua:vercel-labs/agent-browser", "home/.chezmoidata/mise_tools.toml", "github-releases"),
+        )
+        for manager, name, filename, datasource in fixtures:
+            for current in ("0.9.0", "v0.9.0"):
+                for update in ("minor", "patch"):
+                    with self.subTest(name=name, current=current, update=update):
+                        resolved = _resolve_dependency({
+                            "manager": manager, "depName": name, "packageName": name,
+                            "fileName": filename, "datasource": datasource,
+                            "currentVersion": current, "updateType": update,
+                        }, {"platformAutomerge": True})
+                        self.assertEqual(resolved["automerge"], name not in named_holds)
+                        self.assertFalse(resolved["platformAutomerge"])
+                        self.assertFalse(resolved["draftPR"])
+                        self.assertEqual(resolved["prConcurrentLimit"], 5)
+                        self.assertEqual(resolved["branchConcurrentLimit"], 5)
+                        self.assertEqual(
+                            resolved["minimumReleaseAge"],
+                            None if name in first_party else "7 days",
+                        )
+
+    def test_python_minor_hold_outranks_the_pre_one_rule(self) -> None:
+        dependency = {
+            "manager": "mise", "depName": "python", "packageName": "python",
+            "fileName": "image/mise.toml", "currentVersion": "0.9.0",
+        }
+        self.assertFalse(_resolve_dependency({**dependency, "updateType": "minor"})["automerge"])
+        self.assertTrue(_resolve_dependency({**dependency, "updateType": "patch"})["automerge"])
+
+    def test_pre_one_rule_sits_between_the_standing_rule_and_the_named_holds(self) -> None:
+        rules = CONFIG["packageRules"]
+        standing = next(
+            index for index, rule in enumerate(rules)
+            if rule.get("description", "").startswith("Standing automerge")
+        )
+        pre_one = rules[standing + 1]
+        self.assertEqual(
+            {key: value for key, value in pre_one.items() if key != "description"},
+            {
+                "matchUpdateTypes": ["minor", "patch"],
+                "matchCurrentVersion": "/^v?0/",
+                "automerge": True,
+                "platformAutomerge": False,
+            },
+        )
+        for index, rule in enumerate(rules):
+            if rule.get("automerge") is False and index != len(rules) - 1:
+                with self.subTest(rule=rule.get("groupName", rule.get("matchDepNames"))):
+                    self.assertGreater(index, standing + 1)
+
     def test_held_version_matching_uses_renovates_current_version_fallback(self) -> None:
         dependency = {
             "manager": "pep621", "depName": "example", "packageName": "example",
-            "fileName": "pyproject.toml", "updateType": "patch",
+            "fileName": "pyproject.toml", "updateType": "pin",
         }
         for versions, held in (
             ({"currentValue": "v0.9.0"}, True),
@@ -1004,6 +1114,11 @@ class RenovateConfigContractTests(unittest.TestCase):
         ):
             with self.subTest(versions=versions):
                 self.assertEqual(_resolve_dependency({**dependency, **versions})["draftPR"], held)
+                patch = _resolve_dependency({**dependency, **versions, "updateType": "patch"})
+                self.assertFalse(patch["draftPR"])
+                self.assertTrue(patch["automerge"])
+        untyped = {key: value for key, value in dependency.items() if key != "updateType"}
+        self.assertTrue(_resolve_dependency({**untyped, "currentVersion": "0.9.1"})["draftPR"])
 
     def test_stable_pin_digest_inherits_the_soaked_safe_lane(self) -> None:
         standing = next(
@@ -1157,14 +1272,14 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
             ),
             (
-                "agent-sandbox",
+                "v-prefixed pre-1.0 major",
                 {
                     "manager": "github-tags",
                     "depName": "kubernetes-sigs/agent-sandbox",
                     "packageName": "kubernetes-sigs/agent-sandbox",
                     "fileName": "infrastructure/agent-sandbox.yaml",
                     "currentVersion": "v0.5.5",
-                    "updateType": "minor",
+                    "updateType": "major",
                 },
             ),
         ]
@@ -1249,9 +1364,10 @@ class RenovateConfigContractTests(unittest.TestCase):
         pre_one = dict(fixtures[0], currentVersion="v0.9.0")
         resolved_pre_one = _resolve_dependency(pre_one, existing_group)
         self.assertEqual(resolved_pre_one["groupName"], "example monorepo")
-        self.assertFalse(resolved_pre_one["automerge"])
+        self.assertTrue(resolved_pre_one["automerge"])
+        self.assertFalse(resolved_pre_one["draftPR"])
 
-    def test_mixed_runtime_group_stays_manual(self) -> None:
+    def test_mixed_runtime_group_merges_unless_a_member_is_held(self) -> None:
         stable_member = _resolve_dependency(
             {
                 "manager": "pep621",
@@ -1274,9 +1390,22 @@ class RenovateConfigContractTests(unittest.TestCase):
         )
         self.assertEqual(stable_member["groupSlug"], zero_member["groupSlug"])
         self.assertTrue(stable_member["automerge"])
-        self.assertFalse(zero_member["automerge"])
+        self.assertTrue(zero_member["automerge"])
+        self.assertEqual(zero_member["minimumReleaseAge"], "7 days")
+
+        held_member = _resolve_dependency(
+            {
+                "manager": "pep621",
+                "depName": "typer",
+                "packageName": "typer",
+                "fileName": "pyproject.toml",
+                "currentVersion": "0.16.0",
+                "updateType": "pin",
+            }
+        )
+        self.assertEqual(stable_member["groupSlug"], held_member["groupSlug"])
         self.assertFalse(
-            all(member["automerge"] for member in (stable_member, zero_member))
+            all(member["automerge"] for member in (stable_member, held_member))
         )
 
     def test_manual_overrides_follow_the_standing_safe_rule(self) -> None:
@@ -1287,12 +1416,15 @@ class RenovateConfigContractTests(unittest.TestCase):
             if rule.get("description", "").startswith("Standing automerge")
         )
         manual_groups = {
-            "pre-1.0 npm dependencies",
-            "pre-1.0 cargo dependencies",
             "pre-1.0 dependency pins",
             "mise-cli",
             "uv-cli",
         }
+        for group_name in ("pre-1.0 npm dependencies", "pre-1.0 cargo dependencies"):
+            with self.subTest(group=group_name):
+                grouping = _rule_with_group(group_name)
+                self.assertNotIn("automerge", grouping)
+                self.assertNotIn("platformAutomerge", grouping)
         python_minor = next(
             index
             for index, rule in enumerate(rules)

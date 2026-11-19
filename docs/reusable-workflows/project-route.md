@@ -159,8 +159,9 @@ The router logs the effective route, image-input decision, CI Image admission an
 runner labels. It stays a Docker-free small job with no inherited secrets. Invalid
 declarations fail before outputs. Renovate image-toolchain updates use the standing
 runtime policy now that both required workflows check the changed Dev Image.
-Stable non-major updates may automerge after the existing soak; Python minor
-updates, majors and pre-1.0 updates retain their existing manual posture.
+Stable non-major updates, and pre-1.0 minor and patch updates, may automerge
+after the existing soak; Python minor updates, majors and pre-1.0 pin and digest
+updates retain their existing manual posture.
 
 ### Post-merge canary
 
