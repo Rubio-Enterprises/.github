@@ -1336,7 +1336,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertNotIn("matchCurrentVersion", group_rule)
         self.assertNotIn("automerge", group_rule)
         self.assertNotIn("platformAutomerge", group_rule)
-        self.assertEqual(group_rule["minimumReleaseAge"], "0 days")
+        self.assertNotIn("minimumReleaseAge", group_rule)
 
     def test_stable_runtime_fast_lane_excludes_zero_x_updates(self) -> None:
         fast_lane = next(
@@ -1357,7 +1357,63 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertNotIn("groupName", fast_lane)
         self.assertTrue(fast_lane["automerge"])
         self.assertFalse(fast_lane["platformAutomerge"])
-        self.assertEqual(fast_lane["minimumReleaseAge"], "0 days")
+        self.assertNotIn("minimumReleaseAge", fast_lane)
+
+    def test_tool_runtime_pypi_updates_wait_the_uv_release_age(self) -> None:
+        # uv projects set exclude-newer to the global age, so a younger PyPI release cannot lock.
+        group_rule = _rule_with_group("tool runtime dependencies")
+        for name in group_rule["matchDepNames"]:
+            for update in group_rule["matchUpdateTypes"]:
+                for current in ("1.2.3", "0.27.1"):
+                    with self.subTest(name=name, update=update, current=current):
+                        resolved = _resolve_dependency({
+                            "manager": "pep621", "datasource": "pypi",
+                            "depName": name, "packageName": name,
+                            "fileName": "pyproject.toml", "depType": "project.dependencies",
+                            "currentVersion": current, "updateType": update,
+                        })
+                        self.assertEqual(resolved["minimumReleaseAge"], CONFIG["minimumReleaseAge"])
+
+    def test_git_sourced_kit_keeps_the_first_party_fast_lane(self) -> None:
+        # Renovate maps a uv git source on github.com to github-tags with the owner path.
+        kit = {
+            "manager": "pep621", "datasource": "github-tags",
+            "depName": "rubio-cli-kit", "packageName": "Rubio-Enterprises/rubio-cli-kit",
+            "fileName": "pyproject.toml", "depType": "project.dependencies",
+            "currentValue": "v1.2.4", "updateType": "patch",
+        }
+        typer = {
+            "manager": "pep621", "datasource": "pypi",
+            "depName": "typer", "packageName": "typer",
+            "fileName": "pyproject.toml", "depType": "project.dependencies",
+            "currentVersion": "0.27.1", "updateType": "minor",
+        }
+        resolved_kit = _resolve_dependency(kit)
+        resolved_typer = _resolve_dependency(typer)
+        self.assertIsNone(resolved_kit["minimumReleaseAge"])
+        self.assertTrue(resolved_kit["automerge"])
+        self.assertEqual(resolved_typer["minimumReleaseAge"], "7 days")
+        self.assertEqual(resolved_kit["groupSlug"], resolved_typer["groupSlug"])
+
+    def test_no_rule_shortens_the_soak_for_resolved_pypi_versions(self) -> None:
+        # pin writes the locked version and lock maintenance lets uv choose; both stay in uv's cutoff.
+        python_managers = {"pep621", "pip_requirements", "pip_setup", "poetry", "pipenv"}
+        non_resolving = {"pin", "lockFileMaintenance"}
+        offenders = []
+        for rule in CONFIG["packageRules"]:
+            if "minimumReleaseAge" not in rule:
+                continue
+            age = rule["minimumReleaseAge"]
+            if age is not None and int(age.split()[0]) >= int(CONFIG["minimumReleaseAge"].split()[0]):
+                continue
+            if "pypi" not in rule.get("matchDatasources", ["pypi"]):
+                continue
+            if not python_managers & set(rule.get("matchManagers", python_managers)):
+                continue
+            if not set(rule.get("matchUpdateTypes", ["minor"])) - non_resolving:
+                continue
+            offenders.append(rule.get("description", "")[:80])
+        self.assertEqual(offenders, [])
 
     def test_first_party_tool_pin_fast_lane_excludes_zero_x_updates(self) -> None:
         pin_rule = _rule_with_group("first-party tool pins")

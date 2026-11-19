@@ -265,21 +265,19 @@
       "semanticCommitType": "fix"
     },
     {
-      "description": "Group related tool runtime dependencies even when Typer is 0.x. A kit release can raise its Typer floor; separate branches make uv lock fail before either PR exists. This rule controls grouping and the age exemption only. Automerge remains per-upgrade, so a group containing a 0.x Typer update stays manual because Renovate automerges a branch only when every upgrade is automerge-enabled.",
+      "description": "Group related tool runtime dependencies even when Typer is 0.x. A kit release can raise its Typer floor; separate branches make uv lock fail before either PR exists. This rule controls grouping only. Automerge remains per-upgrade, so a group containing a 0.x Typer update stays manual because Renovate automerges a branch only when every upgrade is automerge-enabled. Neither rule here changes release age. Typer is a third-party PyPI package and keeps the global 7-day soak: every uv project sets exclude-newer = \"7 days\", so uv cannot lock a younger Typer and a zero-age Typer update fails its relock. rubio-cli-kit keeps its zero-age fast lane through the first-party GitHub sources rule above, because consumers take it as a uv git source on github.com/Rubio-Enterprises, which exclude-newer does not filter.",
       "matchDepNames": ["rubio-cli-kit", "typer"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "groupName": "tool runtime dependencies",
-      "groupSlug": "tool-runtime-dependencies",
-      "minimumReleaseAge": "0 days"
+      "groupSlug": "tool-runtime-dependencies"
     },
     {
-      "description": "Stable non-major tool runtime dependencies use the first-party fast lane: skip the third-party 7-day soak and let Renovate merge as soon as every check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable without widening automerge. Major and 0.x updates remain manual.",
+      "description": "Stable non-major tool runtime dependencies automerge: Renovate merges as soon as every check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable without widening automerge. Major and 0.x updates remain manual. Release age follows the group rule above: Typer waits the global soak, rubio-cli-kit does not.",
       "matchDepNames": ["rubio-cli-kit", "typer"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^v?0/",
       "automerge": true,
-      "platformAutomerge": false,
-      "minimumReleaseAge": "0 days"
+      "platformAutomerge": false
     },
     {
       "description": "Git-sourced uv-tools entries must resolve readable tags to immutable commit SHAs. This narrow rule owns pinDigests because it is a package option, not a custom-manager field; keeping it independent of update type and current version lets Renovate bootstrap a tag-only entry before it can classify the resulting pinDigest update.",
