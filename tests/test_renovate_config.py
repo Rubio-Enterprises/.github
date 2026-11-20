@@ -37,6 +37,8 @@ AGENT_SANDBOX_DEPS = [
     "registry.k8s.io/agent-sandbox/agent-sandbox-controller",
 ]
 CLAUDE_CODE_DEP = "@anthropic-ai/claude-code"
+# Renovate 44.218.0 resolves schedule:weekends to this cron expression
+WEEKEND_SCHEDULE = ["* * * * 0,6"]
 HELD_UPDATE_EXPRESSION = (
     "updateType = 'major' or ($not(updateType in ['minor', 'patch']) and "
     "$contains(lockedVersion ? lockedVersion : "
@@ -160,6 +162,7 @@ def _resolve_dependency(
         "minimumReleaseAge": CONFIG["minimumReleaseAge"],
         "minimumReleaseAgeBehaviour": "timestamp-required",
         "rangeStrategy": CONFIG["rangeStrategy"],
+        "schedule": CONFIG.get("schedule", WEEKEND_SCHEDULE),
     }
     if initial is not None:
         resolved.update(initial)
@@ -177,6 +180,7 @@ def _resolve_dependency(
         "rangeStrategy",
         "allowedVersions",
         "pinDigests",
+        "schedule",
     }
     for rule in CONFIG["packageRules"]:
         if _rule_matches(rule, dependency, resolved):
@@ -532,7 +536,6 @@ class RenovateConfigContractTests(unittest.TestCase):
         group = "standards base and runner images"
         rule = _rule_with_group(group)
         self.assertEqual(rule["matchRepositories"], pilots)
-        self.assertNotIn("schedule", rule)
         self.assertNotIn("automergeSchedule", rule)
 
         for repository in pilots:
@@ -553,10 +556,23 @@ class RenovateConfigContractTests(unittest.TestCase):
                         self.assertTrue(resolved["pinDigests"])
                         self.assertEqual(resolved["groupName"], group)
                         self.assertEqual(resolved["groupSlug"], "standards-base-and-runner")
+                        self.assertEqual(resolved["schedule"], ["at any time"])
                         self.assertIsNone(resolved["minimumReleaseAge"])
                         self.assertTrue(resolved["automerge"])
                         self.assertFalse(resolved["platformAutomerge"])
                         self.assertFalse(resolved["draftPR"])
+
+            with self.subTest(repository=repository, name="other image"):
+                resolved = _resolve_dependency({
+                    "repository": repository,
+                    "manager": "dockerfile",
+                    "datasource": "docker",
+                    "depName": "ghcr.io/rubio-enterprises/base-extra",
+                    "packageName": "ghcr.io/rubio-enterprises/base-extra",
+                    "currentValue": "main",
+                    "updateType": "digest",
+                })
+                self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
 
     def test_host_first_main_images_float_outside_pilot_dockerfiles(self) -> None:
         for repository, manager in (
@@ -581,6 +597,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                         self.assertFalse(resolved.get("enabled", True))
                         self.assertFalse(resolved["pinDigests"])
                         self.assertNotIn("groupName", resolved)
+                        self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
 
     def test_host_first_float_rule_preserves_release_pins_and_other_images(self) -> None:
         dependency = {

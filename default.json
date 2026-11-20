@@ -349,6 +349,7 @@
       "pinDigests": true,
       "groupName": "standards base and runner images",
       "groupSlug": "standards-base-and-runner",
+      "schedule": ["at any time"],
       "automerge": true,
       "platformAutomerge": false
     },
