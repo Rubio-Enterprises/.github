@@ -369,6 +369,21 @@
       "platformAutomerge": false
     },
     {
+      "description": "Update a Docker Hub `python` base image (FROM python:3.x.y-...) with the repository's mise Python pin and ENV UV_PYTHON, and hold its minor updates for the same review. Once Renovate has Docker Hub release dates (.github-private#722), a Python image minor would otherwise automerge through the standing rule as its own pull request, so the image would run a Python the repository's tests never ran. Grouping does not freeze the branch: a member still inside its 7-day age is left out, and the others go ahead.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["python", "docker.io/python", "docker.io/library/python"],
+      "groupName": "python runtime",
+      "groupSlug": "python-runtime"
+    },
+    {
+      "description": "Hold Docker Hub python image minor updates for the same review as mise Python pins.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["python", "docker.io/python", "docker.io/library/python"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
       "description": "Majors, and pre-1.0 updates other than minor and patch, are held drafts, never auto-merged. Pre-1.0 minor and patch updates left this rule on 2026-11-19 and automerge through the rule after the standing stable rule. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. The limit of one stays: without it, held drafts that nobody merges could fill all five of a repository's concurrent slots and stop its routine updates. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher. The expression uses $not(... in ...) rather than two != tests so that a pre-1.0 update carrying no updateType stays held: JSONata evaluates != against a missing value as false.",
       "matchJsonata": [
         "updateType = 'major' or ($not(updateType in ['minor', 'patch']) and $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/))"
