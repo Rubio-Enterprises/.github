@@ -319,6 +319,32 @@ class Contracts(unittest.TestCase):
         self.assertIn("if: always()", workflow)
         self.assertEqual(workflow.count("id-token: write"), 1)
 
+    def test_registry_prune_is_the_last_non_blocking_build_step(self):
+        jobs = json.loads(subprocess.check_output(
+            ["yq", "-o=json", str(ROOT / ".github/workflows/repository-image.yml")], text=True))["jobs"]
+        self.assertNotIn("prune", jobs)
+        build = jobs["build"]
+        steps = build["steps"]
+        prune = steps[-1]
+        self.assertTrue(prune["uses"].startswith("actions/delete-package-versions@"))
+        self.assertEqual(prune["with"], {
+            "owner": "${{ github.repository_owner }}",
+            "package-name": "${{ steps.resolve.outputs.package }}",
+            "package-type": "container",
+            "delete-only-untagged-versions": "true",
+            "min-versions-to-keep": 5,
+        })
+        self.assertEqual(build["permissions"]["packages"], "write")
+        self.assertTrue(prune["continue-on-error"])
+        self.assertNotIn("if", prune)
+        self.assertEqual(prune["timeout-minutes"], 10)
+        self.assertEqual(build["timeout-minutes"], 45 + prune["timeout-minutes"])
+        publish = next(i for i, step in enumerate(steps) if step.get("with", {}).get("operation") == "publish")
+        self.assertNotIn("continue-on-error", steps[publish])
+        self.assertEqual(steps[-2]["name"], "Remove job credentials")
+        self.assertEqual(jobs["verify"]["needs"], "build")
+        self.assertIn("needs.build.result == 'success'", jobs["verify"]["if"])
+
     def test_check_pr_is_not_lost_when_tree_checks_fail(self):
         workflow = (ROOT / ".github/workflows/standards.yml").read_text()
         self.assertIn("steps['check-ci'].outcome != 'skipped'", workflow)

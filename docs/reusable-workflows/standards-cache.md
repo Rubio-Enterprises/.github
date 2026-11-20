@@ -4,11 +4,17 @@
 calls it with `actions: read`, `contents: read` and `packages: read`, without inherited
 secrets. The Actions grant must land in every caller before the central shortcut.
 
-Its `route` and `warm` jobs use the Linux Standards route. They fill the weekly
-workspace-local trivy database cache only on a miss. The injected Standards job
-and default-branch verification restore that same path/key. Non-image hosted
-builds use the shared Docker disk preparation before `just build`. Warming does
-not install project toolchains on the host.
+The small `lookup` job lists cache metadata for the default-branch ref using the
+caller's existing `actions: read` grant. It looks for an exact weekly trivy DB key
+without downloading anything. Any compression version of the key counts as a
+hit, since the lookup and warm runners may use different compression. On a hit,
+`route` and `warm` skip. On a miss or lookup error they use the Linux Standards
+route and save at the same runner-OS and UTC ISO week key. If a runner changes
+compression midweek, the new format may not be warmed until the next week;
+Checks can restore a compatible older entry or download the database. The
+injected Standards job and default-branch verification still restore the same
+path and key. Non-image hosted builds use shared Docker disk preparation before
+`just build`. Warming does not install project toolchains on the host.
 
 The independent `verify` job calls `default-branch-check.yml` only for public
 repositories, on push or workflow_dispatch on their actual default branch. It

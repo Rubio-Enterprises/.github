@@ -275,11 +275,12 @@ automatic read-only job token, so the publisher callers need no additional secre
 Dependency review remains public-PR-only, not a whole-tree push check.
 
 This workflow's aggregate remains named `test-gate`. The caller separately reports
-`test-gate-main / test-gate`, requiring successful production execution or exact-files
-PR evidence for both check families. That visible aggregate name is unchanged when
-execution is reused. Behind branches and ambiguous evidence execute this entire
-production path, and dispatch always executes it. These extra default-branch results
-are not required by a ruleset. Existing reasoned policy exceptions still apply.
+`test-gate-main / test-gate` when execution is needed, requiring the production
+Test Gate to succeed. With exact-files PR evidence for both check families, the
+call and its aggregate are skipped; `evidence` links both passing runs. Behind
+branches and ambiguous evidence execute the production path, and dispatch always
+executes it. These extra default-branch results are not required by a ruleset.
+Existing reasoned policy exceptions still apply.
 There is no automatic retry or red-run issue/label/notification.
 The caller's concurrency group remains occupied through completion.
 

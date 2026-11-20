@@ -34,7 +34,7 @@ jobs:
       packages: write
       id-token: write
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').image || fromJSON('["linux-x64-image"]') }}
-    timeout-minutes: 45
+    timeout-minutes: 55
     outputs:
       package: ${{ steps.resolve.outputs.package }}
     steps:
@@ -111,6 +111,16 @@ jobs:
         if: always()
         shell: bash
         run: rm -rf "$RUNNER_TEMP/build-service" "$RUNNER_TEMP/ci-scan"
+      - name: Prune untagged CI image versions
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
+        with:
+          owner: ${{ github.repository_owner }}
+          package-name: ${{ steps.resolve.outputs.package }}
+          package-type: container
+          delete-only-untagged-versions: 'true'
+          min-versions-to-keep: 5
   verify:
     needs: build
     if: >-
@@ -123,17 +133,3 @@ jobs:
       contents: read
       packages: read
     uses: Rubio-Enterprises/.github/.github/workflows/default-branch-check.yml@main
-  prune:
-    needs: build
-    permissions:
-      packages: write
-    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
-        with:
-          owner: ${{ github.repository_owner }}
-          package-name: ${{ needs.build.outputs.package }}
-          package-type: container
-          delete-only-untagged-versions: 'true'
-          min-versions-to-keep: 5

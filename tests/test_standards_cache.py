@@ -9,6 +9,7 @@ import tempfile
 import textwrap
 import unittest
 
+from test_default_branch_check import workflow
 from test_ruby_workflows import extract_step
 from test_standards_route import workflow_jobs
 
@@ -43,17 +44,97 @@ class StandardsCacheTests(unittest.TestCase):
         self.assertNotIn("mise-action", INJECTED)
 
     def test_the_warmer_saves_the_keys_and_paths_the_injected_job_restores(self):
-        def pairs(found):
-            return {(fields['path'], fields['key']) for fields in found}
+        jobs = workflow('standards-cache')['jobs']
+        lookup = jobs['lookup']
+        warm = jobs['warm']
+        restore, = steps(INJECTED, 'actions/cache/restore')
+        probe, = [s for s in lookup['steps'] if s.get('id') == 'trivy']
+        save, = [s for s in warm['steps'] if s.get('uses', '').startswith('actions/cache/save@')]
+        key, = [s for s in warm['steps'] if s.get('id') == 'week']
+        self.assertEqual(restore['path'], save['with']['path'])
+        self.assertEqual(lookup['outputs']['key'], probe['env']['CACHE_KEY'])
+        self.assertEqual(probe['env']['CACHE_REF'], "${{ format('refs/heads/{0}', github.event.repository.default_branch) }}")
+        self.assertEqual(key['env']['CACHE_KEY'], '${{ needs.lookup.outputs.key }}')
+        self.assertEqual(save['with']['key'], '${{ steps.week.outputs.key }}')
+        default_branch = workflow('default-branch-check')['jobs']['standards-linux']
+        default_restore, = [s for s in default_branch['steps'] if s.get('id') == 'trivy-db']
+        self.assertEqual(default_restore['with']['path'], restore['path'])
+        self.assertEqual(default_restore['with']['key'], restore['key'])
 
-        restored = pairs(steps(INJECTED, 'actions/cache/restore'))
-        self.assertEqual(restored, pairs(steps(WARMER, 'actions/cache/save')))
-        self.assertEqual(restored, pairs(steps(WARMER, 'actions/cache/restore')))
-        for fields in steps(WARMER, 'actions/cache/restore'):
-            self.assertEqual(fields['lookup-only'], 'true')
+    def test_lookup_names_the_same_key_as_the_linux_check(self):
+        lookup = workflow('standards-cache')['jobs']['lookup']
+        key, = [s['run'] for s in lookup['steps'] if s.get('id') == 'week']
+        warm = workflow('standards-cache')['jobs']['warm']
+        save_key, = [s['run'] for s in warm['steps'] if s.get('id') == 'week']
+        restore, = steps(INJECTED, 'actions/cache/restore')
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = Path(tmp) / 'date'
+            tool.write_text('#!/bin/sh\ntest "$*" = "-u +%G-W%V" || exit 1\necho 2026-W48\n')
+            tool.chmod(0o755)
+            output = Path(tmp) / 'output'
+            env = {**os.environ, 'PATH': f'{tmp}:{os.environ["PATH"]}', 'RUNNER_OS': 'Linux',
+                   'GITHUB_OUTPUT': str(output)}
+            subprocess.run(['bash', '-euc', week_step(INJECTED)], check=True, env=env)
+            week = output.read_text().strip().removeprefix('week=')
+            expected = restore['key'].replace('${{ runner.os }}', 'Linux').replace('${{ steps.week.outputs.week }}', week)
+            output.unlink()
+            subprocess.run(['bash', '-euc', key], check=True, env=env)
+            self.assertEqual(output.read_text(), f'key={expected}\n')
+            for lookup_key, wanted in (('', expected), ('standards-trivy-db-Linux-2026-W47', 'standards-trivy-db-Linux-2026-W47')):
+                output.unlink()
+                subprocess.run(['bash', '-euc', save_key], check=True, env={**env, 'CACHE_KEY': lookup_key})
+                self.assertEqual(output.read_text(), f'key={wanted}\n')
 
-    def test_both_name_the_week_the_same_way(self):
-        self.assertEqual(week_step(INJECTED), week_step(WARMER))
+    def test_cache_metadata_lookup_never_requires_matching_the_runners_compression(self):
+        lookup = workflow('standards-cache')['jobs']['lookup']
+        probe, = [s for s in lookup['steps'] if s.get('id') == 'trivy']
+        self.assertEqual(probe['shell'], 'bash')
+        with tempfile.TemporaryDirectory() as tmp:
+            gh = Path(tmp) / 'gh'
+            gh.write_text('''#!/bin/sh
+set -eu
+test "$*" = "api --method GET repos/Rubio-Enterprises/example/actions/caches --paginate -F per_page=100 -f key=$CACHE_KEY -f ref=$CACHE_REF"
+printf '%s\\n' "$RESPONSE"
+exit "$STATUS"
+''')
+            gh.chmod(0o755)
+            key, ref = 'standards-trivy-db-Linux-2026-W47', 'refs/heads/master'
+            cached = {'key': key, 'ref': ref}
+            scenarios = (
+                ('gzip', [{**cached, 'version': '3297a1b36a9efd0792569eec50c487c8fa8bbe115cdeda7103e67d36d1273665'}], 0, True),
+                ('zstd', [{**cached, 'version': 'f7f36d799aa0467363015956f284eb60eb397a82ce1e6bb2917f7326c1fd2262'}], 0, True),
+                ('miss', [], 0, False),
+                ('wrong-scope-or-prefix', [{**cached, 'ref': 'refs/heads/other'}, {**cached, 'key': key + '-other'}], 0, False),
+                ('error-after-a-page', [cached], 1, False),
+                ('malformed-response', None, 0, False),
+            )
+            for label, entries, status, hit in scenarios:
+                with self.subTest(label=label):
+                    output = Path(tmp) / 'output'
+                    output.unlink(missing_ok=True)
+                    env = {**os.environ, 'PATH': f'{tmp}:{os.environ["PATH"]}', 'GITHUB_OUTPUT': str(output),
+                           'GITHUB_REPOSITORY': 'Rubio-Enterprises/example', 'CACHE_KEY': key, 'CACHE_REF': ref,
+                           'RESPONSE': json.dumps({'actions_caches': entries}), 'STATUS': str(status)}
+                    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', probe['run']], env=env,
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text(), f'cache-hit={str(hit).lower()}\n')
+
+    def test_lookup_gates_the_router_and_the_warmer(self):
+        jobs = workflow('standards-cache')['jobs']
+        lookup = jobs['lookup']
+        route = jobs['route']
+        self.assertEqual(lookup['runs-on'], '${{ fromJSON(vars.RUNNERS || \'{}\').small || fromJSON(\'["ubuntu-slim"]\') }}')
+        self.assertEqual(lookup['permissions'], {'actions': 'read'})
+        self.assertTrue(lookup['continue-on-error'])
+        self.assertNotIn('needs', lookup)
+        self.assertFalse(any('uses' in s for s in lookup['steps']))
+        self.assertEqual(lookup['outputs']['cache-hit'], '${{ steps.trivy.outputs.cache-hit }}')
+        self.assertEqual(route['needs'], 'lookup')
+        self.assertEqual(route['if'], "${{ !cancelled() && needs.lookup.outputs.cache-hit != 'true' }}")
+        self.assertEqual(jobs['warm']['needs'], ['lookup', 'route'])
+        self.assertEqual(jobs['warm']['if'], "${{ !cancelled() && needs.route.result == 'success' }}")
+        self.assertNotIn('needs', jobs['verify'])
 
     def test_the_warmer_runs_on_the_injected_jobs_route_and_only_when_called(self):
         route = 'uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main'
@@ -90,7 +171,8 @@ class StandardsCacheTests(unittest.TestCase):
     def test_only_a_successfully_filled_cache_is_saved(self):
         step = extract_step(WARMER, 'Save the trivy vulnerability database')
         self.assertIn("if: steps.trivy-warm.outputs.ready == 'true'", step)
-        self.assertNotIn('continue-on-error', WARMER)
+        warm = workflow('standards-cache')['jobs']['warm']
+        self.assertNotIn('continue-on-error', json.dumps(warm))
 
     def test_nothing_warms_the_tools_baked_into_the_image(self):
         # The image bakes the PR conventions' node_modules at build time and the Checks never
@@ -238,7 +320,7 @@ class HostedContextTests(unittest.TestCase):
 class WarmerExecutionTests(unittest.TestCase):
     def run_warmer(self, *, ci_image=True, tool=True, failure=False):
         step = extract_step(WARMER, 'Download the trivy vulnerability database')
-        self.assertIn("if: steps.trivy.outputs.cache-hit != 'true'", step)
+        self.assertNotIn('cache-hit', step)
         script = textwrap.dedent(step.split('run: |\n', 1)[1])
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

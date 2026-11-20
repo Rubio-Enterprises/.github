@@ -21,11 +21,12 @@ must invoke this reusable on `workflow_dispatch`, not just pushes.
 ## Default-branch verification
 
 After `build` succeeds, the `verify` job calls `default-branch-check.yml` with only
-`actions: read`, `contents: read` and `packages: read`, and no inherited secrets. It does not wait
-for `prune`. Its caller guard requires a push or workflow dispatch on the actual
-default branch, excludes the non-onboarded `.github` source repository, and requires
-an empty `image-name` input. Scheduled and scratch-name builds do not verify.
-A failed publication cannot produce passing verification.
+`actions: read`, `contents: read` and `packages: read`, and no inherited secrets.
+It waits for `build` to finish, including the final prune step, but does not
+require pruning to succeed. Its caller guard requires a push or workflow dispatch
+on the actual default branch, excludes the non-onboarded `.github` source
+repository, and requires an empty `image-name` input. Scheduled and scratch-name
+builds do not verify. A failed publication cannot produce passing verification.
 
 The shared router selects image or fallback execution. Admitted image jobs start
 after publication so the runner can pull the newly published `devcontainer-ci:main`.
@@ -72,8 +73,11 @@ The existing central [scan policy](repository-image-secrets.md) is unchanged.
 Before copying, the destination must be private/internal (or not yet created),
 and the staged config must declare linux/amd64. Only then does crane copy the verified digest to `sha-<commit>-amd64` and buildx
 publish one-platform indices as `main` and `sha-<commit>`. The selected amd64 child
-must still equal the scanned digest. Pruning retains five untagged versions.
-Credentials and scan files are removed on success and failure.
+must still equal the scanned digest. Credentials and scan files are removed on
+success and failure. After a successful build and publication, the final step
+prunes untagged versions with the existing five-version retention setting. Prune
+errors appear in the step log but do not fail the build or block verification.
+The build job has a 55-minute ceiling, including up to 10 minutes for pruning.
 
 The built image records the actual amd64 upstream in
 `org.opencontainers.image.base.name` and `org.opencontainers.image.base.digest`.

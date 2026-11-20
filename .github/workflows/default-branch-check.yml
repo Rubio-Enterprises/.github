@@ -31,10 +31,20 @@ jobs:
         name: Look for exact-files PR evidence
         env:
           GH_TOKEN: ${{ github.token }}
-        run: echo "runs=$(python3 scripts/checked-tree.py)" >> "$GITHUB_OUTPUT"
+        run: |
+          runs=$(python3 scripts/checked-tree.py) || {
+            printf '::warning::scripts/checked-tree.py exited with status %s; running verification.\n' "$?"
+            runs='{}'
+          }
+          if [ -n "$runs" ] && [ "$runs" != '{}' ]; then
+            jq -r 'to_entries[] | "Reused [\(.key)](\(.value)): these exact files passed."' <<< "$runs" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf 'runs=%s\n' "$runs" >> "$GITHUB_OUTPUT"
   route:
     needs: evidence
-    if: ${{ !cancelled() && (needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
+    if: >-
+      ${{ !cancelled() && (needs.evidence.result != 'success' ||
+      needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
     permissions:
       contents: read
     uses: Rubio-Enterprises/.github/.github/workflows/project-route.yml@main
@@ -255,19 +265,14 @@ jobs:
   standards-main:
     name: standards-main
     needs: [evidence, route, standards-linux, standards-macos]
-    if: ${{ always() }}
+    if: >-
+      ${{ always() && (needs.evidence.result != 'success' ||
+      needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     permissions: {}
     timeout-minutes: 5
     steps:
-      - name: Record exact-files PR evidence
-        if: needs.evidence.outputs.runs != '{}' && needs.evidence.outputs.runs != ''
-        env:
-          RUNS: ${{ needs.evidence.outputs.runs }}
-        run: |
-          jq -r 'to_entries[] | "Reused [\(.key)](\(.value)): these exact files passed."' <<< "$RUNS" >> "$GITHUB_STEP_SUMMARY"
       - name: Require all applicable Checks to succeed
-        if: needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == ''
         env:
           ROUTE_RESULT: ${{ needs.route.result }}
           PLATFORM: ${{ needs.route.outputs.platform }}
@@ -280,7 +285,9 @@ jobs:
 
   test-gate-execution:
     needs: evidence
-    if: ${{ !cancelled() && (needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
+    if: >-
+      ${{ !cancelled() && (needs.evidence.result != 'success' ||
+      needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
     permissions:
       contents: read
       packages: read
@@ -288,19 +295,14 @@ jobs:
   test-gate-main:
     name: test-gate-main / test-gate
     needs: [evidence, test-gate-execution]
-    if: ${{ always() }}
+    if: >-
+      ${{ always() && (needs.evidence.result != 'success' ||
+      needs.evidence.outputs.runs == '{}' || needs.evidence.outputs.runs == '') }}
     runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
     permissions: {}
     timeout-minutes: 5
     steps:
-      - name: Require execution or record exact-files PR evidence
+      - name: Require Test Gate execution to succeed
         env:
-          RUNS: ${{ needs.evidence.outputs.runs }}
           EXECUTION: ${{ needs.test-gate-execution.result }}
-        run: |
-          if [ -z "$RUNS" ] || [ "$RUNS" = '{}' ]; then
-            test "$EXECUTION" = success
-          else
-            test "$EXECUTION" = skipped
-            jq -r 'to_entries[] | "Reused [\(.key)](\(.value)): these exact files passed."' <<< "$RUNS" >> "$GITHUB_STEP_SUMMARY"
-          fi
+        run: test "$EXECUTION" = success

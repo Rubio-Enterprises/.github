@@ -81,14 +81,13 @@ preparation and container-visible trivy context as PR checks. No `check-pr` or
 pull-request metadata is used. The PR execution path is unchanged; contract tests
 compare the duplicated whole-tree steps to it to prevent drift.
 
-The fail-closed aggregate is `standards-main`. `test-gate-execution` calls the
-production [Test Gate](test-gate.md) with no inputs or inherited secrets. A separate
-aggregate named `test-gate-main / test-gate` requires that execution to succeed or
-records the same PR evidence as `standards-main`. Thus both visible aggregate
-names remain `<caller> / verify / standards-main` and
-`<caller> / verify / test-gate-main / test-gate`, including when execution is reused.
-The caller is `repository-image` or `standards-cache`; execution legs now appear
-under `test-gate-execution`. These additional results are not required checks.
+When the checks execute, `standards-main` requires a successful route and all
+applicable Standards legs. `test-gate-execution` calls the production
+[Test Gate](test-gate.md) with no inputs or inherited secrets. The
+`test-gate-main / test-gate` aggregate requires that call to succeed. These
+aggregates reject failures, cancellations and unexpected skips. They keep their
+`<caller> / verify /` names, where the caller is `repository-image` or
+`standards-cache`. Neither aggregate is a required check.
 
 ### Exact-files PR evidence
 
@@ -114,11 +113,14 @@ the candidate window. An incomplete or malformed per-head page executes checks.
 The lookup makes at most four calls: pushed Git commit, candidate window,
 complete per-head runs, and ancestry comparison. Neither listing is paginated.
 
-A dispatch always executes the checks without an API lookup. Every failed,
-incomplete or ambiguous lookup, including a 403, also executes checks. Both
-aggregates summarize and link both passing runs when reused. There are no
-artifacts, log scraping, caching or retries in this module. Same-workflow duplicate
-suppressors cannot supply this cross-workflow tree-and-ancestry proof.
+A dispatch always executes the checks without an API lookup. A failed,
+incomplete or ambiguous lookup, including a 403, also falls back to execution
+unless the workflow was cancelled. If the evidence job itself fails, for example
+at checkout, the checks still run but do not erase that failure. On reuse, only
+`evidence` runs and links both passing PR runs in its job summary. Both execution
+paths and their aggregates are skipped. There are no
+artifacts, log scraping, caching or retries in this module. Same-workflow
+duplicate suppressors cannot prove tree and ancestry across workflows.
 
 A failure is a failed run only: no retry, notification, issue, label or merge block. Publication failure leaves verification
 unrun, not passing. The publisher's existing concurrency group remains held until
