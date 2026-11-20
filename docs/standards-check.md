@@ -8,15 +8,22 @@ its required `test-gate` result.
 ## Execution
 
 The [project router](reusable-workflows/project-route.md) reads `ci-platform`,
-`ci-size`, `RUNNERS` and the central `CI_IMAGE_REPOS` admission list before checkout.
+`ci-size`, `RUNNERS` and `CI_IMAGE_REPOS` before checkout. The variable contains
+the repository IDs synced by `mac-dev-playbook` after the runner scale sets and
+CI Images are ready. See [CI Image routing and fallback][ci-image-routing] for
+how Terraform and the playbook share ownership.
+
+[ci-image-routing]: reusable-workflows/project-route.md#ci-image-routing-and-fallback
+
 This workflow sets `inspect-image-inputs: true`; other router callers default to
 no image-input inspection. The router's `linux` selection uses `ci-size` for the
 Linux leg even when `ci-platform=macos`, and returns the declared platform separately. A route failure
 fails the required aggregate without running project code.
 
-For an admitted Linux-shape pull request or merge group, the router compares the
-event's base and head. Image-input changes, or an unavailable/incomplete file list,
-select the `docker` route and `ci-image=false`. `standards-linux` then uses the same
+When a Linux-shape pull request or merge group would otherwise use a CI Image,
+the router compares the event's base and head. If image inputs changed or the
+file list is unavailable or incomplete, the router selects the `docker` route
+and `ci-image=false`. `standards-linux` then uses the same
 hosted/non-image steps below, including hosted disk preparation and the
 container-visible trivy context, to check the pull request's own Dev Image.
 Non-image changes keep the CI Image. Public repositories already build through
@@ -67,8 +74,9 @@ no event/ref guard or qualification inputs. Its optional `central-ref` selects t
 central evidence script for pre-merge canaries (default `main`). When no conclusive
 PR evidence exists, it executes whole-tree Checks:
 `bin/setup.sh` then `standards check` in a CI Image, the existing hosted Linux recipes otherwise, plus
-the native Standards leg for `ci-platform=macos`. Admission and the shared router,
-not visibility alone, select image execution. Hosted builds use the same disk
+the native Standards leg for `ci-platform=macos`. The shared router selects CI
+Image execution using `CI_IMAGE_REPOS` membership and the runner route, not
+repository visibility alone. Hosted builds use the same disk
 preparation and container-visible trivy context as PR checks. No `check-pr` or
 pull-request metadata is used. The PR execution path is unchanged; contract tests
 compare the duplicated whole-tree steps to it to prevent drift.
