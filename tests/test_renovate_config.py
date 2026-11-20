@@ -214,7 +214,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             if rule.get("automerge") is True
             and rule.get("platformAutomerge") is False
         ]
-        self.assertEqual(len(side_merge_rules), 5)
+        self.assertEqual(len(side_merge_rules), 6)
         for rule in CONFIG["packageRules"]:
             with self.subTest(rule=rule.get("description", rule.get("groupName"))):
                 self.assertIsNot(rule.get("platformAutomerge"), True)
@@ -527,26 +527,64 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertFalse(resolved["draftPR"])
                 self.assertEqual(resolved["minimumReleaseAge"], "0 days")
 
-    def test_host_first_main_images_float_for_every_docker_manager(self) -> None:
-        for manager in ("dockerfile", "docker-compose", "devcontainer", "custom.regex"):
+    def test_host_first_main_images_pin_and_automerge_only_in_pilot_dockerfiles(self) -> None:
+        pilots = ["Rubio-Enterprises/org-ops", "Rubio-Enterprises/daily-routine"]
+        group = "standards base and runner images"
+        rule = _rule_with_group(group)
+        self.assertEqual(rule["matchRepositories"], pilots)
+        self.assertNotIn("schedule", rule)
+        self.assertNotIn("automergeSchedule", rule)
+
+        for repository in pilots:
+            for name in ("base", "runner"):
+                package = f"ghcr.io/rubio-enterprises/{name}"
+                dependency = {
+                    "repository": repository,
+                    "manager": "dockerfile",
+                    "datasource": "docker",
+                    "depName": package,
+                    "packageName": package,
+                    "currentValue": "main",
+                }
+                for update in ({}, {"updateType": "pinDigest"}, {"updateType": "digest"}):
+                    with self.subTest(repository=repository, name=name, update=update):
+                        resolved = _resolve_dependency({**dependency, **update})
+                        self.assertTrue(resolved["enabled"])
+                        self.assertTrue(resolved["pinDigests"])
+                        self.assertEqual(resolved["groupName"], group)
+                        self.assertEqual(resolved["groupSlug"], "standards-base-and-runner")
+                        self.assertIsNone(resolved["minimumReleaseAge"])
+                        self.assertTrue(resolved["automerge"])
+                        self.assertFalse(resolved["platformAutomerge"])
+                        self.assertFalse(resolved["draftPR"])
+
+    def test_host_first_main_images_float_outside_pilot_dockerfiles(self) -> None:
+        for repository, manager in (
+            ("Rubio-Enterprises/opentabs", "dockerfile"),
+            ("Rubio-Enterprises/org-ops", "docker-compose"),
+            ("Rubio-Enterprises/org-ops", "devcontainer"),
+            ("Rubio-Enterprises/org-ops", "custom.regex"),
+        ):
             for name in ("base", "runner"):
                 for update in ("major", "minor", "patch", "digest", "pinDigest"):
-                    with self.subTest(manager=manager, name=name, update=update):
+                    with self.subTest(repository=repository, manager=manager, name=name, update=update):
                         package = f"ghcr.io/rubio-enterprises/{name}"
                         resolved = _resolve_dependency({
+                            "repository": repository,
                             "manager": manager,
                             "datasource": "docker",
                             "depName": package,
                             "packageName": package,
                             "currentValue": "main",
-                            "currentVersion": "main",
                             "updateType": update,
                         }, {"pinDigests": True})
                         self.assertFalse(resolved.get("enabled", True))
                         self.assertFalse(resolved["pinDigests"])
+                        self.assertNotIn("groupName", resolved)
 
     def test_host_first_float_rule_preserves_release_pins_and_other_images(self) -> None:
         dependency = {
+            "repository": "Rubio-Enterprises/org-ops",
             "manager": "dockerfile",
             "datasource": "docker",
             "depName": "ghcr.io/rubio-enterprises/base",
@@ -573,6 +611,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 )
                 self.assertTrue(resolved.get("enabled", True))
                 self.assertTrue(resolved["pinDigests"])
+                self.assertNotIn("groupName", resolved)
 
     def test_python_dev_tools_are_exact_pins_only_in_dev_groups(self) -> None:
         dependency = {
