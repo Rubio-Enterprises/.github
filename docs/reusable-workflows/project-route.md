@@ -26,10 +26,10 @@ than silently selecting small.
 Missing property values use their organization schema defaults, `linux` and `small`.
 
 The `linux` input selects `ci-size` regardless of `ci-platform`, with the same
-admission and fallback logic as a Linux repository. It still reads and validates
-both declarations and returns `platform` so a caller can schedule a separate native
-leg. The injected Standards Check uses this selection; default `auto` callers
-retain their native macOS route.
+CI Image selection and fallback rules as for a Linux repository. It still reads
+and validates both declarations and returns `platform` so a caller can schedule
+a separate native leg. The injected Standards Check uses this selection;
+default `auto` callers retain their native macOS route.
 
 The `test` input follows auto selection unless the optional `ci-test-route` property
 is set to `small`, `medium`, `docker`, `arm` or `macos`. A missing override in event
@@ -75,24 +75,34 @@ Outputs:
 - `macos-concerns`: space-separated declared concerns in canonical order; empty on non-test routes or without a declaration.
 - `macos-runner`: JSON label array for the Test Gate's macOS job, independent of the Linux runner.
 
-## Admission and fallback
+## CI Image routing and fallback
 
-`CI_IMAGE_REPOS` is a numeric repository-ID array declared in `.github-private` Terraform. Its
-visibility is `all`; its value is a reviewed rollout switch, not a consumer setting.
-`RUNNERS` remains the private owner-operated map. This workflow writes neither variable.
+`CI_IMAGE_REPOS` is an organization variable containing a JSON array of numeric
+repository IDs. [`.github-private` Terraform][ci-image-terraform] owns the
+variable's existence and `visibility = "all"`, not its live value
+(`ignore_changes = [value]`).
+
+`mac-dev-playbook` converges the computed set of CI Image repositories: eligible
+private repositories minus those with a `[ci-image]` opt-out in
+`.github/standards.toml`. It syncs the live `CI_IMAGE_REPOS` value via
+`org-ops ci image-repos sync`, publishing IDs only after their runner scale
+sets and CI Images are ready. `RUNNERS` remains the private owner-operated map.
+The router reads both variables but writes neither.
+
+[ci-image-terraform]: https://github.com/Rubio-Enterprises/.github-private/blob/main/terraform/ci_images.tf
 
 Image routing requires all of:
 
-1. A private/internal repository in Rubio-Enterprises with its base repository ID admitted.
+1. A private repository in Rubio-Enterprises whose base repository ID is in
+   `CI_IMAGE_REPOS`.
 2. The selected job route is small or medium.
 3. The selected RUNNERS value is exactly `["linux-x64-small"]` or `["linux-x64-medium"]`,
    matching the selected class. Extra label constraints are preserved as ordinary routes, never discarded.
 
 The image label matches org-ops's inventory producer:
 `ci-<ID>-<basename lowercased, each non-[a-z0-9-] replaced by '-', leading/trailing hyphens
-stripped, then truncated to 40>-<size>`. Both image classes must already be admitted and online
-before the central ID switch is enabled. No generic-runner fallback is attempted when an admitted
-image label is unavailable.
+stripped, then truncated to 40>-<size>`. Once the router selects a CI Image
+label, it does not fall back to a generic runner if that label is unavailable.
 
 Missing route keys retain the normal capability fallbacks. Linux project execution
 outside a CI Image needs Docker: a selected generic `linux-x64-small` or
@@ -107,7 +117,7 @@ select a CI Image, a Linux-shape pull request that changes image inputs selects
 `RUNNERS.docker` (fallback `["ubuntu-latest"]`) and `ci-image=false`. Both injected workflows consume this one
 decision. Their existing Compose branches build the checked-out pull request's Dev
 Image with `just build`, then run their normal Checks and Lifecycle Tasks in it.
-No image is published and no tools are overlaid onto the admitted main image.
+No image is published and no tools are overlaid onto the default-branch CI Image.
 
 The router uses `actions/github-script`'s automatic job token with only `contents: read`
 for `GET /repos/{owner}/{repo}/compare/{base}...{head}`. The base repository is always
@@ -145,19 +155,21 @@ parser: arbitrary source files copied by an image and unconventionally named bui
 files are not inferred. Such configurations need an explicit routing policy extension,
 not a claim that the main image tests them.
 
-Public and unadmitted repositories already build through Compose and do no extra
-lookup. Owner-selected hosted and custom-label routes stay unchanged. Explicit
-capability and `auto` callers, and all callers without `inspect-image-inputs: true`,
-are unchanged. `ci-test-route=arm` already builds the
-pull request's Dev Image on ARM and stays there; its separate Standards `linux` call
-switches from an admitted CI Image to Docker on an image change. Existing Docker
+Public repositories and private repositories outside `CI_IMAGE_REPOS` already
+build through Compose on Linux and do no extra lookup. Owner-selected hosted and
+custom-label routes stay unchanged. Explicit capability and `auto` callers, and
+all callers without `inspect-image-inputs: true`, are unchanged. A job with
+`ci-test-route=arm` already builds the pull request's Dev Image on ARM and stays
+there; its separate Standards `linux` call uses Docker on an image-input change
+instead of the CI Image it would otherwise select. Existing Docker
 Test Gates stay Docker. `ci-platform=macos` is exempt from this new detection: its
 native checks have no Dev Image, and its existing Linux Standards leg, macOS shape
 Test Gate and declared macOS concerns retain their routing.
 
-The router logs the effective route, image-input decision, CI Image admission and
-runner labels. It stays a Docker-free small job with no inherited secrets. Invalid
-declarations fail before outputs. Renovate image-toolchain updates use the standing
+The router logs the effective route, image-input decision, whether it selected a
+CI Image and the runner labels. It stays a Docker-free small job with no
+inherited secrets. Invalid declarations fail before outputs. Renovate
+image-toolchain updates use the standing
 runtime policy now that both required workflows check the changed Dev Image.
 Stable non-major updates, and pre-1.0 minor and patch updates, may automerge
 after the existing soak; Python minor updates, majors and pre-1.0 pin and digest
@@ -165,8 +177,8 @@ updates retain their existing manual posture.
 
 ### Post-merge canary
 
-Use the admitted private `Rubio-Enterprises/org-ops` repository (ID `1277378935`,
-small). From the same fresh main, open two separate draft pull requests:
+Use `Rubio-Enterprises/org-ops` (private, ID `1277378935`, small) with its ID in
+`CI_IMAGE_REPOS`. From the same fresh main, open two separate draft pull requests:
 
 1. Append exactly `# Image-routing canary: build this pull request's Dev Image.` to
    its root `Dockerfile`. Both `standards-linux` and `test-gate-linux` must log
