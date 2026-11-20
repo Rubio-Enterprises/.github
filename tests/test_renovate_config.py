@@ -388,6 +388,22 @@ class RenovateConfigContractTests(unittest.TestCase):
                     self.assertEqual(resolved["automerge"], automerge)
                     self.assertEqual(resolved["draftPR"], update == "major")
 
+    def test_docker_hub_python_image_joins_the_python_runtime_group(self) -> None:
+        for name in ("python", "docker.io/python", "docker.io/library/python"):
+            dependency = {"manager": "dockerfile", "datasource": "docker", "depName": name, "packageName": name, "currentVersion": "3.14.6"}
+            for update, automerge in (("minor", False), ("patch", True), ("major", False)):
+                with self.subTest(image=name, update=update):
+                    resolved = _resolve_dependency({**dependency, "updateType": update})
+                    self.assertEqual(resolved["groupSlug"], "python-runtime")
+                    self.assertEqual(resolved["automerge"], automerge)
+                    self.assertEqual(resolved["draftPR"], update == "major")
+        # Other images, including other images named python, keep their own branches.
+        for name in ("node", "ghcr.io/astral-sh/uv", "ghcr.io/example/python", "pypy"):
+            with self.subTest(image=name):
+                resolved = _resolve_dependency({"manager": "dockerfile", "datasource": "docker", "depName": name, "packageName": name, "currentVersion": "3.14.6", "updateType": "minor"})
+                self.assertNotIn("groupSlug", resolved)
+                self.assertTrue(resolved["automerge"])
+
     def test_workflow_python_minor_does_not_hold_other_actions(self) -> None:
         dependency = {"manager": "github-actions", "depType": "uses-with", "datasource": "github-releases", "depName": "python", "packageName": "actions/python-versions", "currentVersion": "3.13.0"}
         minor = _resolve_dependency({**dependency, "updateType": "minor"})
