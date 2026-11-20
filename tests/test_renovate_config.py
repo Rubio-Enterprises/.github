@@ -158,6 +158,7 @@ def _resolve_dependency(
         "branchConcurrentLimit": CONFIG["branchConcurrentLimit"],
         "platformAutomerge": False,
         "minimumReleaseAge": CONFIG["minimumReleaseAge"],
+        "minimumReleaseAgeBehaviour": "timestamp-required",
         "rangeStrategy": CONFIG["rangeStrategy"],
     }
     if initial is not None:
@@ -171,6 +172,7 @@ def _resolve_dependency(
         "groupName",
         "groupSlug",
         "minimumReleaseAge",
+        "minimumReleaseAgeBehaviour",
         "platformAutomerge",
         "rangeStrategy",
         "allowedVersions",
@@ -398,11 +400,13 @@ class RenovateConfigContractTests(unittest.TestCase):
                     self.assertEqual(resolved["automerge"], automerge)
                     self.assertEqual(resolved["draftPR"], update == "major")
         # Other images, including other images named python, keep their own branches.
-        for name in ("node", "ghcr.io/astral-sh/uv", "ghcr.io/example/python", "pypy"):
+        # Docker Hub images keep the standing automerge; images on other registries are
+        # merged by a person (UndatedRegistryImageTests).
+        for name, automerge in (("node", True), ("ghcr.io/astral-sh/uv", False), ("ghcr.io/example/python", False), ("pypy", True)):
             with self.subTest(image=name):
                 resolved = _resolve_dependency({"manager": "dockerfile", "datasource": "docker", "depName": name, "packageName": name, "currentVersion": "3.14.6", "updateType": "minor"})
                 self.assertNotIn("groupSlug", resolved)
-                self.assertTrue(resolved["automerge"])
+                self.assertEqual(resolved["automerge"], automerge)
 
     def test_workflow_python_minor_does_not_hold_other_actions(self) -> None:
         dependency = {"manager": "github-actions", "depType": "uses-with", "datasource": "github-releases", "depName": "python", "packageName": "actions/python-versions", "currentVersion": "3.13.0"}
@@ -1767,6 +1771,95 @@ class FirstPartyReleaseFastLaneTests(unittest.TestCase):
                     }
                 )
                 self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+
+
+class UndatedRegistryImageTests(unittest.TestCase):
+    """Renovate dates docker tags only on Docker Hub (.github-private#722).
+
+    Images on any other registry pass without the age wait and a person merges
+    them; Docker Hub and first-party images keep their behaviour.
+    """
+
+    NON_HUB = (
+        "ghcr.io/astral-sh/uv",
+        "ghcr.io/immich-app/immich-server",
+        "lscr.io/linuxserver/grocy",
+        "quay.io/keycloak/keycloak",
+        "mcr.microsoft.com/playwright/python",
+        "cr.agentgateway.dev/agentgateway",
+        "registry.example.com:5000/team/image",
+        "ghcr.io/rubio-enterprises-x/image",
+    )
+
+    @staticmethod
+    def _image(name: str, update: str, version: str) -> dict[str, Any]:
+        return _resolve_dependency({
+            "manager": "docker-compose", "datasource": "docker",
+            "depName": name, "packageName": name, "fileName": "compose.yaml",
+            "currentVersion": version, "updateType": update,
+        })
+
+    def test_other_registries_skip_the_wait_and_need_a_person(self) -> None:
+        for name in self.NON_HUB:
+            for version in ("2.7.5", "0.8.15"):
+                for update in ("minor", "patch", "digest", "pinDigest"):
+                    with self.subTest(image=name, version=version, update=update):
+                        resolved = self._image(name, update, version)
+                        self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-optional")
+                        # A release that does carry a date still waits its seven days.
+                        self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+                        self.assertFalse(resolved["automerge"])
+                        self.assertFalse(resolved["platformAutomerge"])
+                        self.assertNotIn("groupSlug", resolved)
+                        # Only the held rule makes drafts: pre-1.0 digests, never a stable patch.
+                        held = version.startswith("0") and update in ("digest", "pinDigest")
+                        self.assertEqual(resolved["draftPR"], held)
+            with self.subTest(image=name, update="major"):
+                resolved = self._image(name, "major", "2.7.5")
+                self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-optional")
+                self.assertEqual({key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE)
+
+    def test_docker_hub_images_stay_dated_and_soaked(self) -> None:
+        for name in ("node", "library/node", "docker.io/library/node", "index.docker.io/grafana/grafana",
+                     "registry-1.docker.io/grafana/loki", "grafana/grafana", "python"):
+            for update in ("patch", "digest", "pinDigest"):
+                with self.subTest(image=name, update=update):
+                    resolved = self._image(name, update, "24.22.2")
+                    self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-required")
+                    self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+                    self.assertTrue(resolved["automerge"])
+        python_minor = self._image("python", "minor", "3.14.6")
+        self.assertEqual(python_minor["minimumReleaseAgeBehaviour"], "timestamp-required")
+        self.assertEqual(python_minor["groupSlug"], "python-runtime")
+        self.assertFalse(python_minor["automerge"])
+        self.assertTrue(self._image("node", "minor", "24.18.0")["automerge"])
+
+    def test_first_party_images_keep_their_fast_lane(self) -> None:
+        for name in ("ghcr.io/rubio-enterprises/base", "ghcr.io/Rubio-Enterprises/runner",
+                     "ghcr.io/rubio-enterprises/standards"):
+            for update in ("minor", "patch", "digest", "pinDigest"):
+                with self.subTest(image=name, update=update):
+                    resolved = self._image(name, update, "3.0.0")
+                    self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-required")
+                    self.assertIsNone(resolved["minimumReleaseAge"])
+                    self.assertTrue(resolved["automerge"])
+            with self.subTest(image=name, update="major"):
+                resolved = self._image(name, "major", "3.0.0")
+                self.assertEqual({key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE)
+
+    def test_rule_disarms_both_automerge_rules_and_precedes_the_held_rule(self) -> None:
+        rules = CONFIG["packageRules"]
+        index = next(i for i, rule in enumerate(rules) if "minimumReleaseAgeBehaviour" in rule)
+        automerge_rules = [
+            i for i, rule in enumerate(rules)
+            if rule.get("automerge") is True and "matchCurrentVersion" in rule and "matchManagers" not in rule
+            and "matchDepNames" not in rule
+        ]
+        self.assertEqual(len(automerge_rules), 2)
+        self.assertGreater(index, max(automerge_rules))
+        self.assertEqual(index, len(rules) - 2)
+        self.assertNotIn("groupName", rules[index])
+        self.assertNotIn("minimumReleaseAge", rules[index])
 
 
 class MiseOwnedToolTests(unittest.TestCase):
