@@ -384,6 +384,18 @@
       "platformAutomerge": false
     },
     {
+      "description": "Images on any registry other than Docker Hub arrive without the seven-day age, and a person merges them (owner's decision of 2026-11-20 on .github-private#722). Renovate's docker datasource dates a tag only on Docker Hub, from the `tag_last_pushed` field of the Docker Hub API. ghcr.io, lscr.io, quay.io, mcr.microsoft.com and every other registry give no release date, so under the default timestamp-required every tag, digest and pinDigest update of such an image was held for ever, with no pull request and no signal. timestamp-optional lets an undated update through; an update that does carry a date still waits its seven days. automerge is off because nothing has aged these updates. The selector follows Renovate's own registry detection (a first path segment that contains a dot or a colon names a registry), so a new registry needs no edit here. Docker Hub names, bare or spelled docker.io, index.docker.io or registry-1.docker.io, do not match and keep their dates, soak and automerge. The first-party ghcr.io/rubio-enterprises images do not match and keep their fast lane and automerge. Keep this rule after the standing and pre-1.0 automerge rules, which it disarms, and before the held rule, which still makes majors held drafts.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "/^[^/]*[.:][^/]*\\//",
+        "!/^(docker\\.io|index\\.docker\\.io|registry-1\\.docker\\.io)\\//i",
+        "!/^ghcr\\.io\\/rubio-enterprises\\//i"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
       "description": "Majors, and pre-1.0 updates other than minor and patch, are held drafts, never auto-merged. Pre-1.0 minor and patch updates left this rule on 2026-11-19 and automerge through the rule after the standing stable rule. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. The limit of one stays: without it, held drafts that nobody merges could fill all five of a repository's concurrent slots and stop its routine updates. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher. The expression uses $not(... in ...) rather than two != tests so that a pre-1.0 update carrying no updateType stays held: JSONata evaluates != against a missing value as false.",
       "matchJsonata": [
         "updateType = 'major' or ($not(updateType in ['minor', 'patch']) and $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/))"
