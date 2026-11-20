@@ -8,6 +8,8 @@ import subprocess
 
 import pytest
 
+from test_checked_tree import REPO, recorded, recorded_api
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / '.github/workflows'
 READ = {'contents': 'read', 'packages': 'read'}
@@ -94,11 +96,9 @@ def test_production_test_gate_no_qualification_no_retry():
         assert absent not in text
     assert set(wf['jobs']) == {'evidence', 'route', 'standards-linux', 'standards-macos', 'standards-main', 'test-gate-execution', 'test-gate-main'}
     assert wf['jobs']['route']['with'] == {'route': 'linux'}
-    assert wf['jobs']['route']['needs'] == 'evidence'
-    assert "needs.evidence.outputs.runs == '{}'" in wf['jobs']['route']['if']
+    assert wf['jobs']['standards-linux']['needs'] == wf['jobs']['standards-macos']['needs'] == 'route'
     assert 'if' not in wf['jobs']['standards-linux']
     assert wf['jobs']['standards-macos']['if'] == "needs.route.outputs.platform == 'macos'"
-    assert wf['jobs']['standards-main']['if'] == '${{ always() }}'
 
 
 def test_nested_permissions_fit_both_starter_callers_without_inherited_secrets():
@@ -164,27 +164,97 @@ def test_standards_aggregate_preserves_fail_closed_behavior():
     original = workflow('standards')['jobs']['standards']
     actual = workflow('default-branch-check')['jobs']['standards-main']
     original['name'] = 'standards-main'
-    original['if'] = '${{ always() }}'
     original['needs'].insert(0, 'evidence')
-    actual['steps'] = actual['steps'][1:]
-    actual['steps'][0].pop('if')
-    assert actual == original
+    assert {key: value for key, value in actual.items() if key != 'if'} == {
+        key: value for key, value in original.items() if key != 'if'
+    }
+
+
+@pytest.mark.parametrize(('route', 'platform', 'linux', 'macos', 'passed'), [
+    ('success', 'linux', 'success', 'skipped', True),
+    ('success', 'macos', 'success', 'success', True),
+    ('success', 'linux', 'failure', 'skipped', False),
+    ('success', 'macos', 'success', 'failure', False),
+    ('success', 'macos', 'success', 'skipped', False),
+    ('failure', '', 'skipped', 'skipped', False),
+    ('skipped', '', 'skipped', 'skipped', False),
+    ('success', 'linux', 'cancelled', 'skipped', False),
+])
+def test_default_branch_standards_aggregate(route, platform, linux, macos, passed):
+    step, = workflow('default-branch-check')['jobs']['standards-main']['steps']
+    result = subprocess.run(['bash', '-euc', step['run']], capture_output=True, text=True,
+                            env={**os.environ, 'ROUTE_RESULT': route, 'PLATFORM': platform,
+                                 'LINUX_RESULT': linux, 'MACOS_RESULT': macos})
+    assert (result.returncode == 0) == passed
 
 
 @pytest.mark.parametrize('execution', ['success', 'failure', 'cancelled', 'skipped'])
-@pytest.mark.parametrize('reuse', [True, False])
-def test_default_branch_test_gate_aggregate(tmp_path, execution, reuse):
-    step = workflow('default-branch-check')['jobs']['test-gate-main']['steps'][0]
-    summary = tmp_path / 'summary.md'
-    runs = {'standards': 'https://github.com/example/actions/runs/1',
-            'test-gate': 'https://github.com/example/actions/runs/2'} if reuse else {}
+def test_default_branch_test_gate_aggregate(execution):
+    job = workflow('default-branch-check')['jobs']['test-gate-main']
+    step, = job['steps']
+    assert step['env'] == {'EXECUTION': '${{ needs.test-gate-execution.result }}'}
+    assert 'if' not in step
     result = subprocess.run(['bash', '-euc', step['run']], capture_output=True, text=True,
-                            env={**os.environ, 'RUNS': json.dumps(runs), 'EXECUTION': execution,
-                                 'GITHUB_STEP_SUMMARY': str(summary)})
-    expected = execution == ('skipped' if reuse else 'success')
-    assert (result.returncode == 0) == expected
-    if reuse and expected:
-        assert all(url in summary.read_text() for url in runs.values())
+                            env={**os.environ, 'EXECUTION': execution})
+    assert (result.returncode == 0) == (execution == 'success')
+
+
+REUSED_RUNS = '{"standards":"url-1","test-gate":"url-2"}'
+
+
+@pytest.mark.parametrize(('evidence_result', 'runs', 'cancelled', 'execute', 'aggregate'), [
+    pytest.param('success', REUSED_RUNS, False, False, False, id='reuse'),
+    pytest.param('success', '{}', False, True, True, id='no-match-or-api-error'),
+    pytest.param('success', '', False, True, True, id='empty-output'),
+    pytest.param('failure', '', False, True, True, id='lookup-job-failed'),
+    pytest.param('failure', REUSED_RUNS, False, True, True, id='lookup-job-failed-after-output'),
+    pytest.param('cancelled', '', True, False, True, id='cancelled'),
+    pytest.param('success', REUSED_RUNS, True, False, False, id='cancelled-after-reuse'),
+])
+def test_verification_gates(evidence_result, runs, cancelled, execute, aggregate):
+    jobs = workflow('default-branch-check')['jobs']
+    assert jobs['route']['needs'] == jobs['test-gate-execution']['needs'] == 'evidence'
+    assert jobs['test-gate-main']['needs'] == ['evidence', 'test-gate-execution']
+    ids = ['route', 'test-gate-execution', 'standards-main', 'test-gate-main']
+    conditions = [jobs[job]['if'].removeprefix('${{').removesuffix('}}') for job in ids]
+    code = '''const [result, runs, stopped] = JSON.parse(process.argv[1]);
+const needs = {evidence: {result, outputs: {runs}}};
+const cancelled = () => stopped, always = () => true;
+console.log(JSON.stringify([''' + ', '.join(conditions) + ']));'
+    actual = subprocess.check_output(['node', '-e', code, json.dumps([evidence_result, runs, cancelled])])
+    assert json.loads(actual) == [execute, execute, aggregate, aggregate]
+
+
+@pytest.mark.parametrize('lookup', ['match', 'api-error', 'module-error', 'summary-error'])
+def test_evidence_job_writes_both_reuse_links_before_publishing_output(tmp_path, lookup):
+    job = workflow('default-branch-check')['jobs']['evidence']
+    step, = [step for step in job['steps'] if step.get('id') == 'lookup']
+    assert job['outputs'] == {'runs': '${{ steps.lookup.outputs.runs }}'}
+    env, calls = recorded_api(tmp_path, recorded(), status=403 if lookup == 'api-error' else 200)
+    summary = tmp_path / 'summary.md'
+    output = tmp_path / 'output'
+    if lookup == 'summary-error':
+        summary.mkdir()
+    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', step['run']],
+                            cwd=tmp_path if lookup == 'module-error' else ROOT,
+                            env={**env, 'GITHUB_STEP_SUMMARY': str(summary), 'GITHUB_OUTPUT': str(output)},
+                            capture_output=True, text=True)
+    if lookup == 'summary-error':
+        assert result.returncode != 0
+        assert not output.exists()
+        return
+    assert result.returncode == 0, result.stderr
+    if lookup == 'match':
+        expected = {'standards': f'https://github.com/{REPO}/actions/runs/43209031402',
+                    'test-gate': f'https://github.com/{REPO}/actions/runs/43209031545'}
+        assert summary.read_text().splitlines() == [
+            f'Reused [{name}]({url}): these exact files passed.' for name, url in expected.items()
+        ]
+        assert json.loads(output.read_text().removeprefix('runs=')) == expected
+    else:
+        assert output.read_text() == 'runs={}\n'
+        assert not summary.exists()
+        assert calls.exists() == (lookup == 'api-error')
 
 
 def test_lookup_job_and_execution_permissions_are_explicit():

@@ -18,7 +18,7 @@ def recorded():
             for name in ('commit', 'runs', 'head', 'compare')}
 
 
-def execute(tmp_path, data, event='push', status=200, next_page=False, next_at='head', status_at='runs'):
+def recorded_api(tmp_path, data, event='push', status=200, next_page=False, next_at='head', status_at='runs'):
     fixture = tmp_path / 'responses.json'
     fixture.write_text(json.dumps({'data': data, 'status': status, 'next': next_page,
                                    'next_at': next_at, 'status_at': status_at}))
@@ -46,11 +46,16 @@ print(json.dumps(body))
 ''')
     gh.chmod(0o755)
     calls = tmp_path / 'calls'
+    env = {**os.environ, 'PATH': f'{tmp_path}:{os.environ["PATH"]}',
+           'RESPONSES': str(fixture), 'CALLS': str(calls),
+           'GITHUB_EVENT_NAME': event, 'GITHUB_REPOSITORY': REPO, 'GITHUB_SHA': PUSH}
+    return env, calls
+
+
+def execute(tmp_path, data, **request):
+    env, calls = recorded_api(tmp_path, data, **request)
     result = subprocess.run(['python3', str(ROOT / 'scripts/checked-tree.py')],
-                            env={**os.environ, 'PATH': f'{tmp_path}:{os.environ["PATH"]}',
-                                 'RESPONSES': str(fixture), 'CALLS': str(calls),
-                                 'GITHUB_EVENT_NAME': event, 'GITHUB_REPOSITORY': REPO,
-                                 'GITHUB_SHA': PUSH}, capture_output=True, text=True)
+                            env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     requests = calls.read_text().splitlines() if calls.exists() else []
     assert len(requests) <= 4

@@ -20,7 +20,42 @@ jobs:
       contents: read
       packages: read
     uses: Rubio-Enterprises/.github/.github/workflows/default-branch-check.yml@main
+  lookup:
+    permissions:
+      actions: read
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 5
+    continue-on-error: true
+    outputs:
+      key: ${{ steps.week.outputs.key }}
+      cache-hit: ${{ steps.trivy.outputs.cache-hit }}
+    steps:
+      - id: week
+        name: Name this week's cache keys
+        run: |
+          week=$(date -u +%G-W%V)
+          echo "key=standards-trivy-db-$RUNNER_OS-$week" >> "$GITHUB_OUTPUT"
+      - id: trivy
+        name: Look up the default-branch cache key
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_KEY: ${{ steps.week.outputs.key }}
+          CACHE_REF: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
+        run: |
+          # The lookup and warm runners can use different cache compression versions
+          if ! hit=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/caches" --paginate \
+            -F per_page=100 -f "key=$CACHE_KEY" -f "ref=$CACHE_REF" |
+            jq -s --arg key "$CACHE_KEY" --arg ref "$CACHE_REF" \
+              'all(.[]; .actions_caches | type == "array") and
+               any(.[] | .actions_caches[]; .key == $key and .ref == $ref)'); then
+            echo '::warning::Could not check the weekly trivy cache; run the warmer.'
+            hit=false
+          fi
+          printf 'cache-hit=%s\n' "$hit" >> "$GITHUB_OUTPUT"
   route:
+    needs: lookup
+    if: ${{ !cancelled() && needs.lookup.outputs.cache-hit != 'true' }}
     permissions:
       contents: read
       packages: read
@@ -31,7 +66,8 @@ jobs:
     permissions:
       contents: read
       packages: read
-    needs: route
+    needs: [lookup, route]
+    if: ${{ !cancelled() && needs.route.result == 'success' }}
     runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 30
     env:
@@ -41,17 +77,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - id: week
-        name: Name this week's cache keys
-        run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
-      - id: trivy
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: .cache/trivy/db
-          key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
-          lookup-only: true
       - name: Check out central Docker preparation action
-        if: needs.route.outputs.ci-image != 'true' && steps.trivy.outputs.cache-hit != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Rubio-Enterprises/.github
@@ -60,27 +87,26 @@ jobs:
           persist-credentials: false
           sparse-checkout: actions/prepare-hosted-docker
       - name: Prepare hosted Docker disk
-        if: needs.route.outputs.ci-image != 'true' && steps.trivy.outputs.cache-hit != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
         uses: ./.cache/central-test-gate/actions/prepare-hosted-docker # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
       - name: Remove central Docker preparation checkout
-        if: needs.route.outputs.ci-image != 'true' && steps.trivy.outputs.cache-hit != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
         run: rm -rf .cache/central-test-gate
       - name: Install just
-        if: needs.route.outputs.ci-image != 'true' && steps.trivy.outputs.cache-hit != 'true'
+        if: needs.route.outputs.ci-image != 'true'
         uses: Rubio-Enterprises/.github/actions/setup-just@main
       - name: Log in to GHCR
-        if: needs.route.outputs.ci-image != 'true' && steps.trivy.outputs.cache-hit != 'true'
+        if: needs.route.outputs.ci-image != 'true'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Prepare container-writable hosted checkout
-        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted' && steps.trivy.outputs.cache-hit != 'true'
+        if: needs.route.outputs.ci-image != 'true' && runner.environment == 'github-hosted'
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
       - name: Download the trivy vulnerability database
         id: trivy-warm
-        if: steps.trivy.outputs.cache-hit != 'true'
         env:
           CI_IMAGE: ${{ needs.route.outputs.ci-image }}
         run: |
@@ -95,9 +121,20 @@ jobs:
             just exec trivy fs --download-db-only --no-progress --quiet --cache-dir "$TRIVY_CACHE_DIR"
           fi
           echo 'ready=true' >>"$GITHUB_OUTPUT"
+      - name: Resolve the cache key to save
+        id: week
+        if: steps.trivy-warm.outputs.ready == 'true'
+        env:
+          CACHE_KEY: ${{ needs.lookup.outputs.key }}
+        run: |
+          if [ -z "$CACHE_KEY" ]; then
+            week=$(date -u +%G-W%V)
+            CACHE_KEY="standards-trivy-db-$RUNNER_OS-$week"
+          fi
+          printf 'key=%s\n' "$CACHE_KEY" >> "$GITHUB_OUTPUT"
       - name: Save the trivy vulnerability database
         if: steps.trivy-warm.outputs.ready == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/trivy/db
-          key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
+          key: ${{ steps.week.outputs.key }}
