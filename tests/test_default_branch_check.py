@@ -244,6 +244,10 @@ def test_evidence_job_writes_both_reuse_links_before_publishing_output(tmp_path,
         assert not output.exists()
         return
     assert result.returncode == 0, result.stderr
+    if lookup == 'module-error':
+        assert '::warning::scripts/checked-tree.py exited with status 2; running verification.' in result.stdout
+    else:
+        assert '::warning::' not in result.stdout
     if lookup == 'match':
         expected = {'standards': f'https://github.com/{REPO}/actions/runs/43209031402',
                     'test-gate': f'https://github.com/{REPO}/actions/runs/43209031545'}

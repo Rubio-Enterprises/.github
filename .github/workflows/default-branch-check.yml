@@ -32,7 +32,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          runs=$(python3 scripts/checked-tree.py) || runs='{}'
+          runs=$(python3 scripts/checked-tree.py) || {
+            printf '::warning::scripts/checked-tree.py exited with status %s; running verification.\n' "$?"
+            runs='{}'
+          }
           if [ -n "$runs" ] && [ "$runs" != '{}' ]; then
             jq -r 'to_entries[] | "Reused [\(.key)](\(.value)): these exact files passed."' <<< "$runs" >> "$GITHUB_STEP_SUMMARY"
           fi
