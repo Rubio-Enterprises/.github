@@ -40,9 +40,3 @@ echo "Uploaded $uploaded compressed blob bytes"
 unset BUILDX_BUILDER
 docker buildx imagetools create --prefer-index=true --tag "$IMAGE:main" --tag "$IMAGE:sha-$GITHUB_SHA" "$target"
 [[ "$(crane digest --platform linux/amd64 "$IMAGE:main")" = "$digest" ]]
-image_digest=$(crane digest "$IMAGE:main")
-[[ "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
-jq -n --arg repository "$GITHUB_REPOSITORY" --arg image "$IMAGE:main" \
-  --arg revision "$GITHUB_SHA" --arg baseDigest "$base_digest" --arg imageDigest "$image_digest" \
-  '{repository:$repository,image:$image,revision:$revision,baseDigest:$baseDigest,imageDigest:$imageDigest}' \
-  > "$RUNNER_TEMP/repository-image-admission.json"

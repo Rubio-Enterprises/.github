@@ -100,6 +100,11 @@ fi
         return subprocess.run(["bash", str(ASSETS / (name + ".sh"))], env={**self.env, **overrides}, cwd=self.repo,
                               capture_output=True, text=True)
 
+    def publish_built_image(self):
+        ref = (self.root / "output").read_text().strip().removeprefix("ref=")
+        result = self.run_script("publish", REF=ref)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_build_pulls_ci_amd64_and_returns_an_immutable_scannable_reference(self):
         result = self.run_script("build")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -110,6 +115,7 @@ fi
         self.assertNotIn(self.env["REGISTRY_TOKEN"], calls)
         self.assertEqual((self.root / "output").read_text(), "ref=" + self.env["REF"] + "\n")
         self.assertEqual(json.loads((self.root / "build-service/docker-build/config.json").read_text())["auths"], {"staging": {}})
+        self.publish_built_image()
 
     def test_build_failures_and_digest_mismatches_never_produce_publishable_outputs(self):
         for overrides in ({"BUILD_FAIL": "true"}, {"REGISTRY_DIGEST": OTHER}):
@@ -201,26 +207,23 @@ fi
         self.assertNotIn(RUNNER, calls)
         self.assertIn(f"--file {self.repo}/image/ci.Dockerfile", calls)
         self.assertTrue(next(line for line in calls.splitlines() if line.startswith("docker ")).endswith(str(self.repo / "image")))
+        self.publish_built_image()
 
     def test_digest_pins_are_not_duplicated_when_staging(self):
-        pinned = BASE + "@" + BASE_DIGEST
-        (self.repo / "Dockerfile").write_text(f"FROM {pinned} AS dev\nCOPY --from={RUNNER} /home/runner /opt/actions-runner\n")
+        pinned = BASE + "@" + OTHER
+        runner = RUNNER + "@" + RUNNER_DIGEST
+        (self.repo / "Dockerfile").write_text(
+            f"FROM {pinned} AS dev\nFROM dev AS ci\nCOPY --from={runner} /home/runner /opt/actions-runner\n")
         result = self.run_script("build")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = (self.root / "calls").read_text()
-        self.assertIn(f"crane copy {pinned} {self.env['STAGING']}/base:run-1", calls)
-        self.assertNotIn(BASE_DIGEST + "@", calls)
-        self.assertIn(f"--build-context {pinned}=docker-image://", calls)
-
-    def test_dispatched_digest_is_defensive_and_cannot_build_another_base(self):
-        for expected, status in ((BASE_DIGEST, 0), (OTHER, 1), ("$(touch injected)", 1)):
-            with self.subTest(expected=expected):
-                calls = self.root / "calls"
-                calls.unlink(missing_ok=True)
-                result = self.run_script("build", EXPECTED_BASE_DIGEST=expected)
-                self.assertEqual(result.returncode, status, result.stdout + result.stderr)
-                self.assertEqual("docker buildx build" in calls.read_text(), status == 0)
-                self.assertFalse((self.repo / "injected").exists())
+        for name, ref, digest in (("base", pinned, BASE_DIGEST), ("runner", runner, RUNNER_DIGEST)):
+            self.assertIn(f"crane digest --platform linux/amd64 {ref}", calls)
+            self.assertIn(f"crane copy {ref.split('@')[0]}@{digest} {self.env['STAGING']}/{name}:run-1", calls)
+            self.assertIn(f"--build-context {ref}=docker-image://{self.env['STAGING']}/{name}@{digest}", calls)
+        self.assertIn(f"--label org.opencontainers.image.base.name={pinned}", calls)
+        self.assertIn(f"--label org.opencontainers.image.base.digest={BASE_DIGEST}", calls)
+        self.publish_built_image()
 
     def test_each_build_resolves_bases_afresh(self):
         for digest in (BASE_DIGEST, OTHER):
@@ -274,9 +277,7 @@ fi
         self.assertIn("--prefer-index=true --tag " + self.env["IMAGE"] + ":main", calls)
         self.assertLess(calls.index(copy), calls.index("imagetools create"))
         self.assertIn("Uploaded 2067 compressed blob bytes", result.stdout)
-        admission = json.loads((self.root / "repository-image-admission.json").read_text())
-        self.assertEqual(admission, {"repository": self.env["GITHUB_REPOSITORY"], "image": self.env["IMAGE"] + ":main",
-                                     "revision": self.env["GITHUB_SHA"], "baseDigest": BASE_DIGEST, "imageDigest": DIGEST})
+        self.assertEqual(calls.splitlines()[-1], f"crane digest --platform linux/amd64 {self.env['IMAGE']}:main")
 
     def test_public_destination_and_wrong_architecture_are_refused_before_any_copy(self):
         for overrides in ({"VISIBILITY": "public"}, {"CONFIG_ARCH": "arm64"}):
@@ -426,43 +427,3 @@ class Contracts(unittest.TestCase):
             if "docker compose run" in line and "dev bash" not in line:
                 self.assertIn("-T", line)
                 self.assertIn("</dev/null", line)
-
-    def test_fleet_record_uses_native_download_and_removes_transient_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            stub = root / "gh"
-            stub.write_text('''#!/bin/sh
-set -eu
-test "$GH_TOKEN" = not-a-token
-test "$1 $2 $3" = 'run download 100'
-while [ "$1" != --dir ]; do shift; done
-printf '{"version":1}' > "$2/fleet-dispatches.json"
-''')
-            stub.chmod(0o755)
-            script = '''
-import { GitHub } from './scripts/fleet-ci-image-rebuild.mjs';
-const github = new GitHub('not-a-token');
-github.list = async () => [{id:42, name:'fleet-dispatches', size_in_bytes:100}];
-console.log(JSON.stringify(await github.ledger({id:100}, process.env.TEST_TEMP)));
-'''
-            result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
-                                    env={**os.environ, "PATH": tmp + ":" + os.environ["PATH"], "TEST_TEMP": tmp},
-                                    capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), {"version": 1})
-            self.assertEqual(list(root.iterdir()), [stub])
-
-    def test_fleet_dispatch_coalescing_contract(self):
-        workflow = (ROOT / ".github/workflows/fleet-ci-image-rebuild.yml").read_text()
-        self.assertNotIn("continue-on-error", workflow)
-        self.assertIn("permission-actions: write", workflow)
-        self.assertIn("cancel-in-progress: true", workflow)
-        self.assertIn("github.ref == 'refs/heads/main'", workflow)
-        self.assertIn("if: always()", workflow)
-        self.assertIn("fleet-dispatches.json", workflow)
-        self.assertIn("github.event.client_payload['base-digest']", workflow)
-        builder = (ROOT / ".github/workflows/repository-image.yml").read_text()
-        self.assertIn("github.event.inputs['base-digest'] || ''", builder)
-        result = subprocess.run(["node", "--test", str(ROOT / "tests/fleet-rebuild.test.mjs")],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

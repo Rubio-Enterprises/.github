@@ -35,10 +35,6 @@ for name in base runner; do
   digest=$(crane digest --platform linux/amd64 "$upstream")
   [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
   digests[$name]="$digest"
-  if [[ "$name" = base && -n "${EXPECTED_BASE_DIGEST:-}" && "$EXPECTED_BASE_DIGEST" != "$digest" ]]; then
-    echo '::error::dispatched base digest is superseded or differs from the Dockerfile Release Pin'
-    exit 1
-  fi
   staged="$STAGING/$name:$STAGING_TAG"
   crane copy "${upstream%@*}@$digest" "$staged"
   [[ "$(crane digest "$staged")" = "$digest" ]] || { echo "::error::staged $name digest differs from resolved image"; exit 1; }
