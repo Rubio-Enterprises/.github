@@ -322,7 +322,8 @@
       "platformAutomerge": false
     },
     {
-      "description": "Host-first base and runner images follow :main for immediate standards delivery and rollback. Do not look up updates or pin these moving tags; explicit versioned Release Pins keep normal update policy.",
+      "description": "Keep the Standards base and runner images floating on :main outside Dockerfiles. Versioned Release Pins keep the normal update policy.",
+      "matchManagers": ["!dockerfile"],
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "ghcr.io/rubio-enterprises/base",
@@ -333,11 +334,7 @@
       "pinDigests": false
     },
     {
-      "description": "Pin and refresh the Standards base and runner :main digests together in Dockerfiles, with Renovate-side automerge. Temporary two-repository pilot: https://github.com/Rubio-Enterprises/standards/issues/1062",
-      "matchRepositories": [
-        "Rubio-Enterprises/org-ops",
-        "Rubio-Enterprises/daily-routine"
-      ],
+      "description": "Pin and refresh the Standards base and runner :main digests together in Dockerfiles, with Renovate-side automerge.",
       "matchManagers": ["dockerfile"],
       "matchDatasources": ["docker"],
       "matchPackageNames": [
@@ -349,7 +346,6 @@
       "pinDigests": true,
       "groupName": "standards base and runner images",
       "groupSlug": "standards-base-and-runner",
-      "schedule": ["at any time"],
       "automerge": true,
       "platformAutomerge": false
     },
