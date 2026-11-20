@@ -38,7 +38,7 @@ class Build(unittest.TestCase):
                     "GITHUB_REPOSITORY": "Rubio-Enterprises/repo", "GITHUB_REPOSITORY_OWNER": "Rubio-Enterprises", "GITHUB_ACTOR": "owner",
                     "GITHUB_SERVER_URL": "https://github.com", "REGISTRY_TOKEN": "not-a-real-secret",
                     "IMAGE": "ghcr.io/rubio-enterprises/repo/devcontainer-ci", "DIGEST": DIGEST,
-                    "BASE_DIGEST": BASE_DIGEST, "RUNNER_DIGEST": RUNNER_DIGEST,
+                    "BASE_DIGEST": BASE_DIGEST, "RUNNER_DIGEST": RUNNER_DIGEST, "COPY_EXISTING": OTHER,
                     "REF": "stage.invalid:5000/repo/run-1/ci@" + DIGEST,
                     "PATH": str(self.root / "bin") + ":" + os.environ["PATH"], "BUILD_SERVICE_RETRY_DELAY": "0"}
         self.stub("crane", r'''echo "crane $*" >> "$RUNNER_TEMP/calls"
@@ -50,6 +50,15 @@ if [[ "$1" = auth ]]; then
   mv "$DOCKER_CONFIG/config.json.new" "$DOCKER_CONFIG/config.json"
 elif [[ "$1" = copy ]]; then
   if [[ "${COPY_FAIL:-false}" = true ]]; then exit 7; fi
+  if [[ "$2" = "$REF" ]]; then
+    printf '2026/11/22 15:00:00 existing blob: %s\n2026/11/22 15:00:00 pushed blob: %s\n2026/11/22 15:00:01 pushed blob: %s\n' "$COPY_EXISTING" "$RUNNER_DIGEST" "$DIGEST" >&2
+  fi
+elif [[ "$1" = manifest ]]; then
+  case "$2" in
+    "ghcr.io/rubio-enterprises/base@$BASE_DIGEST") printf '{"layers":[{"digest":"%s","size":314159}]}\n' "$BASE_DIGEST" ;;
+    "$REF") printf '{"config":{"digest":"%s","size":19},"layers":[{"digest":"%s","size":9000},{"digest":"%s","size":2048}]}\n' "$DIGEST" "$COPY_EXISTING" "$RUNNER_DIGEST" ;;
+    *) exit 9 ;;
+  esac
 elif [[ "$1" = digest ]]; then
   ref="${@: -1}"
   case "$ref" in
@@ -259,9 +268,12 @@ fi
         result = self.run_script("publish")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = (self.root / "calls").read_text()
-        self.assertIn("crane copy " + self.env["REF"], calls)
+        copy = "crane copy " + self.env["REF"]
+        self.assertLess(calls.index(f"crane manifest {self.env['REF']}"), calls.index(copy))
+        self.assertLess(calls.index(f"crane manifest ghcr.io/rubio-enterprises/base@{BASE_DIGEST}"), calls.index(copy))
         self.assertIn("--prefer-index=true --tag " + self.env["IMAGE"] + ":main", calls)
-        self.assertLess(calls.index("crane copy"), calls.index("imagetools create"))
+        self.assertLess(calls.index(copy), calls.index("imagetools create"))
+        self.assertIn("Uploaded 2067 compressed blob bytes", result.stdout)
         admission = json.loads((self.root / "repository-image-admission.json").read_text())
         self.assertEqual(admission, {"repository": self.env["GITHUB_REPOSITORY"], "image": self.env["IMAGE"] + ":main",
                                      "revision": self.env["GITHUB_SHA"], "baseDigest": BASE_DIGEST, "imageDigest": DIGEST})

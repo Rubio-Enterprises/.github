@@ -71,13 +71,23 @@ Checksum-pinned Trivy scans the immutable staged image before publication. Scan
 errors and findings fail closed, with findings kept only in transient files.
 The existing central [scan policy](repository-image-secrets.md) is unchanged.
 Before copying, the destination must be private/internal (or not yet created),
-and the staged config must declare linux/amd64. Only then does crane copy the verified digest to `sha-<commit>-amd64` and buildx
-publish one-platform indices as `main` and `sha-<commit>`. The selected amd64 child
-must still equal the scanned digest. Credentials and scan files are removed on
-success and failure. After a successful build and publication, the final step
-prunes untagged versions with the existing five-version retention setting. Prune
-errors appear in the step log but do not fail the build or block verification.
-The build job has a 55-minute ceiling, including up to 10 minutes for pruning.
+and the staged config must declare linux/amd64. The publisher compares the staged
+manifest with the immutable `rubio-enterprises/base` manifest named by the staged
+image's `org.opencontainers.image.base.digest` label. For each shared layer digest,
+it skips blobs already present and asks GHCR to mount missing blobs from the base
+package. A refused mount fails publication and names the layer; there is no upload
+fallback. The mount client sends the job credential only to GHCR's token service
+and does not follow redirects.
+
+Crane then copies the verified digest to `sha-<commit>-amd64`. The job logs the
+stored sizes of blobs the copy actually uploaded (compressed layers and the image
+config, excluding manifests and retries). Buildx publishes one-platform indices
+as `main` and `sha-<commit>`. The selected amd64 child must still equal the scanned
+digest. Credentials and scan files are removed on success and failure. After a
+successful build and publication, the final step prunes untagged versions with the
+existing five-version retention setting. Prune errors appear in the step log but
+do not fail the build or block verification. The build job has a 55-minute
+ceiling, including up to 10 minutes for pruning.
 
 The built image records the actual amd64 upstream in
 `org.opencontainers.image.base.name` and `org.opencontainers.image.base.digest`.

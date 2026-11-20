@@ -20,10 +20,22 @@ config="$RUNNER_TEMP/build-service/ci-config.json"
 crane config "$REF" > "$config"
 jq -e '.os == "linux" and .architecture == "amd64"' "$config" >/dev/null
 base_digest=$(jq -er '.config.Labels["org.opencontainers.image.base.digest"] | select(test("^sha256:[a-f0-9]{64}$"))' "$config")
+manifest="$RUNNER_TEMP/build-service/ci-manifest.json"
+base_manifest="$RUNNER_TEMP/build-service/base-manifest.json"
+crane manifest "$REF" >"$manifest"
 export DOCKER_CONFIG="$RUNNER_TEMP/build-service/docker-publish"
 printf '%s' "${REGISTRY_TOKEN:?}" | crane auth login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+crane manifest "ghcr.io/rubio-enterprises/base@$base_digest" >"$base_manifest"
+node "$(dirname "${BASH_SOURCE[0]}")/ghcr/mount-layers.mjs" "$IMAGE" "$base_manifest" "$manifest"
 target="$IMAGE:sha-$GITHUB_SHA-amd64"
-crane copy "$REF" "$target"
+copy_log="$RUNNER_TEMP/build-service/ci-copy.log"
+crane copy "$REF" "$target" 2>&1 | tee "$copy_log"
+# Count only blobs crane committed, not mounts or already present blobs
+uploaded=$(jq -er --rawfile log "$copy_log" '
+  [.config, .layers[]] | map({key: .digest, value: .size}) | from_entries as $sizes
+  | [$log | scan("(?m)^[0-9/: ]+pushed blob: (sha256:[a-f0-9]{64})$") | $sizes[.[0]] // empty]
+  | add // 0' "$manifest")
+echo "Uploaded $uploaded compressed blob bytes"
 [[ "$(crane digest "$target")" = "$digest" ]] || { echo '::error::published digest differs from scanned image'; exit 1; }
 unset BUILDX_BUILDER
 docker buildx imagetools create --prefer-index=true --tag "$IMAGE:main" --tag "$IMAGE:sha-$GITHUB_SHA" "$target"
