@@ -107,9 +107,16 @@
       "allowedVersions": "<7"
     },
     {
-      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors and 0.x packages stay manual. The require-review fallback sets platformAutomerge:false so Renovate's own engine performs the merge as the bypassed Renovate App. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original onboarded set had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. Renovate's own engine is stricter here because it waits for every check the consumer actually renders, not only the checks required before GitHub merges.",
+      "description": "Standing automerge for the safe classes: non-major updates (minor/patch/pin/digest/pinDigest) of stable >=1.0.0 deps, every manager, dev and runtime alike. Subsumes the previous devDependencies and github-actions/dockerfile rules. Majors stay manual; the next rule arms pre-1.0 minor and patch updates. The require-review fallback sets platformAutomerge:false so Renovate's own engine performs the merge as the bypassed Renovate App. GitHub-native auto-merge waits only on required checks, while Renovate's own engine waits for every check, so the original onboarded set had too few required contexts for a safe native handoff. The 2026-07-30 gate-tests rollout added the repo-owned required `test-gate` context for the 34 repos carrying `gate_tests=true`; `.github-private`#179 then closed the same-day lint/e2e gap by making `lint-hooks / lint-hooks` and `e2e / e2e` required through property-targeted org rulesets. The seven governed repos without test-gate carry zero language facets except playwright-skills, so their lack of a test context is not an unfixed rollout hole. Renovate's own engine is stricter here because it waits for every check the consumer actually renders, not only the checks required before GitHub merges.",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
       "matchCurrentVersion": "!/^v?0/",
+      "automerge": true,
+      "platformAutomerge": false
+    },
+    {
+      "description": "Pre-1.0 minor and patch updates automerge after the global seven-day soak, like their stable counterparts. They were held drafts from 2026-10-30; by 2026-11-19 thirty-seven repositories each carried one held draft, every one green, twenty-two of them open a week or longer, and each blocked the rest of its repository's held queue. The hold delayed these updates without anyone reviewing them. Semver lets a 0.x minor break its API, so the checks that gate the merge are the only guard: a repository whose checks do not exercise a 0.x dependency takes that update unverified. Pre-1.0 pin, digest and pinDigest updates are not armed here and stay held drafts. Keep this rule before the named holds below (Python minors, the Go directive, the mise and uv CLI pins), which must still disarm their own 0.x updates.",
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "/^v?0/",
       "automerge": true,
       "platformAutomerge": false
     },
@@ -144,15 +151,13 @@
       "groupSlug": "npm-stable-non-major"
     },
     {
-      "description": "Ungrouped pre-1.0 npm minor and patch updates remain human-reviewed in a branch distinct from stable npm updates. The JSONata guard preserves an earlier narrower monorepo group.",
+      "description": "Ungrouped pre-1.0 npm minor and patch updates share one rolling PR in a branch distinct from stable npm updates, so a pre-1.0 update that fails its checks cannot stall the stable branch. They inherit the pre-1.0 automerge rule above. The JSONata guard preserves an earlier narrower monorepo group.",
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "/^v?0/",
       "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "pre-1.0 npm dependencies",
-      "groupSlug": "npm-pre-1-0",
-      "automerge": false,
-      "platformAutomerge": false
+      "groupSlug": "npm-pre-1-0"
     },
     {
       "description": "Ungrouped stable Cargo minor and patch updates share one rolling PR while inheriting the standing safe automerge posture. The current-version guard keeps pre-1.0 crates out, and the JSONata guard preserves an earlier narrower monorepo group.",
@@ -164,15 +169,13 @@
       "groupSlug": "cargo-stable-non-major"
     },
     {
-      "description": "Ungrouped pre-1.0 Cargo minor and patch updates remain human-reviewed in a branch distinct from stable Cargo updates. The JSONata guard preserves an earlier narrower monorepo group.",
+      "description": "Ungrouped pre-1.0 Cargo minor and patch updates share one rolling PR in a branch distinct from stable Cargo updates, so a pre-1.0 update that fails its checks cannot stall the stable branch. They inherit the pre-1.0 automerge rule above. The JSONata guard preserves an earlier narrower monorepo group.",
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "/^v?0/",
       "matchJsonata": ["$exists(groupName) = false"],
       "groupName": "pre-1.0 cargo dependencies",
-      "groupSlug": "cargo-pre-1-0",
-      "automerge": false,
-      "platformAutomerge": false
+      "groupSlug": "cargo-pre-1-0"
     },
     {
       "description": "Ungrouped stable dependency pin updates share a safe automerge branch without being blocked by a pre-1.0 pin. The JSONata guard preserves earlier narrower groups, and later package-specific grouping rules remain authoritative.",
@@ -231,13 +234,13 @@
       "enabled": false
     },
     {
-      "description": "First-party fast lane for org-published OCI artifacts. The global 7-day minimumReleaseAge is a supply-chain soak for just-published THIRD-PARTY versions; an artifact the org itself publishes to ghcr.io/rubio-enterprises (Dev Container features, container images) was already gated by review and CI on the PR that released it, so there is nothing to vet. null, not \"0 days\": a Dev Container feature's OCI manifest carries no creation timestamp, and Renovate's default minimumReleaseAgeBehaviour (timestamp-required) never treats an untimestamped release as stable, so any age requirement at all would hold these updates forever. Scoped to the docker datasource and the ghcr.io/rubio-enterprises/ prefix because GHCR enforces org ownership of that namespace; the bare `rubio-enterprises/` docker name is deliberately NOT matched — it resolves to Docker Hub, whose namespaces are first-come and not provably the org's. The age exemption does not widen automerge: majors and pre-1.0 updates remain held drafts.",
+      "description": "First-party fast lane for org-published OCI artifacts. The global 7-day minimumReleaseAge is a supply-chain soak for just-published THIRD-PARTY versions; an artifact the org itself publishes to ghcr.io/rubio-enterprises (Dev Container features, container images) was already gated by review and CI on the PR that released it, so there is nothing to vet. null, not \"0 days\": a Dev Container feature's OCI manifest carries no creation timestamp, and Renovate's default minimumReleaseAgeBehaviour (timestamp-required) never treats an untimestamped release as stable, so any age requirement at all would hold these updates forever. Scoped to the docker datasource and the ghcr.io/rubio-enterprises/ prefix because GHCR enforces org ownership of that namespace; the bare `rubio-enterprises/` docker name is deliberately NOT matched — it resolves to Docker Hub, whose namespaces are first-come and not provably the org's. The age exemption does not widen automerge. Majors remain held drafts; pre-1.0 minor and patch updates automerge through the pre-1.0 rule above, here with no soak.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["/^ghcr\\.io\\/rubio-enterprises\\//i"],
       "minimumReleaseAge": null
     },
     {
-      "description": "First-party fast lane for org-owned GitHub sources: reusable workflows and actions, GitHub releases/tags/digests, git tags/refs and Go modules under github.com/Rubio-Enterprises. Same rationale as the GHCR rule above: these releases are cut by the org's own reviewed merges, so the third-party soak protects nothing. Matched only on datasources whose package name is a GitHub owner path, because GitHub enforces that the Rubio-Enterprises owner is the org; never on publisher-declared metadata such as sourceUrl (any third-party npm/PyPI package can claim a github.com/Rubio-Enterprises repository URL) or on bare package names in public registries (dependency confusion). The trailing slash anchors the owner exactly, so look-alike owners such as Rubio-Enterprises-x do not match. The age exemption does not widen automerge: majors and pre-1.0 updates remain held drafts.",
+      "description": "First-party fast lane for org-owned GitHub sources: reusable workflows and actions, GitHub releases/tags/digests, git tags/refs and Go modules under github.com/Rubio-Enterprises. Same rationale as the GHCR rule above: these releases are cut by the org's own reviewed merges, so the third-party soak protects nothing. Matched only on datasources whose package name is a GitHub owner path, because GitHub enforces that the Rubio-Enterprises owner is the org; never on publisher-declared metadata such as sourceUrl (any third-party npm/PyPI package can claim a github.com/Rubio-Enterprises repository URL) or on bare package names in public registries (dependency confusion). The trailing slash anchors the owner exactly, so look-alike owners such as Rubio-Enterprises-x do not match. The age exemption does not widen automerge. Majors remain held drafts; pre-1.0 minor and patch updates automerge through the pre-1.0 rule above, here with no soak.",
       "matchDatasources": [
         "github-tags",
         "github-releases",
@@ -265,14 +268,14 @@
       "semanticCommitType": "fix"
     },
     {
-      "description": "Group related tool runtime dependencies even when Typer is 0.x. A kit release can raise its Typer floor; separate branches make uv lock fail before either PR exists. This rule controls grouping only. Automerge remains per-upgrade, so a group containing a 0.x Typer update stays manual because Renovate automerges a branch only when every upgrade is automerge-enabled. Neither rule here changes release age. Typer is a third-party PyPI package and keeps the global 7-day soak: every uv project sets exclude-newer = \"7 days\", so uv cannot lock a younger Typer and a zero-age Typer update fails its relock. rubio-cli-kit keeps its zero-age fast lane through the first-party GitHub sources rule above, because consumers take it as a uv git source on github.com/Rubio-Enterprises, which exclude-newer does not filter.",
+      "description": "Group related tool runtime dependencies even when Typer is 0.x. A kit release can raise its Typer floor; separate branches make uv lock fail before either PR exists. This rule controls grouping only. Automerge remains per-upgrade, and Renovate automerges a branch only when every upgrade is automerge-enabled. A 0.x Typer minor or patch update is armed by the pre-1.0 rule above, so a group that contains one automerges after Typer's soak; a 0.x pin or digest update still holds its group. Neither rule here changes release age. Typer is a third-party PyPI package and keeps the global 7-day soak: every uv project sets exclude-newer = \"7 days\", so uv cannot lock a younger Typer and a zero-age Typer update fails its relock. rubio-cli-kit keeps its zero-age fast lane through the first-party GitHub sources rule above, because consumers take it as a uv git source on github.com/Rubio-Enterprises, which exclude-newer does not filter.",
       "matchDepNames": ["rubio-cli-kit", "typer"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "groupName": "tool runtime dependencies",
       "groupSlug": "tool-runtime-dependencies"
     },
     {
-      "description": "Stable non-major tool runtime dependencies automerge: Renovate merges as soon as every check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable without widening automerge. Major and 0.x updates remain manual. Release age follows the group rule above: Typer waits the global soak, rubio-cli-kit does not.",
+      "description": "Stable non-major tool runtime dependencies automerge: Renovate merges as soon as every check passes. Grouping is separate above so a coupled 0.x Typer floor update remains solvable. Majors remain manual; 0.x minor and patch updates automerge through the pre-1.0 rule above instead of this one. Release age follows the group rule above: Typer waits the global soak, rubio-cli-kit does not.",
       "matchDepNames": ["rubio-cli-kit", "typer"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": "!/^v?0/",
@@ -287,7 +290,7 @@
       "pinDigests": true
     },
     {
-      "description": "Git-sourced tool pins in `home/.chezmoidata/uv-tools.toml` are authoritative first-party inputs for the org. Group stable non-major tag/SHA advances into one PR, skip the org release-age soak, and use Renovate-side automerge; major and 0.x tool releases stay manual.",
+      "description": "Git-sourced tool pins in `home/.chezmoidata/uv-tools.toml` are authoritative first-party inputs for the org. Group stable non-major tag/SHA advances into one PR, skip the org release-age soak, and use Renovate-side automerge. Major tool releases stay manual. A 0.x tool's minor or patch release automerges through the pre-1.0 rule above, in its own PR outside this group; its digest and pinDigest updates stay held.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["home/.chezmoidata/uv-tools.toml"],
       "matchPackageNames": ["/^Rubio-Enterprises\\//"],
@@ -309,7 +312,7 @@
       "platformAutomerge": false
     },
     {
-      "description": "uv CLI version pin (the `version:` input on astral-sh/setup-uv across the reusable workflows, tracked by the astral-sh/uv customManager below). Same human-merge posture as the mise CLI pin above, for the same reason: setup-uv runs BEFORE every linter/test in every Python-touching gate, so a bad uv release fails onboarded consumers' gates at a step where no consumer diagnostic has run yet. uv is still 0.x, so the blanket automerge rule's `matchCurrentVersion: !/^v?0/` excludes it today; this explicit override keeps the pin manual after uv reaches 1.0.",
+      "description": "uv CLI version pin (the `version:` input on astral-sh/setup-uv across the reusable workflows, tracked by the astral-sh/uv customManager below). Same human-merge posture as the mise CLI pin above, for the same reason: setup-uv runs BEFORE every linter/test in every Python-touching gate, so a bad uv release fails onboarded consumers' gates at a step where no consumer diagnostic has run yet. uv is still 0.x, and the pre-1.0 rule above arms 0.x minor and patch updates; this explicit override disarms the pin today and keeps it manual after uv reaches 1.0.",
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["astral-sh/uv"],
       "groupName": "uv-cli",
@@ -366,9 +369,9 @@
       "platformAutomerge": false
     },
     {
-      "description": "Majors and pre-1.0 updates are held drafts, never auto-merged. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher.",
+      "description": "Majors, and pre-1.0 updates other than minor and patch, are held drafts, never auto-merged. Pre-1.0 minor and patch updates left this rule on 2026-11-19 and automerge through the rule after the standing stable rule. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. The limit of one stays: without it, held drafts that nobody merges could fill all five of a repository's concurrent slots and stop its routine updates. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher. The expression uses $not(... in ...) rather than two != tests so that a pre-1.0 update carrying no updateType stays held: JSONata evaluates != against a missing value as false.",
       "matchJsonata": [
-        "updateType = 'major' or $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/)"
+        "updateType = 'major' or ($not(updateType in ['minor', 'patch']) and $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/))"
       ],
       "draftPR": true,
       "automerge": false,

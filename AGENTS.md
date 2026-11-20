@@ -161,16 +161,37 @@ release for this repository. Recover regressions through reviewed reverts.
   setting by hand. That went unnoticed for two weeks in `agent-workspaces` and was found only when
   an outage fix could not be applied, so core raises are a paired operator move, not maintenance;
   **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
-  the global seven-day soak; **held draft PRs** for majors and every pre-1.0
-  update, never auto-merged. Dependency Dashboards are disabled, with no dashboard
+  the global seven-day soak, and since 2026-11-19 for **pre-1.0 minor and patch** updates on the
+  same soak; **held draft PRs** for majors and for pre-1.0 pin, digest, and `pinDigest`
+  updates, never auto-merged. Dependency Dashboards are disabled, with no dashboard
   approval rules. The final package rule applies `draftPR: true`,
   `automerge: false`, `prConcurrentLimit: 1`, and `branchConcurrentLimit: 1` after
   every automerge rule. These limits compare against the shared per-repository
   Renovate backlog, so a held draft opens only when no other Renovate PR is open;
   closing it declines that version. Held drafts keep the weekend schedule. Named
-  Python dev tools retain their exact pins and pin-only soak exemption, without a
-  major/0.x automerge exception. `go.mod` directive raises and the `jdx/mise` and
-  `astral-sh/uv` CLI pins remain human-merge-only.
+  Python dev tools retain their exact pins and pin-only soak exemption, and follow
+  the same major and pre-1.0 policy as every other dependency. `go.mod` directive raises
+  and the `jdx/mise` and `astral-sh/uv` workflow CLI pins remain human-merge-only.
+
+  **Pre-1.0 minor and patch updates automerge; that reverses the 2026-10-30 hold.** Between
+  those dates every pre-1.0 update was a held draft. By 2026-11-19 thirty-seven repositories
+  each carried one held draft, all green, twenty-two open a week or longer, and each blocked
+  the rest of its repository's held queue: the hold delayed updates without anyone reviewing
+  them. Three properties to keep when editing these rules:
+  - **The checks are the only guard.** Semver lets a 0.x minor break its API. A repository
+    whose checks do not exercise a 0.x dependency takes that update unverified; `dotfiles`
+    tool pins are the clearest case, because its checks prove the lock resolves, not that
+    the tool works.
+  - **The arming rule sits directly after the standing stable rule, before every named
+    hold.** Rule order decides the outcome: a later `automerge: false` (Python minors, the Go
+    directive, the mise and uv CLI pins) must still disarm its own 0.x updates. A named hold
+    is narrower than its name suggests: the `uv-cli` rule matches only the workflow
+    `version:` marker, so a 0.x `uv` pin in a consumer's `image/mise.toml` automerges.
+  - **The held rule keeps its limit of one.** It now matches fewer updates, but without the
+    limit, held drafts nobody merges could fill all five concurrent slots and stop a
+    repository's routine updates. Its expression uses `$not(updateType in [...])`, not two
+    `!=` tests: JSONata evaluates `!=` against a missing value as false, which would release
+    a pre-1.0 update that carries no `updateType`.
   Stable and pre-1.0 npm, Cargo, and pin updates use
   distinct groups so a manual member cannot disarm an otherwise-safe stable branch.
   The first two `customManager`s track the
@@ -206,11 +227,13 @@ release for this repository. Recover regressions through reviewed reverts.
   - **The stable-version guard is `!/^v?0/`, not `!/^0/`.** Renovate evaluates
     `matchCurrentVersion` against the raw `currentValue`, so the shorter predicate classifies
     `v0.5.5` as stable. The standing safe rule and every stable npm, Cargo, and pin group use
-    `!/^v?0/`; their manual pre-1.0 counterparts use the complementary `/^v?0/`.
+    `!/^v?0/`; their pre-1.0 counterparts use the complementary `/^v?0/`.
   - **Stable and pre-1.0 grouping is deliberately disjoint.** npm and Cargo minor/patch updates,
     plus Renovate's general pin-update branch, have distinct current-version predicates, names,
-    and slugs. Stable members inherit the standing safe automerge rule and seven-day soak; pre-1.0
-    members are explicitly unarmed. The broad grouping rules apply only when no earlier rule has
+    and slugs. Stable members inherit the standing safe automerge rule and seven-day soak. Pre-1.0
+    npm and Cargo members inherit the pre-1.0 automerge rule; the pre-1.0 pin group is explicitly
+    unarmed. The branches stay distinct so a pre-1.0 update that fails its checks cannot stall
+    the stable branch. The broad grouping rules apply only when no earlier rule has
     already assigned `groupName`, preserving `config:best-practices`' narrower monorepo groups.
     Later local groups (GitHub Actions, tool runtime dependencies and first-party tool pins)
     set both name and slug so their safer coupled-update boundaries remain authoritative.
@@ -220,11 +243,13 @@ release for this repository. Recover regressions through reviewed reverts.
   update remains manual. A separate grouping rule puts related non-major updates on one branch even
   while Typer is 0.x: a kit release can raise its Typer floor, and separate branches make `uv lock`
   reject the kit branch before either PR exists. Grouping does not widen automerge. Renovate sets a
-  grouped branch's `automerge` only when **every** upgrade enables it, so a group containing a 0.x
-  Typer update remains manual; a stable-only group can still use the fast lane. Separate fast-lane
+  grouped branch's `automerge` only when **every** upgrade enables it. A 0.x Typer minor or patch
+  update is armed by the pre-1.0 rule, so a group containing one automerges once Typer's seven-day
+  soak has passed; a 0.x pin or digest update still holds its group. Separate fast-lane
   rules cover stable non-major runtime updates and the registry's first-party tool pins: both skip
-  the release-age soak and use scoped platform auto-merge, while major and 0.x updates retain the
-  standing manual posture. Registry pins are grouped into one dotfiles PR; the runtime group applies
+  the release-age soak, while majors retain the held posture. A 0.x first-party tool's minor or
+  patch release automerges through the pre-1.0 rule with no soak, in its own PR outside the
+  registry group. Registry pins are grouped into one dotfiles PR; the runtime group applies
   independently in each tool repo.
 
   **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
