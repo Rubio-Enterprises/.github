@@ -94,7 +94,7 @@ def test_production_test_gate_no_qualification_no_retry():
     for absent in ('check-pr', 'BASE_SHA', 'HEAD_SHA', 'PR_TITLE', 'qualification-',
                    'continue-on-error', 'retry', 'issues:', 'pull-requests:'):
         assert absent not in text
-    assert set(wf['jobs']) == {'evidence', 'route', 'standards-linux', 'standards-macos', 'standards-main', 'test-gate-execution', 'test-gate-main'}
+    assert set(wf['jobs']) == {'evidence', 'warm-macos-downloads', 'route', 'standards-linux', 'standards-macos', 'standards-main', 'test-gate-execution', 'test-gate-main'}
     assert wf['jobs']['route']['with'] == {'route': 'linux'}
     assert wf['jobs']['standards-linux']['needs'] == wf['jobs']['standards-macos']['needs'] == 'route'
     assert 'if' not in wf['jobs']['standards-linux']
@@ -229,7 +229,7 @@ console.log(JSON.stringify([''' + ', '.join(conditions) + ']));'
 def test_evidence_job_writes_both_reuse_links_before_publishing_output(tmp_path, lookup):
     job = workflow('default-branch-check')['jobs']['evidence']
     step, = [step for step in job['steps'] if step.get('id') == 'lookup']
-    assert job['outputs'] == {'runs': '${{ steps.lookup.outputs.runs }}'}
+    assert job['outputs']['runs'] == '${{ steps.lookup.outputs.runs }}'
     env, calls = recorded_api(tmp_path, recorded(), status=403 if lookup == 'api-error' else 200)
     summary = tmp_path / 'summary.md'
     output = tmp_path / 'output'
