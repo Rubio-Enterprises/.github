@@ -413,6 +413,24 @@
       "platformAutomerge": false
     },
     {
+      "description": "Docker Hub digest and pinDigest updates arrive without a release date: Renovate's docker datasource dates Docker Hub tags from `tag_last_pushed` but gives a rebuilt digest none, so under timestamp-required they stayed pending on `renovate/stability-days` for ever (mac-dev-playbook's postgres, redis and sockpuppetbrowser digests, 2026-11). timestamp-optional lets an undated digest through and a person merges it, as for other registries (.github-private#722); a dated update still waits its seven days. The next rule re-arms automerge for official images only. Tag updates keep their dates, soak and automerge. The selector is the complement of the rule above: a name whose first segment has no dot or colon, or that starts with a Docker Hub host. Same position constraints as the rule above.",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["digest", "pinDigest"],
+      "matchPackageNames": ["/^(([^/.:]+(/|$))|((docker\\.io|index\\.docker\\.io|registry-1\\.docker\\.io)/))/i"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
+      "description": "Docker Official Images (`docker.io/library/*`, also written bare, as `library/...` or with another Docker Hub host) automerge their undated digest and pinDigest updates (owner's decision of 2026-11-21). Docker builds them from reviewed changes in the public docker-library repositories, so a bad rebuild needs a compromise of Docker's own pipeline, where a third-party image needs only its publisher's token. Third-party Docker Hub images and other registries still need a person. Keep this rule directly after the Docker Hub digest rule and before the held rule.",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["digest", "pinDigest"],
+      "matchPackageNames": ["/^((docker\\.io|index\\.docker\\.io|registry-1\\.docker\\.io)/)?(library/)?[^/.:]+$/i"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": true,
+      "platformAutomerge": false
+    },
+    {
       "description": "Majors, and pre-1.0 updates other than minor and patch, are held drafts, never auto-merged. Pre-1.0 minor and patch updates left this rule on 2026-11-19 and automerge through the rule after the standing stable rule. Concurrent limits share the repository's Renovate backlog count, so a held draft opens only when no other Renovate PR is open. Closing it declines that version. The limit of one stays: without it, held drafts that nobody merges could fill all five of a repository's concurrent slots and stop its routine updates. Keep this rule last so earlier automerge rules cannot re-arm held updates. The version fallback mirrors matchCurrentVersion's /^v?0/ matcher. The expression uses $not(... in ...) rather than two != tests so that a pre-1.0 update carrying no updateType stays held: JSONata evaluates != against a missing value as false.",
       "matchJsonata": [
         "updateType = 'major' or ($not(updateType in ['minor', 'patch']) and $contains(lockedVersion ? lockedVersion : (currentVersion ? currentVersion : currentValue), /^v?0/))"
