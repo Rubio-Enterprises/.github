@@ -49,18 +49,26 @@ zstd level 9, no attestations, and no standards package secret.
 
 Each repository pins the Base Image in its Dockerfile's first `FROM`
 (`ghcr.io/rubio-enterprises/base:main@sha256:…`) and the runner image in
-`COPY --from`. A weekly Renovate pull request moves both digests. Publishing a
-new base does not trigger a repository build.
+`COPY --from`. In a repository's weekend window (America/Chicago), Renovate opens
+one grouped pull request that moves both digests, and merges it on a later run
+once the Checks pass. The rule is `default.json` in this repository. A new
+repository starts unpinned (`starter/Dockerfile` stays `:main`) until its first
+Renovate pull request. Publishing a new base does not trigger a repository build,
+and no build waits for one: a repository's CI Image changes base only when its
+pin moves. [Taking a new base](https://github.com/Rubio-Enterprises/standards/blob/main/RELEASES.md#taking-a-new-base)
+covers an urgent change and rollback.
 
 Before starting BuildKit, the client uses the job's `github.token` in the
 separate `docker-publish` config to resolve those literal references. It also
 accepts unpinned tags and Release Pins, but rejects ARG-expanded references.
 The `file` input selects the Dockerfile, including one in a subdirectory.
 
-Every build freshly resolves their amd64 digests, copies those exact images to
-`$STAGING/base:$STAGING_TAG` and `$STAGING/runner:$STAGING_TAG`, and verifies each
-copy. Buildx then substitutes the actual Dockerfile references with those
-immutable staging digests using named-image contexts. No Dockerfile rewrite is
+Every build resolves the linux/amd64 digest of each reference (the amd64 image
+of a pinned index, or what `:main` points at for an unpinned reference), copies
+those exact images to `$STAGING/base:$STAGING_TAG` and
+`$STAGING/runner:$STAGING_TAG`, and verifies each copy. Buildx then substitutes
+the actual Dockerfile references with those immutable staging digests using
+named-image contexts. No Dockerfile rewrite is
 needed. The active `docker-build` config contains **staging auth only**: no GHCR
 authentication or publishing token reaches the BuildKit session (mac-dev-playbook
 ADR 0058). The daemon keeps its own layer cache. Its CI output goes to

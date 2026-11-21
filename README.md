@@ -164,9 +164,14 @@ a separate publication request. Recover a regression with a reviewed revert.
 ## Standards dependency
 
 Standards content is baked into `ghcr.io/rubio-enterprises/base:main`. Each
-repository's Dockerfile pins the base and runner images by digest. A weekly
-Renovate pull request updates both pins. Publishing a new base does not start
-repository builds. A Release Pin still uses a different tag with an issue link.
+repository's Dockerfile pins the base and runner images by digest
+(`base:main@sha256:…`). In a repository's weekend window (America/Chicago),
+Renovate opens one grouped pull request that moves both pins, and merges it on a
+later run once the Checks pass; a repository can be up to a week behind `:main`.
+Publishing a new base does not start repository builds. A new repository starts
+unpinned until its first Renovate pull request. A Release Pin still uses a
+different tag with an issue link. Decision:
+[ADR-0048](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0048-pin-the-base-image-by-digest-in-each-repository.md).
 
 Internal `.github` workflow/action calls follow `@main`; the shared Renovate
 preset disables updates and digest pinning for that exact dependency, including
