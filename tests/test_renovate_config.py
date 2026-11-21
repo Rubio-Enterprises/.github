@@ -202,8 +202,9 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(CONFIG["timezone"], "America/Chicago")
         self.assertIn("schedule:weekends", CONFIG["extends"])
         self.assertNotIn(":disableDependencyDashboard", CONFIG["extends"])
-        self.assertEqual(CONFIG["commitHourlyLimit"], 1)
-        self.assertEqual(CONFIG["prHourlyLimit"], 1)
+        # Temporary backlog drain from 2026-11-21; revert both to 1 afterwards.
+        self.assertEqual(CONFIG["commitHourlyLimit"], 5)
+        self.assertEqual(CONFIG["prHourlyLimit"], 5)
         self.assertEqual(CONFIG["prConcurrentLimit"], 5)
         self.assertEqual(CONFIG["branchConcurrentLimit"], 5)
         self.assertEqual(CONFIG["rebaseWhen"], "conflicted")

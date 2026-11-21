@@ -285,7 +285,8 @@ release for this repository. Recover regressions through reviewed reverts.
   floating-major tag update.
 
   **The per-repository admission limits are `commitHourlyLimit: 1`, `prHourlyLimit: 1`,
-  `prConcurrentLimit: 5`, and `branchConcurrentLimit: 5`.** The hourly commit limit is the direct
+  `prConcurrentLimit: 5`, and `branchConcurrentLimit: 5`.** A temporary backlog drain raises
+  both hourly limits to 5; revert them to 1 once the drain ends. The hourly commit limit is the direct
   consumer-CI guard because it counts both new branch pushes and automatic rebases; the PR limit
   separately bounds new PR admission. The concurrent limits bound future ordinary branch/PR
   population but do not close the existing backlog. All four are per repository, not org-wide.
