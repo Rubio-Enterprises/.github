@@ -44,6 +44,7 @@ HELD_UPDATE_EXPRESSION = (
     "$contains(lockedVersion ? lockedVersion : "
     "(currentVersion ? currentVersion : currentValue), /^v?0/))"
 )
+UNGROUPED_EXPRESSION = "$not($exists(groupName)) or groupName = null"
 HELD_POSTURE = {
     "draftPR": True,
     "automerge": False,
@@ -131,8 +132,11 @@ def _rule_matches(
     expressions = rule.get("matchJsonata", [])
     matches = []
     for expression in expressions:
-        if expression == "$exists(groupName) = false":
-            matches.append("groupName" not in resolved)
+        # JSONata's $exists is true for a key holding null (checked against Renovate
+        # 44.218.0's library), and every ungrouped update carries groupName: null,
+        # so `$exists(groupName) = false` never matched and is unsupported here.
+        if expression == UNGROUPED_EXPRESSION:
+            matches.append(resolved.get("groupName") is None)
         elif expression == HELD_UPDATE_EXPRESSION:
             update_type = dependency.get("updateType")
             matches.append(
@@ -154,6 +158,8 @@ def _resolve_dependency(
     initial: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved: dict[str, Any] = {
+        # Renovate's option defaults put groupName: null on every upgrade config.
+        "groupName": None,
         "automerge": False,
         "draftPR": False,
         "prConcurrentLimit": CONFIG["prConcurrentLimit"],
@@ -192,7 +198,7 @@ def _resolve_dependency(
 
 class RenovateConfigContractTests(unittest.TestCase):
     def test_global_backlog_posture_is_exact(self) -> None:
-        self.assertFalse(CONFIG["dependencyDashboard"])
+        self.assertTrue(CONFIG["dependencyDashboard"])
         self.assertEqual(CONFIG["timezone"], "America/Chicago")
         self.assertIn("schedule:weekends", CONFIG["extends"])
         self.assertNotIn(":disableDependencyDashboard", CONFIG["extends"])
@@ -618,7 +624,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 )
                 self.assertTrue(resolved.get("enabled", True))
                 self.assertTrue(resolved["pinDigests"])
-                self.assertNotIn("groupName", resolved)
+                self.assertIsNone(resolved["groupName"])
                 self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
 
     def test_python_dev_tools_are_exact_pins_only_in_dev_groups(self) -> None:
@@ -1389,6 +1395,38 @@ class RenovateConfigContractTests(unittest.TestCase):
                 resolved = _resolve_dependency(dependency)
                 self.assertEqual(resolved["groupName"], expected_group)
                 self.assertEqual(resolved["groupSlug"], expected_slug)
+
+    def test_ungrouped_guards_treat_a_null_group_as_ungrouped(self) -> None:
+        guarded = [
+            rule for rule in CONFIG["packageRules"]
+            if any("groupName" in expression for expression in rule.get("matchJsonata", []))
+        ]
+        self.assertEqual(len(guarded), 6)
+        for rule in guarded:
+            with self.subTest(group=rule["groupName"]):
+                self.assertEqual(rule["matchJsonata"], [UNGROUPED_EXPRESSION])
+
+    def test_ungrouped_npm_and_cargo_updates_join_their_rolling_groups(self) -> None:
+        cases = [
+            ("npm", "package.json", "6.0.0", "stable non-major npm dependencies"),
+            ("npm", "package.json", "0.9.0", "pre-1.0 npm dependencies"),
+            ("cargo", "Cargo.toml", "2.0.0", "stable non-major cargo dependencies"),
+            ("cargo", "Cargo.toml", "0.9.0", "pre-1.0 cargo dependencies"),
+        ]
+        for manager, file_name, version, group in cases:
+            for update_type in ("minor", "patch"):
+                with self.subTest(manager=manager, version=version, update_type=update_type):
+                    resolved = _resolve_dependency(
+                        {
+                            "manager": manager,
+                            "depName": "example",
+                            "packageName": "example",
+                            "fileName": file_name,
+                            "currentVersion": version,
+                            "updateType": update_type,
+                        }
+                    )
+                    self.assertEqual(resolved["groupName"], group)
 
     def test_existing_narrow_monorepo_groups_are_not_flattened(self) -> None:
         fixtures = [

@@ -19,7 +19,7 @@
     "**/.mise/locks/**"
   ],
   "timezone": "America/Chicago",
-  "dependencyDashboard": false,
+  "dependencyDashboard": true,
   "commitHourlyLimit": 1,
   "prHourlyLimit": 1,
   "prConcurrentLimit": 5,
@@ -146,7 +146,7 @@
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "!/^v?0/",
-      "matchJsonata": ["$exists(groupName) = false"],
+      "matchJsonata": ["$not($exists(groupName)) or groupName = null"],
       "groupName": "stable non-major npm dependencies",
       "groupSlug": "npm-stable-non-major"
     },
@@ -155,7 +155,7 @@
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "/^v?0/",
-      "matchJsonata": ["$exists(groupName) = false"],
+      "matchJsonata": ["$not($exists(groupName)) or groupName = null"],
       "groupName": "pre-1.0 npm dependencies",
       "groupSlug": "npm-pre-1-0"
     },
@@ -164,7 +164,7 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "!/^v?0/",
-      "matchJsonata": ["$exists(groupName) = false"],
+      "matchJsonata": ["$not($exists(groupName)) or groupName = null"],
       "groupName": "stable non-major cargo dependencies",
       "groupSlug": "cargo-stable-non-major"
     },
@@ -173,7 +173,7 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
       "matchCurrentVersion": "/^v?0/",
-      "matchJsonata": ["$exists(groupName) = false"],
+      "matchJsonata": ["$not($exists(groupName)) or groupName = null"],
       "groupName": "pre-1.0 cargo dependencies",
       "groupSlug": "cargo-pre-1-0"
     },
@@ -181,7 +181,7 @@
       "description": "Ungrouped stable dependency pin updates share a safe automerge branch without being blocked by a pre-1.0 pin. The JSONata guard preserves earlier narrower groups, and later package-specific grouping rules remain authoritative.",
       "matchUpdateTypes": ["pin"],
       "matchCurrentVersion": "!/^v?0/",
-      "matchJsonata": ["$exists(groupName) = false"],
+      "matchJsonata": ["$not($exists(groupName)) or groupName = null"],
       "groupName": "stable dependency pins",
       "groupSlug": "stable-dependency-pins"
     },
@@ -189,7 +189,7 @@
       "description": "Ungrouped pre-1.0 dependency pin updates remain human-reviewed in a branch distinct from stable pins. The JSONata guard preserves earlier narrower groups, and later package-specific grouping rules remain authoritative.",
       "matchUpdateTypes": ["pin"],
       "matchCurrentVersion": "/^v?0/",
-      "matchJsonata": ["$exists(groupName) = false"],
+      "matchJsonata": ["$not($exists(groupName)) or groupName = null"],
       "groupName": "pre-1.0 dependency pins",
       "groupSlug": "pre-1-0-dependency-pins",
       "automerge": false,
