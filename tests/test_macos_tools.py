@@ -197,7 +197,13 @@ def test_tool_homes_are_isolated_before_every_install_and_exported(provision):
     assert 'shared-user-home' not in env_text + paths
 
 
-@pytest.mark.parametrize(('tag', 'version'), [('main', 'latest'), ('v5.1.4', '5.1.4'), ('5.1.4', '5.1.4')])
+@pytest.mark.parametrize(('tag', 'version'), [
+    ('main', 'latest'),
+    ('v5.1.4', '5.1.4'),
+    ('5.1.4', '5.1.4'),
+    (f'main@sha256:{"c" * 64}', 'latest'),
+    (f'v5.1.4@sha256:{"c" * 64}', '5.1.4'),
+])
 def test_package_honors_base_release_and_uses_existing_npm_auth_form(provision, tag, version):
     run, repo, _, _ = provision
     (repo / 'Dockerfile').write_text(f'FROM ghcr.io/rubio-enterprises/base:{tag} AS dev\n')
