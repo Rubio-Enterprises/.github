@@ -225,7 +225,7 @@ class RenovateConfigContractTests(unittest.TestCase):
             if rule.get("automerge") is True
             and rule.get("platformAutomerge") is False
         ]
-        self.assertEqual(len(side_merge_rules), 6)
+        self.assertEqual(len(side_merge_rules), 7)
         for rule in CONFIG["packageRules"]:
             with self.subTest(rule=rule.get("description", rule.get("groupName"))):
                 self.assertIsNot(rule.get("platformAutomerge"), True)
@@ -1908,15 +1908,60 @@ class UndatedRegistryImageTests(unittest.TestCase):
                 self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-optional")
                 self.assertEqual({key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE)
 
-    def test_docker_hub_images_stay_dated_and_soaked(self) -> None:
-        for name in ("node", "library/node", "docker.io/library/node", "index.docker.io/grafana/grafana",
-                     "registry-1.docker.io/grafana/loki", "grafana/grafana", "python"):
-            for update in ("patch", "digest", "pinDigest"):
+    OFFICIAL = ("node", "library/node", "docker.io/library/node", "index.docker.io/library/postgres",
+                "registry-1.docker.io/library/redis", "python", "Postgres")
+    THIRD_PARTY_HUB = ("index.docker.io/grafana/grafana", "registry-1.docker.io/grafana/loki",
+                       "grafana/grafana", "dgtlmoon/sockpuppetbrowser", "docker.io/ollama/ollama",
+                       "library-fork/postgres")
+
+    def test_docker_hub_tag_updates_stay_dated_and_soaked(self) -> None:
+        for name in self.OFFICIAL + self.THIRD_PARTY_HUB:
+            for update in ("minor", "patch"):
+                if name == "python" and update == "minor":
+                    continue
                 with self.subTest(image=name, update=update):
                     resolved = self._image(name, update, "24.22.2")
                     self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-required")
                     self.assertEqual(resolved["minimumReleaseAge"], "7 days")
                     self.assertTrue(resolved["automerge"])
+
+    def test_official_image_digests_skip_the_missing_date_and_automerge(self) -> None:
+        for name in self.OFFICIAL:
+            for update in ("digest", "pinDigest"):
+                with self.subTest(image=name, update=update):
+                    resolved = self._image(name, update, "16.15-alpine")
+                    self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-optional")
+                    self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+                    self.assertTrue(resolved["automerge"])
+                    self.assertFalse(resolved["platformAutomerge"])
+                    self.assertFalse(resolved["draftPR"])
+
+    def test_third_party_hub_digests_skip_the_missing_date_and_need_a_person(self) -> None:
+        for name in self.THIRD_PARTY_HUB:
+            for update in ("digest", "pinDigest"):
+                with self.subTest(image=name, update=update):
+                    resolved = self._image(name, update, "latest")
+                    self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-optional")
+                    self.assertFalse(resolved["automerge"])
+                    self.assertFalse(resolved["platformAutomerge"])
+
+    def test_hub_digest_rules_leave_other_registries_and_first_party_alone(self) -> None:
+        for name in self.NON_HUB:
+            with self.subTest(image=name):
+                self.assertFalse(self._image(name, "digest", "2.7.5")["automerge"])
+        first_party = self._image("ghcr.io/rubio-enterprises/base", "digest", "3.0.0")
+        self.assertEqual(first_party["minimumReleaseAgeBehaviour"], "timestamp-required")
+        self.assertTrue(first_party["automerge"])
+
+    def test_docker_hub_majors_and_pre_one_digests_stay_held(self) -> None:
+        for name in ("postgres", "grafana/grafana"):
+            with self.subTest(image=name):
+                major = self._image(name, "major", "16.15.0")
+                self.assertEqual({key: major[key] for key in HELD_POSTURE}, HELD_POSTURE)
+                pre_one = self._image(name, "digest", "0.9.1")
+                self.assertEqual({key: pre_one[key] for key in HELD_POSTURE}, HELD_POSTURE)
+
+    def test_docker_hub_python_minor_keeps_its_hold(self) -> None:
         python_minor = self._image("python", "minor", "3.14.6")
         self.assertEqual(python_minor["minimumReleaseAgeBehaviour"], "timestamp-required")
         self.assertEqual(python_minor["groupSlug"], "python-runtime")
@@ -1946,7 +1991,13 @@ class UndatedRegistryImageTests(unittest.TestCase):
         ]
         self.assertEqual(len(automerge_rules), 2)
         self.assertGreater(index, max(automerge_rules))
-        self.assertEqual(index, len(rules) - 2)
+        # Other registries, then the Docker Hub digest pair, then the held rule.
+        self.assertEqual(index, len(rules) - 4)
+        hub, official = rules[index + 1], rules[index + 2]
+        self.assertFalse(hub["automerge"])
+        self.assertTrue(official["automerge"])
+        self.assertEqual(hub["matchUpdateTypes"], ["digest", "pinDigest"])
+        self.assertEqual(official["matchUpdateTypes"], ["digest", "pinDigest"])
         self.assertNotIn("groupName", rules[index])
         self.assertNotIn("minimumReleaseAge", rules[index])
 
