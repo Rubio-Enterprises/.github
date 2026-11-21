@@ -42,7 +42,8 @@ if [ -n "$RUNNERS" ]; then
   else
     image="$(awk '/^FROM ghcr.io\/rubio-enterprises\/base:/ { print $2; exit }' Dockerfile)"
     test -n "$image"
-    version="${image##*:}"
+    version="${image%@*}"
+    version="${version##*:}"
     case "$version" in main) version=latest ;; v*) version="${version#v}" ;; esac
     work=$(mktemp -d "$RUNNER_TEMP/macos-tools-package.XXXXXX")
     trap 'rm -rf "$work"' EXIT
