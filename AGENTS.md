@@ -209,7 +209,10 @@ release for this repository. Recover regressions through reviewed reverts.
   manager inputs. Their pins still update through `image/mise.toml`, and Renovate
   commits the regenerated sidecars with `image/mise.lock`. Keep mise lock maintenance
   on. `ignorePaths` replaces the inherited list, so preserve the module/test defaults
-  alongside the sidecar glob when editing it.
+  alongside the sidecar glob when editing it. The one deliberate omission is `**/test/**`:
+  dotfiles keeps a fixture under `scripts/test/` that its custom manager must update with
+  the pin it mirrors. On 2026-11-21 that was the only manager file under any `test/`
+  folder in the org.
 
   **Dockerfile `ARG`/`ENV` `…_VERSION` pins** ride the shipped `customManagers:dockerfileVersions`
   preset (in `extends`) rather than a hand-rolled regex, because the built-in `dockerfile` manager

@@ -427,7 +427,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         # ignorePaths replaces the inherited list from :ignoreModulesAndTests.
         self.assertEqual(CONFIG.get("ignorePaths"), [
             "**/node_modules/**", "**/bower_components/**", "**/vendor/**",
-            "**/examples/**", "**/__tests__/**", "**/test/**", "**/tests/**",
+            "**/examples/**", "**/__tests__/**", "**/tests/**",
             "**/__fixtures__/**", "**/.mise/locks/**",
         ])
         for path in (
@@ -440,8 +440,11 @@ class RenovateConfigContractTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(any(PurePosixPath(path).full_match(pattern)
                                     for pattern in CONFIG["ignorePaths"]))
+        # test/ is scanned: a repository's custom manager may keep a fixture there in
+        # step with the pin it mirrors (dotfiles scripts/test/fixtures/).
         for path in ("pyproject.toml", "uv.lock", "package.json", "image/mise.toml",
-                     "image/mise.lock", "src/package.json"):
+                     "image/mise.lock", "src/package.json",
+                     "scripts/test/fixtures/pi-kept-package-records.toml"):
             with self.subTest(path=path):
                 self.assertFalse(any(PurePosixPath(path).full_match(pattern)
                                      for pattern in CONFIG["ignorePaths"]))
