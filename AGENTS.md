@@ -163,8 +163,8 @@ release for this repository. Recover regressions through reviewed reverts.
   **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
   the global seven-day soak, and since 2026-11-19 for **pre-1.0 minor and patch** updates on the
   same soak; **held draft PRs** for majors and for pre-1.0 pin, digest, and `pinDigest`
-  updates, never auto-merged. Dependency Dashboards are disabled, with no dashboard
-  approval rules. The final package rule applies `draftPR: true`,
+  updates, never auto-merged. Each repository has a Dependency Dashboard as its backlog view,
+  with no dashboard approval rules. The final package rule applies `draftPR: true`,
   `automerge: false`, `prConcurrentLimit: 1`, and `branchConcurrentLimit: 1` after
   every automerge rule. These limits compare against the shared per-repository
   Renovate backlog, so a held draft opens only when no other Renovate PR is open;
@@ -235,6 +235,9 @@ release for this repository. Recover regressions through reviewed reverts.
     unarmed. The branches stay distinct so a pre-1.0 update that fails its checks cannot stall
     the stable branch. The broad grouping rules apply only when no earlier rule has
     already assigned `groupName`, preserving `config:best-practices`' narrower monorepo groups.
+    Their guard is `$not($exists(groupName)) or groupName = null`: every ungrouped update
+    carries `groupName: null`, and JSONata's `$exists` is true for a null value, so the earlier
+    `$exists(groupName) = false` never matched and each update opened its own PR.
     Later local groups (GitHub Actions, tool runtime dependencies and first-party tool pins)
     set both name and slug so their safer coupled-update boundaries remain authoritative.
 
