@@ -116,11 +116,11 @@ complete per-head runs, and ancestry comparison. Neither listing is paginated.
 A dispatch always executes the checks without an API lookup. A failed,
 incomplete or ambiguous lookup, including a 403, also falls back to execution
 unless the workflow was cancelled. If the evidence job itself fails, for example
-at checkout, the checks still run but do not erase that failure. On reuse, only
-`evidence` runs and links both passing PR runs in its job summary. Both execution
-paths and their aggregates are skipped. There are no
-artifacts, log scraping, caching or retries in this module. Same-workflow
-duplicate suppressors cannot prove tree and ancestry across workflows.
+at checkout, the checks still run but do not erase that failure. On reuse,
+`evidence` links both passing PR runs in its job summary. Both verification paths
+and their aggregates are skipped. The evidence module uses no artifacts, log
+scraping, caching or retries. Same-workflow duplicate suppressors cannot prove
+tree and ancestry across workflows.
 
 A failure is a failed run only: no retry, notification, issue, label or merge block. Publication failure leaves verification
 unrun, not passing. The publisher's existing concurrency group remains held until
@@ -141,8 +141,17 @@ on a non-default branch without changing production trigger policy in the caller
 Default-branch macOS Standards jobs restore and save the same mise download-store
 path and key as PR jobs. A default-branch save is visible to PRs, unlike PR-scoped
 saves. Repository setup must use the shared CI cache location described in
-[Test Gate's cache contract](test-gate.md); legacy checkout-local helpers cannot
-populate that store just because the workflow contains a save step.
+[Test Gate's cache contract](test-gate.md); legacy checkout-local helpers do not
+use the shared store.
+
+When an exact-files push would skip native verification, `evidence` also looks up
+this lock's default-ref cache for `ci-platform=macos`. On a miss, a separate
+macOS job checks the runner's exact cache version and provisions locked repository
+tools to populate the store without rerunning Checks or Lifecycle Scripts. Cache
+metadata distinguishes keys and refs, not archive format. The organization route
+and its hosted fallback use ARM64; an archive format change can still miss until
+the next full native verification or lock change. A failed property or lock lookup
+leaves reuse unchanged; a cache lookup error lets the native job check instead.
 
 ### Pre-merge canary evidence
 
@@ -168,8 +177,8 @@ published image freshness or default-branch cache visibility.
 
 SaneBar's native setup and Checks passed, but the cache save warned that the shared
 download path did not exist. Its legacy setup uses a checkout-local cache. The
-workflow's restore/save layout matches PRs; successful content population and
-cross-PR visibility remain unproven until the shared macOS environment is deployed.
+workflow's restore/save layout matches PRs. This earlier canary did not adopt the
+shared macOS environment, so it could not prove content population or cross-PR reuse.
 
 ## Caches and environment
 

@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       runs: ${{ steps.lookup.outputs.runs }}
+      warm-macos: ${{ steps.macos-cache.outputs.needed }}
     steps:
       - name: Check out the evidence module
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -40,6 +41,79 @@ jobs:
             jq -r 'to_entries[] | "Reused [\(.key)](\(.value)): these exact files passed."' <<< "$runs" >> "$GITHUB_STEP_SUMMARY"
           fi
           printf 'runs=%s\n' "$runs" >> "$GITHUB_OUTPUT"
+      - id: macos-cache
+        name: Check the default-ref macOS download cache when reusing PR verification
+        if: >-
+          github.event_name == 'push' &&
+          github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+          steps.lookup.outputs.runs != '{}' && steps.lookup.outputs.runs != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            let hash;
+            try {
+              let platform = context.runAttempt > 1 ? undefined
+                : context.payload.repository?.custom_properties?.['ci-platform'];
+              if (!platform) {
+                const {data} = await github.request('GET /repos/{owner}/{repo}/properties/values', context.repo);
+                platform = data.find(p => p.property_name === 'ci-platform')?.value;
+              }
+              if (platform !== 'macos') return;
+              const {data} = await github.request('GET /repos/{owner}/{repo}/contents/image/mise.lock', {
+                ...context.repo, ref: context.sha,
+              });
+              if (data.type !== 'file' || data.encoding !== 'base64' || !data.content) {
+                throw new Error('expected a base64-encoded image/mise.lock file');
+              }
+              // Runner hashFiles hashes the concatenated binary digests, even for one file.
+              const {createHash} = require('node:crypto');
+              const digest = createHash('sha256').update(data.content, 'base64').digest();
+              hash = createHash('sha256').update(digest).digest('hex');
+            } catch {
+              core.warning('Could not resolve a macOS lock for cache warming.');
+              return;
+            }
+            // Both the organization macOS route and its hosted fallback are ARM64.
+            const key = `macos-tools-downloads-macOS-ARM64-${hash}`;
+            try {
+              const ref = context.ref;
+              const {data} = await github.request('GET /repos/{owner}/{repo}/actions/caches', {
+                ...context.repo, key, ref,
+              });
+              core.setOutput('needed', !data.actions_caches.some(entry => entry.key === key && entry.ref === ref));
+            } catch {
+              core.warning('Could not look up the default-ref macOS cache; check on the macOS runner.');
+              core.setOutput('needed', true);
+            }
+  warm-macos-downloads:
+    needs: evidence
+    if: needs.evidence.outputs.warm-macos == 'true'
+    permissions:
+      contents: read
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').macos || fromJSON('["macos-26"]') }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check the runner's exact cache version before installing
+        id: macos-downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: macos-tools-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('image/mise.lock') }}
+          lookup-only: true
+      - name: Provision pinned repository tools without running Lifecycle Scripts
+        if: steps.macos-downloads.outputs.cache-hit != 'true'
+        uses: Rubio-Enterprises/.github/actions/macos-tools@main
+        with:
+          runners: ""
+      - name: Save macOS tool downloads on the default ref
+        if: steps.macos-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/macos-tools/cache/downloads-cas
+          key: ${{ steps.macos-downloads.outputs.cache-primary-key }}
   route:
     needs: evidence
     if: >-
@@ -240,7 +314,7 @@ jobs:
       - name: Install mise if missing on macOS
         uses: ./.cache/central-test-gate/actions/macos-tools # zizmor: ignore[untrusted-checkout,self-repository] central main or reviewed central candidate, not representative code
         with:
-          provision: 'false'
+          provision: "false"
       - name: Remove central macOS tools checkout
         run: |
           cp .cache/central-test-gate/actions/macos-tools/run-recipe.sh "$RUNNER_TEMP/macos-recipe.sh"
