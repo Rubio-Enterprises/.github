@@ -192,9 +192,8 @@ Use `Rubio-Enterprises/org-ops` (private, ID `1277378935`, small) with its ID in
 Record the run URLs, head SHAs, runner names and build/Check logs. The first pair
 proves routing and building, not that a new toolchain rejects code. Also use an
 image-only toolchain change known to fail a Check and observe that failure inside
-the newly built image. These are bounded canaries, not a fleet replay. A standards
-pull request changing only `release-check.yml` exercises qualification runners,
-not this router's consumer pull-request path.
+the newly built image. A standards pull request changing only `release-check.yml`
+exercises qualification runners, not this router's consumer pull-request path.
 
 The rejecting canary was
 [aw-server-rust#284 test(ci): exercise a rejecting rust image toolchain](https://github.com/Rubio-Enterprises/aw-server-rust/pull/284),

@@ -118,8 +118,9 @@ private repositories or for API/CLI-created issues.
 | [`release-please.yml`](./.github/workflows/release-please.yml) | release-please with the `rubio-release-please` App token, a root `uv.lock` refresh and auto-merge on the release PR; called by the starter `standards.yml` when `release-please-config.json` exists; see [its contract](./docs/reusable-workflows/release-please.md) |
 | [`codewiki-pages.yml`](./.github/workflows/codewiki-pages.yml) | Deploys a committed CodeWiki (`docs/codewiki/`, minus `temp/`) to GitHub Pages when the starter caller finds `docs/codewiki/metadata.json`; see [its contract](./docs/reusable-workflows/codewiki-pages.md) |
 
-Project workflows use the tools in `base:main`. Hosted jobs log into GHCR with
-`packages: read` and run the same `just` recipes as a laptop.
+Project workflows use the tools in the base image named by the repository's
+Dockerfile. Hosted jobs log into GHCR with `packages: read` and run the same
+`just` recipes as a laptop.
 
 Tests are not centrally executed: each onboarded repository gates landing
 through its own starter `.github/workflows/test-gate.yml` required status (the
@@ -162,10 +163,10 @@ a separate publication request. Recover a regression with a reviewed revert.
 
 ## Standards dependency
 
-Standards content is baked into `ghcr.io/rubio-enterprises/base:main`. A Release Pin
-is a different base tag in the repository's Dockerfile, with an issue link.
-A base publication triggers the [fleet CI-image rebuild](.github/workflows/fleet-ci-image-rebuild.yml),
-which reads the admitted inventory from mac-dev-playbook and paces dispatches.
+Standards content is baked into `ghcr.io/rubio-enterprises/base:main`. Each
+repository's Dockerfile pins the base and runner images by digest. A weekly
+Renovate pull request updates both pins. Publishing a new base does not start
+repository builds. A Release Pin still uses a different tag with an issue link.
 
 Internal `.github` workflow/action calls follow `@main`; the shared Renovate
 preset disables updates and digest pinning for that exact dependency, including
