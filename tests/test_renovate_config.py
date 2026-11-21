@@ -531,14 +531,18 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertFalse(resolved["draftPR"])
                 self.assertEqual(resolved["minimumReleaseAge"], "0 days")
 
-    def test_host_first_main_images_pin_and_automerge_only_in_pilot_dockerfiles(self) -> None:
-        pilots = ["Rubio-Enterprises/org-ops", "Rubio-Enterprises/daily-routine"]
+    def test_host_first_main_images_pin_and_automerge_in_any_dockerfile(self) -> None:
         group = "standards base and runner images"
         rule = _rule_with_group(group)
-        self.assertEqual(rule["matchRepositories"], pilots)
+        self.assertNotIn("schedule", rule)
         self.assertNotIn("automergeSchedule", rule)
 
-        for repository in pilots:
+        for repository in (
+            "Rubio-Enterprises/org-ops",
+            "Rubio-Enterprises/daily-routine",
+            "Rubio-Enterprises/opentabs",
+            "another-owner/consumer",
+        ):
             for name in ("base", "runner"):
                 package = f"ghcr.io/rubio-enterprises/{name}"
                 dependency = {
@@ -556,47 +560,33 @@ class RenovateConfigContractTests(unittest.TestCase):
                         self.assertTrue(resolved["pinDigests"])
                         self.assertEqual(resolved["groupName"], group)
                         self.assertEqual(resolved["groupSlug"], "standards-base-and-runner")
-                        self.assertEqual(resolved["schedule"], ["at any time"])
+                        self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
                         self.assertIsNone(resolved["minimumReleaseAge"])
                         self.assertTrue(resolved["automerge"])
                         self.assertFalse(resolved["platformAutomerge"])
                         self.assertFalse(resolved["draftPR"])
+        self.assertNotIn("matchRepositories", rule)
 
-            with self.subTest(repository=repository, name="other image"):
-                resolved = _resolve_dependency({
-                    "repository": repository,
-                    "manager": "dockerfile",
-                    "datasource": "docker",
-                    "depName": "ghcr.io/rubio-enterprises/base-extra",
-                    "packageName": "ghcr.io/rubio-enterprises/base-extra",
-                    "currentValue": "main",
-                    "updateType": "digest",
-                })
-                self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
-
-    def test_host_first_main_images_float_outside_pilot_dockerfiles(self) -> None:
-        for repository, manager in (
-            ("Rubio-Enterprises/opentabs", "dockerfile"),
-            ("Rubio-Enterprises/org-ops", "docker-compose"),
-            ("Rubio-Enterprises/org-ops", "devcontainer"),
-            ("Rubio-Enterprises/org-ops", "custom.regex"),
-        ):
+    def test_host_first_main_images_float_outside_dockerfiles(self) -> None:
+        for manager in ("docker-compose", "devcontainer", "custom.regex", "github-actions"):
             for name in ("base", "runner"):
-                for update in ("major", "minor", "patch", "digest", "pinDigest"):
-                    with self.subTest(repository=repository, manager=manager, name=name, update=update):
+                for update in (None, "major", "minor", "patch", "digest", "pinDigest"):
+                    with self.subTest(manager=manager, name=name, update=update):
                         package = f"ghcr.io/rubio-enterprises/{name}"
-                        resolved = _resolve_dependency({
-                            "repository": repository,
+                        dependency = {
+                            "repository": "Rubio-Enterprises/org-ops",
                             "manager": manager,
                             "datasource": "docker",
                             "depName": package,
                             "packageName": package,
                             "currentValue": "main",
-                            "updateType": update,
-                        }, {"pinDigests": True})
+                        }
+                        if update is not None:
+                            dependency["updateType"] = update
+                        resolved = _resolve_dependency(dependency, {"pinDigests": True})
                         self.assertFalse(resolved.get("enabled", True))
                         self.assertFalse(resolved["pinDigests"])
-                        self.assertNotIn("groupName", resolved)
+                        self.assertNotEqual(resolved.get("groupSlug"), "standards-base-and-runner")
                         self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
 
     def test_host_first_float_rule_preserves_release_pins_and_other_images(self) -> None:
@@ -629,6 +619,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertTrue(resolved.get("enabled", True))
                 self.assertTrue(resolved["pinDigests"])
                 self.assertNotIn("groupName", resolved)
+                self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
 
     def test_python_dev_tools_are_exact_pins_only_in_dev_groups(self) -> None:
         dependency = {
