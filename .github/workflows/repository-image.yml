@@ -17,18 +17,80 @@ name: repository image (reusable)
       image-name:
         description: Untagged GHCR image in the caller repository's namespace (scratch name off default branch)
         type: string
-        default: ''
+        default: ""
 permissions: {}
 concurrency:
   group: repository-image-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  # A push that touches no image input produces an image identical to the published one, so
+  # building it spends a runner and a full image's disk writes for no change: two consecutive
+  # rebuilds of one repository were measured sharing 28 of 30 layers and 912 of 945 MB. A
+  # schedule or dispatch always builds, which is what keeps an image fresh as its base moves.
+  inputs:
+    if: >-
+      github.event.repository.private == true && github.event_name == 'push' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.image-name != '')
+    permissions:
+      contents: read
+    runs-on: ${{ fromJSON(vars.RUNNERS || '{}').small || fromJSON('["ubuntu-slim"]') }}
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.compare.outputs.result }}
+    steps:
+      - id: compare
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          result-encoding: string
+          script: |
+            const before = context.payload.before;
+            const after = context.payload.after || context.sha;
+            const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/i.test(value);
+            // A new branch or a force push reports an all-zero or absent before. Anything that
+            // cannot be compared must build, or a stale image would go unnoticed.
+            if (!sha(before) || !sha(after) || /^0+$/.test(before)) {
+              core.info('Image inputs: no comparable range; building');
+              return 'true';
+            }
+            const imagePath = path => {
+              const name = path.split('/').at(-1);
+              return path.startsWith('image/')
+                || /^(Dockerfile(?:\.[^/]+)?|[^/]+\.Dockerfile)$/.test(name)
+                || name === '.dockerignore' || name.endsWith('.dockerignore')
+                || ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'].includes(name);
+            };
+            try {
+              // Compare files appear only on page 1 and are capped at 300, regardless of commit pagination
+              const { data } = await github.request('GET /repos/{owner}/{repo}/compare/{basehead}', {
+                ...context.repo, basehead: `${before}...${after}`,
+              });
+              const files = data?.files;
+              if (!['ahead', 'identical'].includes(data?.status) || !Array.isArray(files)
+                || files.length >= 300
+                || !files.every(file => typeof file?.filename === 'string' && file.filename.length > 0)) {
+                core.info('Image inputs: comparison unusable; building');
+                return 'true';
+              }
+              const changed = files.some(file => imagePath(file.filename)
+                || typeof file.previous_filename === 'string' && imagePath(file.previous_filename));
+              core.info(`Image inputs: ${changed ? 'changed' : 'unchanged'}`);
+              if (!changed) {
+                core.notice('No image input changed in this push; keeping the published CI image.');
+              }
+              return changed ? 'true' : 'false';
+            } catch {
+              core.info('Image input comparison unavailable; building');
+              return 'true';
+            }
   build:
+    needs: inputs
     # Public repositories run literal just recipes and do not publish runner images
     if: >-
+      !cancelled() &&
       github.event.repository.private == true &&
       contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) &&
-      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.image-name != '')
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || inputs.image-name != '') &&
+      (github.event_name != 'push' || needs.inputs.outputs.changed != 'false')
     permissions:
       contents: read
       packages: write
@@ -64,7 +126,7 @@ jobs:
       - name: Set up the central action's JavaScript engine
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24.22.3'
+          node-version: "24.22.3"
           package-manager-cache: false
       - name: Install the Build Service client tools
         uses: Rubio-Enterprises/.github/actions/build-service@main
@@ -110,7 +172,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           package-name: ${{ steps.resolve.outputs.package }}
           package-type: container
-          delete-only-untagged-versions: 'true'
+          delete-only-untagged-versions: "true"
           min-versions-to-keep: 5
   verify:
     needs: build
