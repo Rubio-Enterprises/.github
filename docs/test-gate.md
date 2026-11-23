@@ -23,12 +23,17 @@ capped changed-file lists take the same safe route. `test-gate-linux` builds the
 checked-out Dev Image and runs every existing concern inside it. It retains hosted
 disk preparation, setup and JUnit validation. Unrelated changes keep the CI Image;
 public repositories already use Compose. ARM and Docker test overrides already
-build the changed image and retain their runners; macOS shapes and declared macOS
-legs are unchanged. No file-detection logic is duplicated in this workflow.
+build the changed image and retain their runners. A macOS Shape whose `ci-test-route`
+runs its Test Gate on Linux takes the same route for that Linux leg; the macOS shape
+mode and declared macOS legs are unchanged. No file-detection logic is duplicated in
+this workflow.
 
 Checkout retains full history and does not persist credentials. A CI Image runs
 `bin/setup.sh` and the Lifecycle Scripts directly. Other Linux runners execute
 `just build`, `just setup` and each existing recipe among `test typecheck e2e package`.
+The Linux leg of a macOS Shape (router `shape=macos`) has no Linux `just setup`: outside
+a CI Image it runs `just build`, then `bin/setup.sh` and each Lifecycle Script through
+`just exec` in the built Dev Image. Release Check qualification never selects this mode.
 Both jobs use the [Lifecycle dispatcher](../actions/lifecycle/README.md) for setup
 and single-recipe execution. The workflow retains concern selection, script checks,
 report cleanup, outputs and log groups. The dispatcher is staged alongside the

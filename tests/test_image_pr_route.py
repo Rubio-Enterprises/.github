@@ -201,6 +201,41 @@ def test_declared_macos_shape_is_unchanged(route):
     assert data['calls'] == []
 
 
+@pytest.mark.parametrize('size', ['small', 'medium'])
+@pytest.mark.parametrize('override', ['small', 'medium'])
+@pytest.mark.parametrize('event_name', ['pull_request', 'merge_group'])
+def test_macos_shape_linux_test_leg_builds_its_changed_image(size, override, event_name):
+    properties = {'ci-platform': 'macos', 'ci-size': size, 'ci-test-route': override,
+                  'ci-test-macos': ['package', 'test']}
+    data = assert_selection(route_event(route='test', event_name=event_name, properties=properties),
+                            RUNNERS['docker'], inputs='changed')
+    assert len(data['calls']) == 1
+    assert data['output']['platform'] == 'linux'
+    assert data['output']['shape'] == 'macos'
+    assert data['output']['macos-concerns'] == 'test package'
+    assert json.loads(data['output']['macos-runner']) == RUNNERS['macos']
+    repo_id = SOURCE_PR['event']['repository']['id']
+    data = assert_selection(route_event(SOURCE_PR, route='test', event_name=event_name, properties=properties),
+                            [f'ci-{repo_id}-org-ops-{override}'], True, 'unchanged')
+    assert data['output']['shape'] == 'macos'
+
+
+def test_macos_shape_standards_linux_route_keeps_its_ci_image():
+    data = route_event(route='linux', properties={'ci-platform': 'macos', 'ci-test-route': 'medium'})
+    repo_id = IMAGE_PR['event']['repository']['id']
+    data = assert_selection(data, [f'ci-{repo_id}-aw-server-rust-small'], True, 'not-checked')
+    assert data['calls'] == []
+    assert data['output']['shape'] == 'macos'
+
+
+@pytest.mark.parametrize('route,shape', [('auto', 'linux'), ('linux', 'linux'), ('test', 'linux'),
+                                         ('small', ''), ('docker', ''), ('macos', '')])
+def test_shape_is_the_declared_platform_only_for_property_routes(route, shape):
+    code, data = route_event(route=route)
+    assert code == 0, data
+    assert data['output']['shape'] == shape
+
+
 @pytest.mark.parametrize('route,expected', [('auto', None), ('small', None), ('medium', None),
                                           ('docker', RUNNERS['docker']), ('kvm', RUNNERS['kvm']),
                                           ('arm', RUNNERS['arm']), ('macos', RUNNERS['macos'])])

@@ -60,6 +60,7 @@ def repository(tmp_path):
 @pytest.mark.parametrize('mode,recipe,expected', [
     ('image', 'setup', ['script setup']), ('image', 'site-build', ['script site-build']),
     ('compose', 'setup', ['just build', 'just setup']), ('compose', 'site-build', ['just site-build']),
+    ('exec', 'setup', ['just build', 'just exec bin/setup.sh']), ('exec', 'test', ['just exec bin/test.sh']),
     ('macos', 'setup', ['just setup-macos']),
     ('macos', 'check', ['just check-macos']),
     ('macos', 'test', ['just test']), ('macos', 'site-build', ['just site-build']),
@@ -79,27 +80,30 @@ def test_dispatch_commands_environment_outputs_and_no_report_side_effects(reposi
 
 
 @pytest.mark.parametrize('mode,recipe', [('image', 'setup'), ('compose', 'setup'), ('macos', 'setup'),
+                                         ('exec', 'setup'), ('exec', 'test'),
                                          ('image', 'site-build'), ('compose', 'site-build'), ('macos', 'test')])
 def test_failure_status_is_preserved_without_retry(repository, mode, recipe):
     root, run = repository
     result = run(mode, recipe, RECIPE_STATUS='23')
     assert result.returncode == 23
     calls = (root / 'calls').read_text().splitlines()
-    assert len(calls) == (2 if recipe == 'setup' and mode == 'compose' else 1)
+    assert len(calls) == (2 if recipe == 'setup' and mode in ('compose', 'exec') else 1)
 
 
-def test_build_failure_stops_before_setup(repository):
+@pytest.mark.parametrize('mode', ['compose', 'exec'])
+def test_build_failure_stops_before_setup(repository, mode):
     root, run = repository
-    assert run('compose', 'setup', BUILD_STATUS='31').returncode == 31
+    assert run(mode, 'setup', BUILD_STATUS='31').returncode == 31
     assert (root / 'calls').read_text().splitlines() == ['just build']
     assert not (root / 'environment').exists()
 
 
-def test_missing_or_nonexecutable_direct_script_fails(repository):
+@pytest.mark.parametrize('mode', ['image', 'exec'])
+def test_missing_or_nonexecutable_direct_script_fails(repository, mode):
     root, run = repository
-    assert run('image', 'absent').returncode != 0
+    assert run(mode, 'absent').returncode != 0
     (root / 'bin/setup.sh').chmod(0o644)
-    assert run('image', 'setup').returncode != 0
+    assert run(mode, 'setup').returncode != 0
     assert not (root / 'calls').exists()
 
 

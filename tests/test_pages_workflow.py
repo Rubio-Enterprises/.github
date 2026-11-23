@@ -61,7 +61,8 @@ def test_route_is_the_test_gate_route_with_shared_image_detection():
     assert BUILD['runs-on'] == '${{ fromJSON(needs.route.outputs.runner) }}'
     assert BUILD['env']['LIFECYCLE_MODE'] == (
         "${{ needs.route.outputs.ci-image == 'true' && 'image' || "
-        "needs.route.outputs.platform == 'macos' && 'macos' || 'compose' }}")
+        "needs.route.outputs.platform == 'macos' && 'macos' || "
+        "needs.route.outputs.shape == 'macos' && 'exec' || 'compose' }}")
 
 
 def test_dispatch_is_shared_and_receives_pages_url_and_job_token():
@@ -232,7 +233,7 @@ def test_symlinks_cannot_escape_the_declared_site(tmp_path, kind):
     assert output == ''
 
 
-@pytest.mark.parametrize('mode', ['image', 'compose', 'macos'])
+@pytest.mark.parametrize('mode', ['image', 'compose', 'exec', 'macos'])
 @pytest.mark.parametrize('status', [0, 23])
 def test_real_dispatcher_builds_custom_recipe_or_stops_before_artifact(tmp_path, mode, status):
     binary = tmp_path / 'bin'
@@ -249,6 +250,7 @@ def test_real_dispatcher_builds_custom_recipe_or_stops_before_artifact(tmp_path,
                     '  --summary) echo setup-macos ;;\n'
                     '  build) echo build >> calls ;;\n'
                     '  setup-macos) exec bin/setup.sh ;;\n'
+                    '  exec) shift; exec "$@" ;;\n'
                     '  *) exec "bin/$1.sh" ;;\n'
                     'esac\n')
     just.chmod(0o755)
@@ -264,5 +266,5 @@ def test_real_dispatcher_builds_custom_recipe_or_stops_before_artifact(tmp_path,
                                  'MODE': mode, 'RECIPE': 'site-build'}, capture_output=True, text=True)
     assert result.returncode == status, result.stderr
     assert (tmp_path / 'calls').read_text().splitlines() == (
-        ['build', 'setup', 'site-build'] if mode == 'compose' else ['setup', 'site-build'])
+        ['build', 'setup', 'site-build'] if mode in ('compose', 'exec') else ['setup', 'site-build'])
     assert (tmp_path / 'uploaded').exists() == (status == 0)
