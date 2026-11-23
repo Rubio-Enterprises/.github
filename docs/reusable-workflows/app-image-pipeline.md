@@ -96,7 +96,7 @@ Outputs: `image` (the published `image@digest` of a publishing run, otherwise th
 
 `IMAGE` is the candidate, `ghcr.io/<owner>/<package>@sha256:<digest>`, already pulled onto the runner by
 digest, and `IMAGE_NAME` is the same without the digest. The candidate pull uses a temporary credential; the dev-image build logs in for the internal base. A repository with several images calls the pipeline once per image; the one task receives each
-image in turn, so it tells them apart by `IMAGE_NAME`. The job runs `just build` and `just setup` first, as the Test
+image in turn, so it tells them apart by `IMAGE_NAME`. The job runs `just build-dev` and `just setup` first, as the Test
 Gate does.
 
 `bin/test-image.sh` runs the candidate against its fakes. Its recipe dispatches

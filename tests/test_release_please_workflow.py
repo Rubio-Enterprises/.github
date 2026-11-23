@@ -74,7 +74,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn("permission-pull-requests:", job("lock"))
         self.assertIn("permission-contents: write", job("arm"))
         self.assertIn("permission-pull-requests: write", job("arm"))
-        self.assertIn("just build\n          just exec uv lock", job("lock"))
+        self.assertIn("just build-dev\n          just exec uv lock", job("lock"))
         self.assertIn("persist-credentials: false", job("lock"))
         self.assertIn(
             'gh pr merge "$PR" -R "$GITHUB_REPOSITORY" "$method" --auto', job("arm")

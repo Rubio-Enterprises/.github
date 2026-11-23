@@ -31,7 +31,7 @@ def repository(tmp_path):
     just.write_text('#!/bin/sh\n'
                     'echo "just $*" >> calls\n'
                     'if [ "$1" = --summary ]; then echo "$RECIPES"; exit "$SUMMARY_STATUS"; fi\n'
-                    'if [ "$1" = build ]; then exit "$BUILD_STATUS"; fi\n'
+                    'if [ "$1" = build-dev ]; then exit "$BUILD_STATUS"; fi\n'
                     'printf "%s" "$GH_TOKEN|$NODE_AUTH_TOKEN|$SITE_URL|$BASE_PATH" > environment\n'
                     'echo recipe-output >> "$GITHUB_OUTPUT"\n'
                     'exit "$RECIPE_STATUS"\n')
@@ -59,8 +59,8 @@ def repository(tmp_path):
 
 @pytest.mark.parametrize('mode,recipe,expected', [
     ('image', 'setup', ['script setup']), ('image', 'site-build', ['script site-build']),
-    ('compose', 'setup', ['just build', 'just setup']), ('compose', 'site-build', ['just site-build']),
-    ('exec', 'setup', ['just build', 'just exec bin/setup.sh']), ('exec', 'test', ['just exec bin/test.sh']),
+    ('compose', 'setup', ['just build-dev', 'just setup']), ('compose', 'site-build', ['just site-build']),
+    ('exec', 'setup', ['just build-dev', 'just exec bin/setup.sh']), ('exec', 'test', ['just exec bin/test.sh']),
     ('macos', 'setup', ['just setup-macos']),
     ('macos', 'check', ['just check-macos']),
     ('macos', 'test', ['just test']), ('macos', 'site-build', ['just site-build']),
@@ -94,7 +94,7 @@ def test_failure_status_is_preserved_without_retry(repository, mode, recipe):
 def test_build_failure_stops_before_setup(repository, mode):
     root, run = repository
     assert run(mode, 'setup', BUILD_STATUS='31').returncode == 31
-    assert (root / 'calls').read_text().splitlines() == ['just build']
+    assert (root / 'calls').read_text().splitlines() == ['just build-dev']
     assert not (root / 'environment').exists()
 
 
@@ -152,7 +152,7 @@ def test_gate_retains_loop_policy_outputs_and_grouping(tmp_path, job):
     result, _ = run_shell('Run Lifecycle Scripts', tmp_path, job=job, CI_IMAGE='true',
                            MACOS_CONCERNS='test package' if job.endswith('macos') else '')
     assert result.returncode == 0, result.stderr
-    expected = ['test', 'package'] if job.endswith('macos') else ['test', 'typecheck', 'e2e', 'package']
+    expected = ['test', 'package'] if job.endswith('macos') else ['test', 'typecheck', 'test-e2e', 'package']
     assert result.stdout.splitlines() == [line for name in expected
                                          for line in (f'::group::bin/{name}.sh', '::endgroup::')]
     body = step('Run Lifecycle Scripts', job)['run']

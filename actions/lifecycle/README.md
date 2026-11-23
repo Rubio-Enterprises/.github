@@ -16,9 +16,9 @@ Modes:
 
 - `image`: run `bin/<recipe>.sh` directly. This also serves declared macOS legs
   whose setup and concerns execute directly, without Docker.
-- `compose`: run literal `just <recipe>`. For `setup`, first run `just build`.
+- `compose`: run literal `just <recipe>`. For `setup`, first run `just build-dev`.
 - `exec`: require an executable `bin/<recipe>.sh` and run it in the Dev Image through
-  `just exec bin/<recipe>.sh`. For `setup`, first run `just build`. This serves the
+  `just exec bin/<recipe>.sh`. For `setup`, first run `just build-dev`. This serves the
   Linux leg of a macOS Shape, whose justfile defines `setup` only for macOS.
 - `macos`: run `setup` and `check` through the existing macOS recipe-spelling
   selector; other names run literal `just <recipe>`. There is no Docker build.

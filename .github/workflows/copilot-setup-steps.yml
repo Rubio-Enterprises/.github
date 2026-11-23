@@ -53,4 +53,4 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build dev image
-        run: just build
+        run: just build-dev

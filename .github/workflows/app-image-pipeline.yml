@@ -416,7 +416,7 @@ jobs:
         with:
           operation: pull
       - name: Install repository dependencies
-        run: just build && just setup
+        run: just build-dev && just setup
       - name: Run the repository's image test
         shell: bash
         env:

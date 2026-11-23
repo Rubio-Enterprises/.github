@@ -354,7 +354,7 @@ class WarmerExecutionTests(unittest.TestCase):
         self.assertEqual(output, 'ready=true\n')
         self.assertNotIn('::notice::', result.stdout)
         self.assertIn('--cache-dir', calls)
-        self.assertNotIn('build', calls)
+        self.assertNotIn('build-dev', calls)
 
     def test_real_download_failures_are_not_hidden(self):
         result, output, calls = self.run_warmer(failure=True)
@@ -366,7 +366,7 @@ class WarmerExecutionTests(unittest.TestCase):
         result, output, calls = self.run_warmer(ci_image=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output, 'ready=true\n')
-        self.assertEqual(calls.splitlines()[0], 'build')
+        self.assertEqual(calls.splitlines()[0], 'build-dev')
         self.assertTrue(calls.splitlines()[1].startswith('exec trivy '))
 
 

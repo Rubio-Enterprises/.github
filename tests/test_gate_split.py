@@ -16,11 +16,11 @@ MACOS = 'test-gate-macos'
     (True, 'linux', None, ['test'], 'test'),
     (False, 'linux', None, ['package', 'test', 'test'], 'test package'),
     (True, 'macos', 'medium', ['package', 'test'], 'test package'),
-    (True, 'linux', None, ['e2e', 'typecheck'], 'typecheck e2e'),
+    (True, 'linux', None, ['test-e2e', 'typecheck'], 'typecheck test-e2e'),
     (True, 'linux', None, None, ''),
     (True, 'linux', None, '', ''),
     (True, 'linux', None, [], ''),
-    (True, 'linux', None, ['test', 'typecheck', 'e2e', 'package'], 'test typecheck e2e package'),
+    (True, 'linux', None, ['test', 'typecheck', 'test-e2e', 'package'], 'test typecheck test-e2e package'),
 ])
 def test_test_route_declared_leg(private, platform, override, declared, expected):
     code, result = run_route(route='test', repository={'private': private, 'custom_properties': {
@@ -66,20 +66,20 @@ def test_other_routes_ignore_macos_declaration(route):
 
 @pytest.mark.parametrize('missing', ['ci-platform', 'ci-size', 'ci-test-route', 'ci-test-macos'])
 def test_partial_test_metadata_reads_all_properties(missing):
-    properties = {'ci-platform': 'linux', 'ci-size': 'small', 'ci-test-route': None, 'ci-test-macos': ['test', 'e2e']}
+    properties = {'ci-platform': 'linux', 'ci-size': 'small', 'ci-test-route': None, 'ci-test-macos': ['test', 'test-e2e']}
     code, result = run_route(route='test',
                             repository={'custom_properties': {k: v for k, v in properties.items() if k != missing}},
                             properties=[{'property_name': k, 'value': v} for k, v in properties.items()])
     assert code == 0, result
     assert len(result['calls']) == 1
-    assert result['output']['macos-concerns'] == 'test e2e'
+    assert result['output']['macos-concerns'] == 'test test-e2e'
 
 
 @pytest.mark.parametrize(('selected', 'expected'), [
-    ('', ['test', 'typecheck', 'e2e', 'package']),
+    ('', ['test', 'typecheck', 'test-e2e', 'package']),
     ('test', ['test']), ('package test', ['test', 'package']),
-    ('e2e typecheck', ['typecheck', 'e2e']),
-    ('package e2e typecheck test', ['test', 'typecheck', 'e2e', 'package']),
+    ('test-e2e typecheck', ['typecheck', 'test-e2e']),
+    ('package test-e2e typecheck test', ['test', 'typecheck', 'test-e2e', 'package']),
 ])
 def test_macos_lifecycle_modes(tmp_path, selected, expected):
     scripts(tmp_path)
@@ -88,7 +88,7 @@ def test_macos_lifecycle_modes(tmp_path, selected, expected):
     assert result.returncode == 0, result.stderr
     assert (tmp_path / 'ran').read_text().splitlines() == expected
     concerns = dict(line.split('=', 1) for line in output.splitlines())['concerns'].strip()
-    assert concerns.split() == [name for name in ('test', 'e2e') if name in expected]
+    assert concerns.split() == [name for name in ('test', 'test-e2e') if name in expected]
     assert junit(tmp_path, concerns=concerns).returncode == 0
 
 
@@ -131,14 +131,14 @@ def test_macos_script_failure_and_shape_absence(tmp_path, selected):
     assert result.returncode == 7
     assert junit(tmp_path, outcome='failure').returncode != 0
     if not selected:
-        for name in ('test', 'typecheck', 'e2e', 'package'):
+        for name in ('test', 'typecheck', 'test-e2e', 'package'):
             (tmp_path / f'bin/{name}.sh').unlink()
         result, output = run_shell('Run Lifecycle Scripts', tmp_path, job=MACOS, MACOS_CONCERNS='')
         assert result.returncode == 0
         assert dict(line.split('=', 1) for line in output.splitlines()) == {'concerns': '', 'artifact-concerns': 'none'}
 
 
-@pytest.mark.parametrize('selected', ['', 'test e2e'])
+@pytest.mark.parametrize('selected', ['', 'test test-e2e'])
 @pytest.mark.parametrize('lingering', [None, 'directory', 'symlink'])
 def test_macos_setup_modes_and_checkout_lifetime(tmp_path, selected, lingering):
     scripts(tmp_path)

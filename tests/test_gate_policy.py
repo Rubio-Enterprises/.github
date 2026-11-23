@@ -30,12 +30,12 @@ def read(root, mode=None, declared=''):
 @pytest.mark.parametrize('text', [
     '[test-gate.unknown]\noff = "tracked"',
     '[test-gate]\ne2e = false',
-    '[test-gate.e2e]',
-    '[test-gate.e2e]\noff = ""',
-    '[test-gate.e2e]\noff = "   "',
-    '[test-gate.e2e]\noff = true',
-    '[test-gate.e2e]\noff = 3',
-    '[test-gate]\noff = "whole gate"\n[test-gate.e2e]\noff = "tracked"',
+    '[test-gate.test-e2e]',
+    '[test-gate.test-e2e]\noff = ""',
+    '[test-gate.test-e2e]\noff = "   "',
+    '[test-gate.test-e2e]\noff = true',
+    '[test-gate.test-e2e]\noff = 3',
+    '[test-gate]\noff = "whole gate"\n[test-gate.test-e2e]\noff = "tracked"',
 ])
 @pytest.mark.parametrize('mode', [None, 'linux', 'macos'])
 def test_invalid_concern_policy_fails_closed(tmp_path, text, mode):
@@ -47,7 +47,7 @@ def test_invalid_concern_policy_fails_closed(tmp_path, text, mode):
     assert output == {}
 
 
-@pytest.mark.parametrize('concern', ['test', 'typecheck', 'e2e', 'package'])
+@pytest.mark.parametrize('concern', ['test', 'typecheck', 'test-e2e', 'package'])
 @pytest.mark.parametrize('mode', [None, 'linux', 'macos'])
 def test_stale_declaration_fails_on_every_leg(tmp_path, concern, mode):
     policy(tmp_path, f'[test-gate.{concern}]\noff = "tracked"')
@@ -58,9 +58,9 @@ def test_stale_declaration_fails_on_every_leg(tmp_path, concern, mode):
 
 
 @pytest.mark.parametrize(('mode', 'declared', 'expected'), [
-    ('linux', '', ['test', 'typecheck', 'e2e', 'package']),
-    ('macos', '', ['test', 'typecheck', 'e2e', 'package']),
-    ('macos', 'package e2e test', ['test', 'e2e', 'package']),
+    ('linux', '', ['test', 'typecheck', 'test-e2e', 'package']),
+    ('macos', '', ['test', 'typecheck', 'test-e2e', 'package']),
+    ('macos', 'package test-e2e test', ['test', 'test-e2e', 'package']),
 ])
 def test_no_declaration_preserves_selection(tmp_path, mode, declared, expected):
     scripts(tmp_path)
@@ -68,13 +68,13 @@ def test_no_declaration_preserves_selection(tmp_path, mode, declared, expected):
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == expected
     assert output['artifact-concerns'] == '-'.join(expected)
-    assert output['concerns'].split() == [c for c in expected if c in ('test', 'e2e')]
+    assert output['concerns'].split() == [c for c in expected if c in ('test', 'test-e2e')]
 
 
-@pytest.mark.parametrize('concern', ['test', 'typecheck', 'e2e', 'package'])
+@pytest.mark.parametrize('concern', ['test', 'typecheck', 'test-e2e', 'package'])
 @pytest.mark.parametrize(('job', 'declared'), [
     ('test-gate-linux', ''), ('test-gate-macos', ''),
-    ('test-gate-macos', 'test typecheck e2e package'),
+    ('test-gate-macos', 'test typecheck test-e2e package'),
 ])
 def test_concern_optout_keeps_script_but_removes_execution_evidence_and_artifact_name(tmp_path, concern, job, declared):
     scripts(tmp_path)
@@ -83,13 +83,13 @@ def test_concern_optout_keeps_script_but_removes_execution_evidence_and_artifact
                                CI_IMAGE='true', MACOS_CONCERNS=declared,
                                PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
     assert result.returncode == 0, result.stderr
-    expected = ['test', 'typecheck', 'e2e', 'package']
+    expected = ['test', 'typecheck', 'test-e2e', 'package']
     expected = [c for c in expected if c != concern]
     assert (tmp_path / 'ran').read_text().splitlines() == expected if expected else not (tmp_path / 'ran').exists()
     assert (tmp_path / f'bin/{concern}.sh').exists()
     values = dict(line.split('=', 1) for line in output.splitlines())
     assert values['artifact-concerns'] == ('-'.join(expected) or 'none')
-    assert values['concerns'].split() == [c for c in expected if c in ('test', 'e2e')]
+    assert values['concerns'].split() == [c for c in expected if c in ('test', 'test-e2e')]
     assert junit(tmp_path, concerns=values['concerns']).returncode == 0
     assert f'::notice::Test Gate concern {concern} opted out' in result.stderr
     assert 'reason recorded in .github/standards.toml' in result.stderr
@@ -122,7 +122,7 @@ def test_every_concern_computing_job_uses_one_reader_and_default_branch_delegate
         assert f'test-gate-policy.py" --select {job.removeprefix("test-gate-")}' in lifecycle
         assert 'artifact_concerns=' not in lifecycle
         assert 'tomllib' not in str(WORKFLOW['jobs'][job])
-        assert 'for step in test typecheck e2e package' not in lifecycle
+        assert 'for step in test typecheck test-e2e package' not in lifecycle
         steps = WORKFLOW['jobs'][job]['steps']
         stage = step('Stage Test Gate policy reader', job)
         assert steps.index(stage) < steps.index(step('Check Test Gate policy', job))

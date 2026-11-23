@@ -260,9 +260,9 @@ def test_public_unadmitted_hosted_and_custom_routes_are_unchanged(kwargs, expect
 
 
 def test_mac_concerns_survive_the_linux_image_change():
-    data = assert_selection(route_event(route='test', properties={'ci-test-macos': ['e2e', 'test']}),
+    data = assert_selection(route_event(route='test', properties={'ci-test-macos': ['test-e2e', 'test']}),
                             RUNNERS['docker'])
-    assert data['output']['macos-concerns'] == 'test e2e'
+    assert data['output']['macos-concerns'] == 'test test-e2e'
     assert json.loads(data['output']['macos-runner']) == RUNNERS['macos']
 
 
@@ -276,7 +276,7 @@ def test_both_injected_workflows_use_the_router_result_for_all_image_branches():
         assert 'fromJSON(needs.route.outputs.runner)' in jobs[job]['runs-on']
         execution = json.dumps(jobs[job])
         assert 'needs.route.outputs.ci-image' in execution
-        assert 'just build' in execution
+        assert 'just build-dev' in execution
         assert '/compare/' not in json.dumps(workflow)
         assert jobs['route']['with']['inspect-image-inputs'] is True
         assert 'image-inputs' not in execution

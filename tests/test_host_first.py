@@ -316,7 +316,7 @@ class Contracts(unittest.TestCase):
                 self.assertIn("runner.environment == 'github-hosted'", steps[prepared]["if"])
                 self.assertIn("runner.os == 'Linux'", steps[prepared]["if"])
                 self.assertEqual(steps[prepared]["run"], 'chmod -R a+rwX "$GITHUB_WORKSPACE"')
-                built = next(i for i, step in enumerate(steps) if "just build" in step.get("run", ""))
+                built = next(i for i, step in enumerate(steps) if "just build-dev" in step.get("run", ""))
                 self.assertLess(prepared, built)
 
     def test_credentialed_ci_builder_runs_only_central_actions(self):

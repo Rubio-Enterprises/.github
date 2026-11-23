@@ -27,10 +27,20 @@
   "minimumReleaseAge": "7 days",
   "rebaseWhen": "conflicted",
   "labels": ["dependencies"],
+  "postUpgradeTasks": {
+    "commands": ["just generate"],
+    "fileFilters": ["**/*"],
+    "executionMode": "branch"
+  },
   "copier": {
     "enabled": false
   },
   "packageRules": [
+    {
+      "description": "Renovate does not write mise locks. Its lock update ran the runner's own mise, which disagreed with the repository's base on platforms and graphs, and moving a pin without its lock left the dev image unbuildable (standards#1084). The post-upgrade `just generate` relocks `image/mise.lock` for the fleet's three platforms in the base the repository's Dockerfile names, then runs the repository's other generation (standards#1086, Decisions 5 and 6).",
+      "matchManagers": ["mise"],
+      "skipArtifactsUpdate": true
+    },
     {
       "description": "Biome is owned only by the standards mise floor. Freeze npm manifest copies (including upstream fork pins) without disabling custom.regex floor/schema bumps in standards.",
       "matchManagers": ["npm"],

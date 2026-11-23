@@ -5,12 +5,12 @@ export GIT_COMMON_DIR := `git rev-parse --path-format=absolute --git-common-dir`
 _default:
     @just --list
 
-build:
+build-dev:
     @docker volume create rubio-uv-cache >/dev/null
     @docker volume create rubio-npm-cache >/dev/null
     docker compose build --pull dev
 
-setup: build
+setup: build-dev
     docker compose run --rm -T dev bin/setup.sh "$@" </dev/null
 
 check:

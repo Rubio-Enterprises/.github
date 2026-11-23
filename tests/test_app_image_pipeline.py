@@ -45,7 +45,7 @@ class Shape(unittest.TestCase):
                 self.assertNotIn("mise-action", job(name), name)
         test = job("test")
         self.assertNotIn("mise-action", test)
-        self.assertIn("run: just build && just setup", test)
+        self.assertIn("run: just build-dev && just setup", test)
         self.assertIn('IMAGE_NAME="${IMAGE%@*}" just test-image', test)
         self.assertLess(test.index("operation: pull"), test.index("just setup"))
 

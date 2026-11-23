@@ -175,7 +175,7 @@ class StandardsRouteTests(unittest.TestCase):
 
     def test_ci_image_and_hosted_legs_run_standards_checks(self):
         linux = json.dumps(self.jobs['standards-linux'])
-        for command in ('standards check', 'standards check-pr', 'just build',
+        for command in ('standards check', 'standards check-pr', 'just build-dev',
                         'just check', 'just check-pr || status=$?'):
             self.assertIn(command, linux)
         self.assertIn("steps['check-ci'].outcome != 'skipped'", linux)

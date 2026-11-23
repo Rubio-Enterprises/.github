@@ -39,14 +39,14 @@ def validate(directory):
 
 def main():
     concerns = os.environ["JUNIT_CONCERNS"].split()
-    if any(concern not in ("test", "e2e") for concern in concerns):
-        raise ValueError("JUnit concerns must be test and/or e2e")
+    if any(concern not in ("test", "test-e2e") for concern in concerns):
+        raise ValueError("JUnit concerns must be test and/or test-e2e")
     if os.environ["SUITE_OUTCOME"] != "success":
         raise ValueError(f"Lifecycle step did not succeed: {os.environ['SUITE_OUTCOME']}")
     for concern in dict.fromkeys(concerns):
         validate(Path("reports") / concern)
     if not concerns:
-        print("No test/e2e Lifecycle Scripts apply")
+        print("No test/test-e2e Lifecycle Scripts apply")
 
 
 if __name__ == "__main__":
