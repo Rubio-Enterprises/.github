@@ -370,5 +370,115 @@ class WarmerExecutionTests(unittest.TestCase):
         self.assertTrue(calls.splitlines()[1].startswith('exec trivy '))
 
 
+LOCKFILE_GLOBS = (
+    'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock',
+    'uv.lock', 'poetry.lock', 'Pipfile.lock', 'go.sum', 'Cargo.lock', 'Gemfile.lock',
+    'composer.lock',
+)
+
+
+class LockfileGateTests(unittest.TestCase):
+    """The 1.81 GB database is only worth restoring where the trivy Check can actually fire.
+
+    The Check globs lockfiles, so a repository without one scans nothing and the restore is
+    pure write amplification on the CI drive.
+    """
+
+    def gate_step(self, job):
+        found = [s for s in job['steps'] if s.get('id') == 'lockfiles']
+        self.assertEqual(len(found), 1, 'exactly one lockfile probe')
+        return found[0]
+
+    def restore_step(self, job):
+        found, = [s for s in job['steps'] if s.get('id') == 'trivy-db']
+        return found
+
+    def jobs(self):
+        return (
+            ('standards', workflow_jobs()['standards-linux']),
+            ('default-branch-check', workflow('default-branch-check')['jobs']['standards-linux']),
+        )
+
+    def test_every_restore_is_gated_on_a_lockfile_being_present(self):
+        for name, job in self.jobs():
+            with self.subTest(workflow=name):
+                gate = self.gate_step(job)
+                restore = self.restore_step(job)
+                self.assertIn("steps.lockfiles.outputs.found == 'true'", restore['if'])
+
+    def test_the_probe_runs_after_checkout_and_before_the_restore(self):
+        for name, job in self.jobs():
+            with self.subTest(workflow=name):
+                ids = [s.get('id') for s in job['steps']]
+                uses = [s.get('uses', '') for s in job['steps']]
+                checkout = next(i for i, u in enumerate(uses) if u.startswith('actions/checkout@'))
+                self.assertLess(checkout, ids.index('lockfiles'), 'probe needs the tree')
+                self.assertLess(ids.index('lockfiles'), ids.index('trivy-db'))
+
+    def test_the_probe_looks_for_every_lockfile_the_check_globs(self):
+        """Missing one would silently skip a scan that should have run."""
+        for name, job in self.jobs():
+            with self.subTest(workflow=name):
+                run = self.gate_step(job)['run']
+                for lockfile in LOCKFILE_GLOBS:
+                    self.assertIn(lockfile, run, f'{lockfile} must keep its scan')
+
+    def test_the_probe_searches_nested_directories(self):
+        """The Check globs **/, so a monorepo's lockfiles are not at the root."""
+        for name, job in self.jobs():
+            with self.subTest(workflow=name):
+                self.assertIn('-name', self.gate_step(job)['run'])
+
+    def test_the_skip_update_guard_still_requires_a_restored_database(self):
+        """Gating must not let a job set TRIVY_SKIP_DB_UPDATE with no database present."""
+        for name, job in self.jobs():
+            with self.subTest(workflow=name):
+                guard, = [s for s in job['steps']
+                          if s.get('name') == 'Use the restored trivy database without updating it']
+                self.assertIn("steps.trivy-db.outputs.cache-matched-key != ''", guard['if'])
+
+
+class LockfileProbeBehaviourTests(unittest.TestCase):
+    """Run the probe's real shell against real trees, so the glob list is not merely spelled right."""
+
+    def probe(self):
+        job = workflow_jobs()['standards-linux']
+        step, = [s for s in job['steps'] if s.get('id') == 'lockfiles']
+        return step['run']
+
+    def found_in(self, tree):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for relative in tree:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('x')
+            output = root / 'github_output'
+            output.write_text('')
+            result = subprocess.run(
+                ['bash', '-euo', 'pipefail', '-c', self.probe()],
+                cwd=root, capture_output=True, text=True,
+                env={**os.environ, 'GITHUB_OUTPUT': str(output)},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return output.read_text().strip()
+
+    def test_a_repository_without_any_lockfile_skips_the_restore(self):
+        self.assertEqual(self.found_in(['README.md', 'lefthook.yml']), 'found=false')
+
+    def test_each_lockfile_on_its_own_keeps_the_restore(self):
+        for lockfile in LOCKFILE_GLOBS:
+            with self.subTest(lockfile=lockfile):
+                self.assertEqual(self.found_in([lockfile]), 'found=true')
+
+    def test_a_nested_lockfile_keeps_the_restore(self):
+        self.assertEqual(self.found_in(['services/api/go.sum']), 'found=true')
+
+    def test_a_lockfile_inside_node_modules_does_not_count(self):
+        """The Check skips those directories, so they must not resurrect the download."""
+        self.assertEqual(self.found_in(['node_modules/left-pad/package-lock.json']), 'found=false')
+        self.assertEqual(self.found_in(['.venv/lib/poetry.lock']), 'found=false')
+
+
 if __name__ == '__main__':
     unittest.main()

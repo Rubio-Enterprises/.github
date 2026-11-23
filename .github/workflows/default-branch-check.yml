@@ -164,9 +164,30 @@ jobs:
         run: echo "week=$(date -u +%G-W%V)" >>"$GITHUB_OUTPUT"
       # Restore only. A pull request's own save is scoped to its merge ref, so no other pull request
       # could restore it. The caller standards-cache.yml writes this key on the default branch.
+      # The trivy Check globs lockfiles, so a repository without one scans nothing. Restoring the
+      # database anyway unpacks 1.81 GB onto the runner's disk for a scan that never runs, which is
+      # write wear we pay for on the self-hosted pool. node_modules and .venv are excluded because
+      # the Check skips those directories too.
+      - id: lockfiles
+        name: Look for a lockfile the trivy Check would scan
+        run: |
+          found=false
+          if find . \
+            \( -name node_modules -o -name .venv -o -name .git \) -prune -o \
+            -type f \( \
+              -name package-lock.json -o -name npm-shrinkwrap.json -o -name yarn.lock -o \
+              -name pnpm-lock.yaml -o -name bun.lock -o -name uv.lock -o -name poetry.lock -o \
+              -name Pipfile.lock -o -name go.sum -o -name Cargo.lock -o -name Gemfile.lock -o \
+              -name composer.lock \
+            \) -print -quit | grep -q .; then
+            found=true
+          fi
+          echo "trivy vulnerability database: lockfile present: $found"
+          echo "found=$found" >>"$GITHUB_OUTPUT"
       - id: trivy-db
         name: Restore the trivy vulnerability database
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: steps.lockfiles.outputs.found == 'true'
         with:
           path: .cache/trivy/db
           key: standards-trivy-db-${{ runner.os }}-${{ steps.week.outputs.week }}
