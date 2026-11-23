@@ -135,8 +135,10 @@ release for this repository. Recover regressions through reviewed reverts.
   pull-request and merge-group calls, image-input changes or an uncertain comparison
   select Docker and build the checkout's Dev Image instead. Before changing detection
   or adding an image-input path, read `docs/reusable-workflows/project-route.md` for
-  compare-API limits, rename/deletion handling and the canary. ARM test overrides,
-  macOS shapes, public repositories and other callers keep their existing routes.
+  compare-API limits, rename/deletion handling and the canary. A macOS shape's Linux
+  `test` leg (`ci-test-route`) gets the same detection and runs its scripts through
+  `just exec` in the built Dev Image. ARM test overrides, macOS-shape native and
+  Standards jobs, public repositories and other callers keep their existing routes.
   The medium route falls back to hosted `ubuntu-latest` (8 GB), never the small fallback.
 
 ## Renovate config — two files, two roles

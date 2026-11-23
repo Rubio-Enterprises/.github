@@ -67,11 +67,15 @@ Outputs:
 
 - `platform`: declared `linux` or `macos` for `auto`/`linux`, effective platform for `test`; for explicit capability
   routes, `macos` for the macOS capability and `linux` otherwise.
+- `shape`: the declared `ci-platform` (`linux` or `macos`) for `auto`, `linux` and `test`;
+  empty for explicit capability routes, which read no properties. A `test` call can return
+  `platform=linux` with `shape=macos`: the Linux leg of a macOS Shape.
 - `runner`: JSON label array for `runs-on: fromJSON(...)`.
 - `ci-image`: the string `true` only for a repository-specific CI Image runner; otherwise `false`.
 - `image-inputs`: `changed`, `unchanged`, `unknown` or `not-checked`. Only eligible Linux
   `linux`/`test` pull-request and merge-group calls with `inspect-image-inputs: true`
-  inspect image inputs. Calls without the input return `not-checked`.
+  inspect image inputs; a `linux` call from a macOS Shape does not. Calls without the
+  input return `not-checked`.
 - `macos-concerns`: space-separated declared concerns in canonical order; empty on non-test routes or without a declaration.
 - `macos-runner`: JSON label array for the Test Gate's macOS job, independent of the Linux runner.
 
@@ -113,11 +117,19 @@ multi-label constraints are preserved. An owner-selected hosted route stays host
 ## Pull-request image inputs
 
 For `linux` and `test` calls with `inspect-image-inputs: true` that would otherwise
-select a CI Image, a Linux-shape pull request that changes image inputs selects
+select a CI Image, a pull request that changes image inputs selects
 `RUNNERS.docker` (fallback `["ubuntu-latest"]`) and `ci-image=false`. Both injected workflows consume this one
 decision. Their existing Compose branches build the checked-out pull request's Dev
 Image with `just build`, then run their normal Checks and Lifecycle Tasks in it.
 No image is published and no tools are overlaid onto the default-branch CI Image.
+
+The decision applies to the job's effective Linux platform. A macOS Shape whose
+`ci-test-route` sends its Test Gate (or built-site Pages job) to `small` or `medium`
+therefore gets the same detection on that `test` call. Its justfile defines `setup`
+only for macOS, so the caller sees `shape=macos` and runs the Lifecycle dispatcher's
+`exec` mode: `just build`, then each `bin/<name>.sh` through `just exec` in the built
+Dev Image, the same scripts a CI Image runs directly
+([ADR-0049](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0049-check-a-macos-shapes-linux-test-leg-in-its-changed-dev-image.md)).
 
 The router uses `actions/github-script`'s automatic job token with only `contents: read`
 for `GET /repos/{owner}/{repo}/compare/{base}...{head}`. The base repository is always
@@ -162,9 +174,9 @@ all callers without `inspect-image-inputs: true`, are unchanged. A job with
 `ci-test-route=arm` already builds the pull request's Dev Image on ARM and stays
 there; its separate Standards `linux` call uses Docker on an image-input change
 instead of the CI Image it would otherwise select. Existing Docker
-Test Gates stay Docker. `ci-platform=macos` is exempt from this new detection: its
-native checks have no Dev Image, and its existing Linux Standards leg, macOS shape
-Test Gate and declared macOS concerns retain their routing.
+Test Gates stay Docker. A macOS Shape's own macOS jobs are exempt: its native checks
+have no Dev Image, so its `linux` Standards call, macOS-shape Test Gate and declared
+macOS concerns retain their routing. Only its Linux `test` leg inspects image inputs.
 
 The router logs the effective route, image-input decision, whether it selected a
 CI Image and the runner labels. It stays a Docker-free small job with no

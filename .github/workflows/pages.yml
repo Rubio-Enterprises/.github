@@ -48,7 +48,7 @@ jobs:
       packages: read
       pages: read
     env:
-      LIFECYCLE_MODE: ${{ needs.route.outputs.ci-image == 'true' && 'image' || needs.route.outputs.platform == 'macos' && 'macos' || 'compose' }}
+      LIFECYCLE_MODE: ${{ needs.route.outputs.ci-image == 'true' && 'image' || needs.route.outputs.platform == 'macos' && 'macos' || needs.route.outputs.shape == 'macos' && 'exec' || 'compose' }}
     steps:
       - name: Check out caller revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

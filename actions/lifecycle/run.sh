@@ -10,6 +10,15 @@ case "$mode" in
     if [ "$recipe" = setup ]; then just build; fi
     exec just "$recipe"
     ;;
+  exec)
+    # A macOS Shape's justfile has no Linux setup recipe; run its script in the built Dev Image
+    if [ ! -f "bin/$recipe.sh" ] || [ ! -x "bin/$recipe.sh" ]; then
+      echo "::error::bin/$recipe.sh must be an executable file" >&2
+      exit 1
+    fi
+    if [ "$recipe" = setup ]; then just build; fi
+    exec just exec "bin/$recipe.sh"
+    ;;
   macos)
     case "$recipe" in
       setup|check) exec bash "$(dirname "$0")/macos-recipe.sh" "$recipe" ;;

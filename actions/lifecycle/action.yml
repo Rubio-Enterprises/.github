@@ -5,7 +5,7 @@ inputs:
     description: Recipe to run; empty stages the dispatcher for a caller-owned loop
     default: ''
   mode:
-    description: image for direct scripts, compose for just, or macos for native setup/check spelling
+    description: image for direct scripts, compose for just, exec for scripts in the built Dev Image, or macos for native setup/check spelling
     default: compose
 outputs:
   runner:

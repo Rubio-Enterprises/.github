@@ -110,6 +110,7 @@ jobs:
     timeout-minutes: 120
     env:
       CI_IMAGE: ${{ inputs.qualification-repository != '' && inputs.qualification-ci-image || needs.route.outputs.ci-image == 'true' }}
+      SHAPE: ${{ inputs.qualification-repository == '' && needs.route.outputs.shape || '' }}
     steps:
       - name: Require successful project routing or an authorized Release Check
         env:
@@ -220,6 +221,7 @@ jobs:
           test ! -L .cache/central-test-gate
           echo 'Central checkout absent before repository setup: .cache/central-test-gate'
           mode=compose
+          if [ "$SHAPE" = macos ]; then mode='exec'; fi
           if [ "$CI_IMAGE" = true ]; then mode=image; fi
           bash "$RUNNER_TEMP/lifecycle/run.sh" "$mode" setup
       - name: Report hosted Docker disk use
@@ -247,6 +249,7 @@ jobs:
             if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
             echo "::group::$script"
             mode=compose
+            if [ "$SHAPE" = macos ]; then mode='exec'; fi
             if [ "$CI_IMAGE" = true ]; then mode=image; fi
             bash "$RUNNER_TEMP/lifecycle/run.sh" "$mode" "$step"
             echo '::endgroup::'

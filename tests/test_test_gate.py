@@ -206,6 +206,34 @@ def test_workflow_executes_only_the_applicable_lifecycle_scripts(tmp_path, image
     assert junit(tmp_path, concerns=concerns).returncode == 0
 
 
+@pytest.mark.parametrize(('image', 'expected'), [
+    ('false', ['exec bin/test.sh', 'exec bin/typecheck.sh', 'exec bin/e2e.sh', 'exec bin/package.sh']),
+    ('true', ['test', 'typecheck', 'e2e', 'package']),
+])
+def test_macos_shape_linux_leg_runs_scripts_in_the_built_dev_image(tmp_path, image, expected):
+    scripts(tmp_path)
+    (tmp_path / 'bin/just').write_text('#!/bin/sh\necho "$*" >> ran\nshift\nexec "$@"\n')
+    result, output = run_shell('Run Lifecycle Scripts', tmp_path, CI_IMAGE=image, RUNNER_OS='Linux',
+                               SHAPE='macos', PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
+    assert result.returncode == 0, result.stderr
+    ran = (tmp_path / 'ran').read_text().splitlines()
+    if image == 'false':
+        assert ran[1::2] == ['test', 'typecheck', 'e2e', 'package']
+        ran = ran[::2]
+    assert ran == expected
+    concerns = dict(line.split('=', 1) for line in output.splitlines())['concerns'].strip()
+    assert concerns == 'test e2e'
+    assert junit(tmp_path, concerns=concerns).returncode == 0
+
+
+def test_macos_shape_selection_is_routed_and_never_applies_to_qualification():
+    gate = WORKFLOW['jobs']['test-gate-linux']
+    assert gate['env']['SHAPE'] == "${{ inputs.qualification-repository == '' && needs.route.outputs.shape || '' }}"
+    for name in ('Set up dependencies', 'Run Lifecycle Scripts'):
+        body = step(name)['run']
+        assert body.index("mode='exec'") < body.index('mode=image')
+
+
 def test_stale_junit_cannot_prove_a_no_op_script_executed(tmp_path):
     scripts(tmp_path, empty_test=True)
     report(tmp_path, 'passed.xml')
@@ -239,10 +267,11 @@ def test_setup_uses_native_scripts_or_literal_host_recipes(tmp_path):
     (binary / 'setup.sh').chmod(0o755)
     (binary / 'just').write_text('#!/bin/sh\necho "$*" >> ran\n')
     (binary / 'just').chmod(0o755)
-    for image, os_name, expected in [('true', 'Linux', ['image']),
-                                     ('false', 'Linux', ['build', 'setup'])]:
+    for image, shape, expected in [('true', 'linux', ['image']), ('true', 'macos', ['image']),
+                                   ('false', 'linux', ['build', 'setup']), ('false', '', ['build', 'setup']),
+                                   ('false', 'macos', ['build', 'exec bin/setup.sh'])]:
         (tmp_path / 'ran').unlink(missing_ok=True)
-        result, _ = run_shell('Set up dependencies', tmp_path, CI_IMAGE=image, RUNNER_OS=os_name,
+        result, _ = run_shell('Set up dependencies', tmp_path, CI_IMAGE=image, RUNNER_OS='Linux', SHAPE=shape,
                               PATH=f'{binary}:{os.environ["PATH"]}')
         assert result.returncode == 0, result.stderr
         assert (tmp_path / 'ran').read_text().splitlines() == expected
