@@ -102,17 +102,7 @@
       "rangeStrategy": "pin"
     },
     {
-      "description": "The exact pin of these dev tools writes the version uv.lock already resolves (Renovate 44 derives pep621 current versions from the lock), so it adopts no new release and the seven-day soak has nothing to age. Renovate also wires no release timestamp into `pin` updates (renovatebot/renovate#40288), so under timestamp-required every such pin branch otherwise holds renovate/stability-days pending forever. Only the pin skips the soak; version updates of these tools keep it.",
-      "matchManagers": ["pep621"],
-      "matchDepTypes": ["dependency-groups", "tool.uv.dev-dependencies"],
-      "matchPackageNames": [
-        "pytest",
-        "/^pytest-/",
-        "mypy",
-        "pyright",
-        "coverage",
-        "hypothesis"
-      ],
+      "description": "A `pin` update writes the exact version the current range already allows, usually the one the lock already resolves, so it adopts no new release and the seven-day soak has nothing to age. Renovate wires no release timestamp into `pin` updates (renovatebot/renovate#40288), so under timestamp-required every pin branch otherwise holds renovate/stability-days pending forever; Renovate's own security:minimumReleaseAge presets opt `pin` out for the same reason. Pins still merge only when green. `pinDigest` and every version update keep the soak.",
       "matchUpdateTypes": ["pin"],
       "minimumReleaseAge": null
     },
