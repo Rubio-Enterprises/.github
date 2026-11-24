@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unittest
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -39,11 +40,6 @@ AGENT_SANDBOX_DEPS = [
 CLAUDE_CODE_DEP = "@anthropic-ai/claude-code"
 # Renovate 44.218.0 resolves schedule:weekends to this cron expression
 WEEKEND_SCHEDULE = ["* * * * 0,6"]
-HELD_UPDATE_EXPRESSION = (
-    "updateType = 'major' or ($not(updateType in ['minor', 'patch']) and "
-    "$contains(lockedVersion ? lockedVersion : "
-    "(currentVersion ? currentVersion : currentValue), /^v?0/))"
-)
 UNGROUPED_EXPRESSION = "$not($exists(groupName)) or groupName = null"
 HELD_POSTURE = {
     "draftPR": True,
@@ -137,15 +133,6 @@ def _rule_matches(
         # so `$exists(groupName) = false` never matched and is unsupported here.
         if expression == UNGROUPED_EXPRESSION:
             matches.append(resolved.get("groupName") is None)
-        elif expression == HELD_UPDATE_EXPRESSION:
-            update_type = dependency.get("updateType")
-            matches.append(
-                update_type == "major"
-                or (
-                    update_type not in ("minor", "patch")
-                    and re.search(r"^v?0", compare_version) is not None
-                )
-            )
         else:
             raise AssertionError(f"unsupported test fixture JSONata: {expression}")
     if expressions and not any(matches):
@@ -492,10 +479,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                         "currentVersion": version,
                         "updateType": update,
                     })
-                    pre_one = version.lstrip("v").startswith("0.")
-                    held = update == "major" or (
-                        pre_one and update not in ("minor", "patch")
-                    )
+                    held = update == "major"
                     python_minor = name == "python" and update == "minor"
                     self.assertNotIn("enabled", resolved)
                     self.assertEqual(resolved["automerge"], not (held or python_minor))
@@ -777,7 +761,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                         **dependency, "repository": repository,
                         "currentVersion": current, "updateType": update,
                     })
-                    if update in ("minor", "patch"):
+                    if update != "major":
                         self.assertTrue(resolved["automerge"])
                         self.assertFalse(resolved["platformAutomerge"])
                         self.assertFalse(resolved["draftPR"])
@@ -819,13 +803,60 @@ class RenovateConfigContractTests(unittest.TestCase):
         held_rules = [rule for rule in rules if rule.get("draftPR") is True]
         self.assertEqual(len(held_rules), 1)
         self.assertIs(held_rules[0], rules[-1])
-        self.assertEqual(rules[-1]["matchJsonata"], [HELD_UPDATE_EXPRESSION])
+        self.assertEqual(rules[-1].get("matchUpdateTypes"), ["major"])
         self.assertEqual(
             {key: rules[-1][key] for key in HELD_POSTURE}, HELD_POSTURE
         )
         self.assertEqual(
-            {key for key in rules[-1] if key.startswith("match")}, {"matchJsonata"}
+            {key for key in rules[-1] if key.startswith("match")}, {"matchUpdateTypes"}
         )
+
+    def test_only_approved_rules_hold_updates(self) -> None:
+        def held_rules(value: Any) -> Iterator[dict[str, Any]]:
+            if isinstance(value, dict):
+                if (
+                    value.get("automerge") is False
+                    or value.get("draftPR") is True
+                    or value.get("dependencyDashboardApproval") is True
+                    or value.get("prCreation") == "approval"
+                    or "allowedVersions" in value
+                ):
+                    yield {key: item for key, item in value.items() if key != "description"}
+                for child in value.values():
+                    yield from held_rules(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from held_rules(child)
+
+        manual = {"automerge": False, "platformAutomerge": False}
+        python_minor = {**manual, "matchUpdateTypes": ["minor"]}
+        undated = {**manual, "minimumReleaseAgeBehaviour": "timestamp-optional",
+                   "matchDatasources": ["docker"]}
+        self.assertCountEqual(list(held_rules(CONFIG)), [
+            {"matchPackageNames": ["typescript"], "matchCurrentVersion": "<7",
+             "allowedVersions": "<7"},
+            {**python_minor, "matchManagers": ["mise", "asdf", "pyenv"],
+             "matchDepNames": ["python"]},
+            {"automerge": False, "matchManagers": ["gomod"], "matchDepNames": ["go"],
+             "matchUpdateTypes": ["minor", "major"]},
+            {**python_minor, "matchManagers": ["github-actions"], "matchDepNames": ["python"],
+             "matchDepTypes": ["uses-with"], "matchDatasources": ["github-releases"],
+             "matchPackageNames": ["actions/python-versions"]},
+            {**python_minor, "matchManagers": ["custom.regex"], "matchDepNames": ["python"],
+             "matchDatasources": ["github-tags"], "matchPackageNames": ["python/cpython"]},
+            {**python_minor, "matchDatasources": ["docker"],
+             "matchPackageNames": ["python", "docker.io/python", "docker.io/library/python"]},
+            {**undated, "matchPackageNames": [
+                r"/^[^/]*[.:][^/]*\//",
+                r"!/^(docker\.io|index\.docker\.io|registry-1\.docker\.io)\//i",
+                r"!/^ghcr\.io\/rubio-enterprises\//i",
+            ]},
+            {**undated, "matchUpdateTypes": ["digest", "pinDigest"],
+             "matchPackageNames": [
+                 r"/^(([^/.:]+(/|$))|((docker\.io|index\.docker\.io|registry-1\.docker\.io)/))/i",
+             ]},
+            {**HELD_POSTURE, "matchUpdateTypes": ["major"]},
+        ])
 
     def test_dashboard_approval_is_absent_from_all_local_presets(self) -> None:
         def check(value: Any) -> None:
@@ -858,7 +889,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "stable non-major npm dependencies",
                 "npm-stable-non-major",
-                True,
             ),
             (
                 "plain pre-1.0 npm",
@@ -872,7 +902,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 npm dependencies",
                 "npm-pre-1-0",
-                True,
             ),
             (
                 "v-prefixed pre-1.0 npm",
@@ -886,7 +915,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 npm dependencies",
                 "npm-pre-1-0",
-                True,
             ),
             (
                 "stable Cargo",
@@ -900,7 +928,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "stable non-major cargo dependencies",
                 "cargo-stable-non-major",
-                True,
             ),
             (
                 "plain pre-1.0 Cargo",
@@ -914,7 +941,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 cargo dependencies",
                 "cargo-pre-1-0",
-                True,
             ),
             (
                 "v-prefixed pre-1.0 Cargo",
@@ -928,7 +954,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 cargo dependencies",
                 "cargo-pre-1-0",
-                True,
             ),
             (
                 "stable pin",
@@ -942,7 +967,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "stable dependency pins",
                 "stable-dependency-pins",
-                True,
             ),
             (
                 "plain pre-1.0 pin",
@@ -956,7 +980,6 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 dependency pins",
                 "pre-1-0-dependency-pins",
-                False,
             ),
             (
                 "v-prefixed pre-1.0 pin",
@@ -970,27 +993,24 @@ class RenovateConfigContractTests(unittest.TestCase):
                 },
                 "pre-1.0 dependency pins",
                 "pre-1-0-dependency-pins",
-                False,
             ),
         ]
 
         slugs_by_group: dict[str, str] = {}
-        for fixture_name, dependency, expected_group, expected_slug, should_merge in fixtures:
+        for fixture_name, dependency, expected_group, expected_slug in fixtures:
             with self.subTest(fixture=fixture_name):
                 resolved = _resolve_dependency(dependency)
                 self.assertEqual(resolved["groupName"], expected_group)
                 self.assertEqual(resolved["groupSlug"], expected_slug)
-                self.assertEqual(resolved["automerge"], should_merge)
+                self.assertTrue(resolved["automerge"])
                 self.assertFalse(resolved["platformAutomerge"])
                 self.assertEqual(resolved["minimumReleaseAge"], "7 days")
-                self.assertEqual(
-                    resolved["draftPR"], not should_merge
-                )
+                self.assertFalse(resolved["draftPR"])
                 slugs_by_group[expected_group] = expected_slug
 
         self.assertEqual(len(slugs_by_group), len(set(slugs_by_group.values())))
 
-    def test_majors_and_pre_one_pins_are_held_drafts(self) -> None:
+    def test_only_majors_get_the_draft_posture(self) -> None:
         fixtures = [
             (
                 "stable patch remains automatic",
@@ -1053,16 +1073,17 @@ class RenovateConfigContractTests(unittest.TestCase):
                 True,
             ),
             (
-                "v-prefixed pre-one pinDigest is held",
+                "v-prefixed pre-one pinDigest is automatic",
                 {
-                    "manager": "dockerfile",
-                    "depName": "unstable-image",
-                    "packageName": "unstable-image",
-                    "fileName": "Dockerfile",
+                    "manager": "custom.regex",
+                    "datasource": "github-tags",
+                    "depName": "org/tool",
+                    "packageName": "org/tool",
+                    "fileName": "tools.toml",
                     "currentVersion": "v0.9.0",
                     "updateType": "pinDigest",
                 },
-                True,
+                False,
             ),
         ]
 
@@ -1090,24 +1111,18 @@ class RenovateConfigContractTests(unittest.TestCase):
             ("github-actions", "actions/checkout", ".github/workflows/test-gate.yml", "github-tags"),
         )
         for manager, name, filename, datasource in fixtures:
-            for current, update in (
-                ("1.2.3", "major"), ("v1.2.3", "major"),
-                *((current, update)
-                  for current in ("0.9.0", "v0.9.0")
-                  for update in ("major", "pin", "digest", "pinDigest")),
-            ):
-                with self.subTest(name=name, current=current, update=update):
+            for current in ("1.2.3", "v1.2.3", "0.9.0", "v0.9.0"):
+                with self.subTest(name=name, current=current):
                     resolved = _resolve_dependency({
                         "manager": manager, "depName": name, "packageName": name,
                         "fileName": filename, "datasource": datasource,
-                        "currentVersion": current, "updateType": update,
+                        "currentVersion": current, "updateType": "major",
                     }, {"automerge": True, "platformAutomerge": True})
                     self.assertEqual(
                         {key: resolved[key] for key in HELD_POSTURE}, HELD_POSTURE
                     )
 
-    def test_pre_one_minor_and_patch_automerge_except_under_named_holds(self) -> None:
-        named_holds = {"jdx/mise", "astral-sh/uv", "go"}
+    def test_pre_one_minor_and_patch_inherit_the_standing_automerge_policy(self) -> None:
         first_party = {
             "Rubio-Enterprises/org-ops",
             "github.com/Rubio-Enterprises/example",
@@ -1122,7 +1137,6 @@ class RenovateConfigContractTests(unittest.TestCase):
             ("pep621", "typer", "pyproject.toml", "pypi"),
             ("pep621", "rubio-cli-kit", "pyproject.toml", "pypi"),
             ("custom.regex", "Rubio-Enterprises/org-ops", "home/.chezmoidata/uv-tools.toml", "github-tags"),
-            ("gomod", "go", "go.mod", "golang-version"),
             ("gomod", "github.com/Rubio-Enterprises/example", "go.mod", "go"),
             ("devcontainer", "ghcr.io/rubio-enterprises/features/example", ".devcontainer/devcontainer.json", "docker"),
             ("github-actions", "actions/checkout", ".github/workflows/test-gate.yml", "github-tags"),
@@ -1137,7 +1151,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                             "fileName": filename, "datasource": datasource,
                             "currentVersion": current, "updateType": update,
                         }, {"platformAutomerge": True})
-                        self.assertEqual(resolved["automerge"], name not in named_holds)
+                        self.assertTrue(resolved["automerge"])
                         self.assertFalse(resolved["platformAutomerge"])
                         self.assertFalse(resolved["draftPR"])
                         self.assertEqual(resolved["prConcurrentLimit"], 5)
@@ -1165,7 +1179,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(
             {key: value for key, value in pre_one.items() if key != "description"},
             {
-                "matchUpdateTypes": ["minor", "patch"],
+                "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
                 "matchCurrentVersion": "/^v?0/",
                 "automerge": True,
                 "platformAutomerge": False,
@@ -1176,26 +1190,22 @@ class RenovateConfigContractTests(unittest.TestCase):
                 with self.subTest(rule=rule.get("groupName", rule.get("matchDepNames"))):
                     self.assertGreater(index, standing + 1)
 
-    def test_held_version_matching_uses_renovates_current_version_fallback(self) -> None:
+    def test_pre_one_digests_inherit_the_standing_automerge_policy(self) -> None:
         dependency = {
-            "manager": "pep621", "depName": "example", "packageName": "example",
-            "fileName": "pyproject.toml", "updateType": "pin",
+            "manager": "custom.regex", "datasource": "github-tags",
+            "depName": "example/tool", "packageName": "example/tool",
+            "fileName": "tools.toml",
         }
-        for versions, held in (
-            ({"currentValue": "v0.9.0"}, True),
-            ({"currentValue": "^0.9", "currentVersion": "0.9.1"}, True),
-            ({"currentValue": "^1", "currentVersion": "1.0.0", "lockedVersion": "0.9.1"}, True),
-            ({"currentValue": "^0", "currentVersion": "0.9.1", "lockedVersion": "1.0.0"}, False),
-            ({"currentValue": "1.2.3"}, False),
-            ({}, False),
-        ):
-            with self.subTest(versions=versions):
-                self.assertEqual(_resolve_dependency({**dependency, **versions})["draftPR"], held)
-                patch = _resolve_dependency({**dependency, **versions, "updateType": "patch"})
-                self.assertFalse(patch["draftPR"])
-                self.assertTrue(patch["automerge"])
-        untyped = {key: value for key, value in dependency.items() if key != "updateType"}
-        self.assertTrue(_resolve_dependency({**untyped, "currentVersion": "0.9.1"})["draftPR"])
+        for current in ("0.9.1", "v0.9.1"):
+            for update in ("digest", "pinDigest"):
+                with self.subTest(current=current, update=update):
+                    resolved = _resolve_dependency({
+                        **dependency, "currentVersion": current, "updateType": update,
+                    })
+                    self.assertTrue(resolved["automerge"])
+                    self.assertFalse(resolved["draftPR"])
+                    self.assertFalse(resolved["platformAutomerge"])
+                    self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
     def test_stable_pin_digest_inherits_the_soaked_safe_lane(self) -> None:
         standing = next(
@@ -1223,19 +1233,21 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertFalse(resolved["platformAutomerge"])
         self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
-    def test_go_module_directive_requires_review(self) -> None:
-        directive = _resolve_dependency(
-            {
-                "manager": "gomod",
-                "depName": "go",
-                "packageName": "go",
-                "fileName": "go.mod",
-                "currentVersion": "1.26.6",
-                "updateType": "minor",
-            }
-        )
-        self.assertFalse(directive["automerge"])
-        self.assertFalse(directive["draftPR"])
+    def test_go_directive_feature_versions_require_review_but_patches_automerge(self) -> None:
+        dependency = {
+            "manager": "gomod", "depName": "go", "packageName": "go",
+            "fileName": "go.mod", "datasource": "golang-version", "currentVersion": "1.26.6",
+        }
+        for dep_type in ("golang", "toolchain"):
+            for update in ("patch", "minor", "major"):
+                with self.subTest(dep_type=dep_type, update=update):
+                    resolved = _resolve_dependency({
+                        **dependency, "depType": dep_type, "updateType": update,
+                    })
+                    self.assertEqual(resolved["automerge"], update == "patch")
+                    self.assertEqual(resolved["draftPR"], update == "major")
+                    self.assertFalse(resolved["platformAutomerge"])
+                    self.assertEqual(resolved["minimumReleaseAge"], "7 days")
 
         module_dependency = _resolve_dependency(
             {
@@ -1279,111 +1291,23 @@ class RenovateConfigContractTests(unittest.TestCase):
                       {**tool, "manager": "custom.regex", "currentValue": "2.20.0"}):
             self.assertFalse(_rule_matches(rules[0], other, {}))
 
-    def test_mise_cli_override_is_manager_independent(self) -> None:
-        mise_update = {
-            "depName": "jdx/mise",
-            "packageName": "jdx/mise",
-            "fileName": ".github/workflows/test-gate.yml",
-            "currentVersion": "v2026.8.3",
-            "updateType": "patch",
-        }
-        for manager in ("custom.regex", "github-actions"):
-            with self.subTest(manager=manager):
-                resolved = _resolve_dependency({**mise_update, "manager": manager})
-                self.assertEqual(resolved["groupSlug"], "mise-cli")
-                self.assertFalse(resolved["automerge"])
+    def test_cli_updates_keep_their_groups_and_inherit_automerge(self) -> None:
+        for manager, name, current, slug in (
+            ("custom.regex", "jdx/mise", "v2026.8.3", "mise-cli"),
+            ("github-actions", "jdx/mise", "v2026.8.3", "mise-cli"),
+            ("custom.regex", "astral-sh/uv", "0.12.1", "uv-cli"),
+        ):
+            with self.subTest(manager=manager, name=name):
+                resolved = _resolve_dependency({
+                    "manager": manager, "depName": name, "packageName": name,
+                    "fileName": ".github/workflows/test-gate.yml", "currentVersion": current,
+                    "updateType": "patch",
+                })
+                self.assertEqual(resolved["groupSlug"], slug)
+                self.assertTrue(resolved["automerge"])
+                self.assertFalse(resolved["draftPR"])
                 self.assertFalse(resolved["platformAutomerge"])
                 self.assertEqual(resolved["minimumReleaseAge"], "7 days")
-
-        unrelated = _resolve_dependency(
-            {
-                "manager": "github-actions",
-                "depName": "actions/cache",
-                "packageName": "actions/cache",
-                "fileName": ".github/workflows/test-gate.yml",
-                "currentVersion": "v4.2.3",
-                "updateType": "patch",
-            }
-        )
-        self.assertTrue(unrelated["automerge"])
-        self.assertFalse(unrelated["platformAutomerge"])
-        self.assertEqual(unrelated["minimumReleaseAge"], "7 days")
-
-    def test_later_manual_exceptions_override_the_safe_lane(self) -> None:
-        fixtures = [
-            (
-                "stable major",
-                {
-                    "manager": "npm",
-                    "depName": "major-dependency",
-                    "packageName": "major-dependency",
-                    "fileName": "package.json",
-                    "currentVersion": "3.0.0",
-                    "updateType": "major",
-                },
-            ),
-            (
-                "plain pre-1.0 pinDigest",
-                {
-                    "manager": "dockerfile",
-                    "depName": "zero-image",
-                    "packageName": "zero-image",
-                    "fileName": "Dockerfile",
-                    "currentVersion": "0.9.0",
-                    "updateType": "pinDigest",
-                },
-            ),
-            (
-                "v-prefixed pre-1.0 pinDigest",
-                {
-                    "manager": "dockerfile",
-                    "depName": "v-zero-image",
-                    "packageName": "v-zero-image",
-                    "fileName": "Dockerfile",
-                    "currentVersion": "v0.9.0",
-                    "updateType": "pinDigest",
-                },
-            ),
-            (
-                "mise CLI",
-                {
-                    "manager": "custom.regex",
-                    "depName": "jdx/mise",
-                    "packageName": "jdx/mise",
-                    "fileName": ".github/workflows/e2e.yml",
-                    "currentVersion": "v2026.8.1",
-                    "updateType": "patch",
-                },
-            ),
-            (
-                "uv CLI",
-                {
-                    "manager": "custom.regex",
-                    "depName": "astral-sh/uv",
-                    "packageName": "astral-sh/uv",
-                    "fileName": ".github/workflows/e2e.yml",
-                    "currentVersion": "0.12.1",
-                    "updateType": "patch",
-                },
-            ),
-            (
-                "v-prefixed pre-1.0 major",
-                {
-                    "manager": "github-tags",
-                    "depName": "kubernetes-sigs/agent-sandbox",
-                    "packageName": "kubernetes-sigs/agent-sandbox",
-                    "fileName": "infrastructure/agent-sandbox.yaml",
-                    "currentVersion": "v0.5.5",
-                    "updateType": "major",
-                },
-            ),
-        ]
-
-        for fixture_name, dependency in fixtures:
-            with self.subTest(fixture=fixture_name):
-                resolved = _resolve_dependency(dependency)
-                self.assertFalse(resolved["automerge"])
-                self.assertFalse(resolved["platformAutomerge"])
 
     def test_narrower_groups_override_the_general_pin_group(self) -> None:
         fixtures = [
@@ -1494,7 +1418,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertTrue(resolved_pre_one["automerge"])
         self.assertFalse(resolved_pre_one["draftPR"])
 
-    def test_mixed_runtime_group_merges_unless_a_member_is_held(self) -> None:
+    def test_mixed_runtime_group_allows_pre_one_minors_and_pins(self) -> None:
         stable_member = _resolve_dependency(
             {
                 "manager": "pep621",
@@ -1520,7 +1444,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertTrue(zero_member["automerge"])
         self.assertEqual(zero_member["minimumReleaseAge"], "7 days")
 
-        held_member = _resolve_dependency(
+        pin_member = _resolve_dependency(
             {
                 "manager": "pep621",
                 "depName": "typer",
@@ -1530,45 +1454,18 @@ class RenovateConfigContractTests(unittest.TestCase):
                 "updateType": "pin",
             }
         )
-        self.assertEqual(stable_member["groupSlug"], held_member["groupSlug"])
-        self.assertFalse(
-            all(member["automerge"] for member in (stable_member, held_member))
-        )
+        self.assertEqual(stable_member["groupSlug"], pin_member["groupSlug"])
+        self.assertTrue(pin_member["automerge"])
+        self.assertFalse(pin_member["draftPR"])
+        self.assertEqual(pin_member["minimumReleaseAge"], "7 days")
 
-    def test_manual_overrides_follow_the_standing_safe_rule(self) -> None:
-        rules = CONFIG["packageRules"]
-        standing = next(
-            index
-            for index, rule in enumerate(rules)
-            if rule.get("description", "").startswith("Standing automerge")
-        )
-        manual_groups = {
-            "pre-1.0 dependency pins",
-            "mise-cli",
-            "uv-cli",
-        }
-        for group_name in ("pre-1.0 npm dependencies", "pre-1.0 cargo dependencies"):
+    def test_update_groups_inherit_automerge(self) -> None:
+        for group_name in (
+            "pre-1.0 npm dependencies", "pre-1.0 cargo dependencies",
+            "pre-1.0 dependency pins", "mise-cli", "uv-cli",
+        ):
             with self.subTest(group=group_name):
-                grouping = _rule_with_group(group_name)
-                self.assertNotIn("automerge", grouping)
-                self.assertNotIn("platformAutomerge", grouping)
-        python_minor = next(
-            index
-            for index, rule in enumerate(rules)
-            if rule.get("matchDepNames") == ["python"]
-            and rule.get("matchUpdateTypes") == ["minor"]
-        )
-        self.assertGreater(python_minor, standing)
-        for group_name in manual_groups:
-            with self.subTest(group=group_name):
-                index = next(
-                    index
-                    for index, rule in enumerate(rules)
-                    if rule.get("groupName") == group_name
-                )
-                self.assertGreater(index, standing)
-                self.assertFalse(rules[index]["automerge"])
-                self.assertFalse(rules[index]["platformAutomerge"])
+                self.assertNotIn("automerge", _rule_with_group(group_name))
 
     def test_runtime_dependencies_cut_releases_without_widening_automerge(self) -> None:
         matches = [
@@ -1918,9 +1815,7 @@ class UndatedRegistryImageTests(unittest.TestCase):
                         self.assertFalse(resolved["automerge"])
                         self.assertFalse(resolved["platformAutomerge"])
                         self.assertNotIn("groupSlug", resolved)
-                        # Only the held rule makes drafts: pre-1.0 digests, never a stable patch.
-                        held = version.startswith("0") and update in ("digest", "pinDigest")
-                        self.assertEqual(resolved["draftPR"], held)
+                        self.assertFalse(resolved["draftPR"])
             with self.subTest(image=name, update="major"):
                 resolved = self._image(name, "major", "2.7.5")
                 self.assertEqual(resolved["minimumReleaseAgeBehaviour"], "timestamp-optional")
@@ -1971,13 +1866,17 @@ class UndatedRegistryImageTests(unittest.TestCase):
         self.assertEqual(first_party["minimumReleaseAgeBehaviour"], "timestamp-required")
         self.assertTrue(first_party["automerge"])
 
-    def test_docker_hub_majors_and_pre_one_digests_stay_held(self) -> None:
-        for name in ("postgres", "grafana/grafana"):
-            with self.subTest(image=name):
+    def test_docker_hub_majors_are_drafts_and_pre_one_digests_follow_image_policy(self) -> None:
+        for name, automerge in (("postgres", True), ("grafana/grafana", False)):
+            with self.subTest(image=name, update="major"):
                 major = self._image(name, "major", "16.15.0")
                 self.assertEqual({key: major[key] for key in HELD_POSTURE}, HELD_POSTURE)
-                pre_one = self._image(name, "digest", "0.9.1")
-                self.assertEqual({key: pre_one[key] for key in HELD_POSTURE}, HELD_POSTURE)
+            for update in ("digest", "pinDigest"):
+                with self.subTest(image=name, update=update):
+                    pre_one = self._image(name, update, "0.9.1")
+                    self.assertEqual(pre_one["automerge"], automerge)
+                    self.assertFalse(pre_one["draftPR"])
+                    self.assertEqual(pre_one["minimumReleaseAgeBehaviour"], "timestamp-optional")
 
     def test_docker_hub_python_minor_keeps_its_hold(self) -> None:
         python_minor = self._image("python", "minor", "3.14.6")
