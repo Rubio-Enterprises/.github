@@ -160,41 +160,35 @@ release for this repository. Recover regressions through reviewed reverts.
   version is the HCP workspace's own `terraform-version` setting, which lives outside git, so a
   merged bump breaks `terraform init` for every run in that workspace until someone raises the
   setting by hand. That went unnoticed for two weeks in `agent-workspaces` and was found only when
-  an outage fix could not be applied, so core raises are a paired operator move, not maintenance;
-  **automerge** for stable (≥ 1.0.0) minor, patch, pin, digest, and `pinDigest` updates after
-  the global seven-day soak, and since 2026-11-19 for **pre-1.0 minor and patch** updates on the
-  same soak; **held draft PRs** for majors and for pre-1.0 pin, digest, and `pinDigest`
-  updates, never auto-merged. Each repository has a Dependency Dashboard as its backlog view,
-  with no dashboard approval rules. The final package rule applies `draftPR: true`,
-  `automerge: false`, `prConcurrentLimit: 1`, and `branchConcurrentLimit: 1` after
-  every automerge rule. These limits compare against the shared per-repository
-  Renovate backlog, so a held draft opens only when no other Renovate PR is open;
-  closing it declines that version. Held drafts keep the weekend schedule. Named
-  Python dev tools retain their exact pins and pin-only soak exemption, and follow
-  the same major and pre-1.0 policy as every other dependency. `go.mod` directive raises
-  and the `jdx/mise` and `astral-sh/uv` workflow CLI pins remain human-merge-only.
+  an outage fix could not be applied, so core raises are a paired operator move, not maintenance.
 
-  **Pre-1.0 minor and patch updates automerge; that reverses the 2026-10-30 hold.** Between
-  those dates every pre-1.0 update was a held draft. By 2026-11-19 thirty-seven repositories
-  each carried one held draft, all green, twenty-two open a week or longer, and each blocked
-  the rest of its repository's held queue: the hold delayed updates without anyone reviewing
-  them. Three properties to keep when editing these rules:
-  - **The checks are the only guard.** Semver lets a 0.x minor break its API. A repository
-    whose checks do not exercise a 0.x dependency takes that update unverified; `dotfiles`
-    tool pins are the clearest case, because its checks prove the lock resolves, not that
-    the tool works.
-  - **The arming rule sits directly after the standing stable rule, before every named
-    hold.** Rule order decides the outcome: a later `automerge: false` (Python minors, the Go
-    directive, the mise and uv CLI pins) must still disarm its own 0.x updates. A named hold
-    is narrower than its name suggests: the `uv-cli` rule matches only the workflow
-    `version:` marker, so a 0.x `uv` pin in a consumer's `image/mise.toml` automerges.
-  - **The held rule keeps its limit of one.** It now matches fewer updates, but without the
-    limit, held drafts nobody merges could fill all five concurrent slots and stop a
-    repository's routine updates. Its expression uses `$not(updateType in [...])`, not two
-    `!=` tests: JSONata evaluates `!=` against a missing value as false, which would release
-    a pre-1.0 update that carries no `updateType`.
-  Stable and pre-1.0 npm, Cargo, and pin updates use
-  distinct groups so a manual member cannot disarm an otherwise-safe stable branch.
+  **Hold majors and language feature versions; everything else automerges after the wait
+  when green.** Hold only what can change what code means, or images that cannot age:
+
+  - **Majors** as classified by Renovate, including updates from 0.x classified as major.
+    The final rule makes them drafts and limits them to one concurrent branch and PR against
+    the shared Renovate backlog. They keep the weekend schedule; closing one declines that
+    version. The TypeScript 7 cap still suppresses that migration below 7 while peers are
+    incompatible; a major draft alone would not suppress it.
+  - **Language feature versions:** Python minor updates in mise, asdf, `.python-version`,
+    workflow inputs, Dockerfile pins and Docker Hub images; Go minor updates to `go.mod`
+    `go` and `toolchain` directives. Hold them like majors because a feature version can
+    remove APIs or strand dependencies. Patch updates inherit automerge.
+  - **Undated third-party images:** non-Docker-Hub registry updates and third-party Docker
+    Hub digest and `pinDigest` updates need a person, because the seven-day wait cannot age
+    an update without a date. Docker Official Image digests and org-owned GHCR images keep
+    their existing exceptions. An update that does carry a date still waits its seven days.
+
+  Stable and pre-1.0 minor, patch, pin, digest and `pinDigest` updates use Renovate-side
+  automerge after the applicable release-age checks and green CI. The seven-day default and
+  existing age exemptions stay in place. Renovate supplies no timestamp for ordinary `pin`
+  updates. `config:best-practices` already skips the age check for npm pins, and this
+  preset exempts named Python dev-tool pins. Other undated pins can still be blocked.
+  Semver allows breaking changes in 0.x minors: CI only guards what it exercises.
+  Keep both automerge rules before the language and image holds and the major draft rule
+  last, so grouping and fast lanes cannot re-arm a hold. The Dependency Dashboard shows
+  the backlog and does not require approval. Disabled updates are not held PRs.
+
   The first two `customManager`s track the
   `# renovate: … jdx/mise` workflow `MISE_VERSION:` cold fallback and
   `# renovate: … astral-sh/uv` workflow `version:` marker, respectively.
@@ -242,44 +236,25 @@ release for this repository. Recover regressions through reviewed reverts.
     `!/^v?0/`; their pre-1.0 counterparts use the complementary `/^v?0/`.
   - **Stable and pre-1.0 grouping is deliberately disjoint.** npm and Cargo minor/patch updates,
     plus Renovate's general pin-update branch, have distinct current-version predicates, names,
-    and slugs. Stable members inherit the standing safe automerge rule and seven-day soak. Pre-1.0
-    npm and Cargo members inherit the pre-1.0 automerge rule; the pre-1.0 pin group is explicitly
-    unarmed. The branches stay distinct so a pre-1.0 update that fails its checks cannot stall
-    the stable branch. The broad grouping rules apply only when no earlier rule has
-    already assigned `groupName`, preserving `config:best-practices`' narrower monorepo groups.
+    and slugs. Both inherit their respective standing automerge rules. A pre-1.0 update
+    that fails its checks cannot stall the stable branch. These rules apply only when no
+    earlier rule has assigned `groupName`, preserving narrower monorepo groups.
     Their guard is `$not($exists(groupName)) or groupName = null`: every ungrouped update
     carries `groupName: null`, and JSONata's `$exists` is true for a null value, so the earlier
     `$exists(groupName) = false` never matched and each update opened its own PR.
     Later local groups (GitHub Actions, tool runtime dependencies and first-party tool pins)
     set both name and slug so their safer coupled-update boundaries remain authoritative.
 
-  The tool dependency policy is split deliberately. A semantic-only rule maps runtime updates to
-  `rubio-cli-kit` or `typer` to `fix(deps)` so release-please cuts a tool release even when the
-  update remains manual. A separate grouping rule puts related non-major updates on one branch even
-  while Typer is 0.x: a kit release can raise its Typer floor, and separate branches make `uv lock`
-  reject the kit branch before either PR exists. Grouping does not widen automerge. Renovate sets a
-  grouped branch's `automerge` only when **every** upgrade enables it. A 0.x Typer minor or patch
-  update is armed by the pre-1.0 rule, so a group containing one automerges once Typer's seven-day
-  soak has passed; a 0.x pin or digest update still holds its group. Separate fast-lane
-  rules cover stable non-major runtime updates and the registry's first-party tool pins: both skip
-  the release-age soak, while majors retain the held posture. A 0.x first-party tool's minor or
-  patch release automerges through the pre-1.0 rule with no soak, in its own PR outside the
-  registry group. Registry pins are grouped into one dotfiles PR; the runtime group applies
-  independently in each tool repo.
+  Tool runtime updates to `rubio-cli-kit` or `typer` use `fix(deps)` so release-please
+  cuts a tool release. Group related non-major updates: a kit release can raise its Typer
+  floor, and separate branches can make `uv lock` reject the kit branch. A grouped branch
+  automerges only if every member allows it. Typer keeps the global seven-day soak; the kit
+  and first-party tool pins retain their existing release-age exemptions. The dotfiles tool
+  registry group is stable-only; pre-1.0 tool pins follow the standing policy outside it.
 
-  **`platformAutomerge` is ON as of 2026-08-03** (blanket non-major rule, lockFileMaintenance,
-  stable non-major tool runtime dependencies and registry pins). It was off
-  because GitHub-native auto-merge waits only on **required** checks while Renovate's own engine
-  waits for **all** checks green, and the onboarded consumers had no required checks beyond the audit ruleset.
-  `gate-tests` going active (2026-07-30) changed that for the 34 repos carrying
-  `gate_tests = true`, which now expose a required `test-gate`. The cost of leaving it off was
-  concrete: Renovate merges only *during* a wave, so eight green first-party PRs sat unmerged for
-  up to two days and were hand-merged.
-
-  Since the standards v2 flag day (2026-10-31) every onboarded repository requires exactly two
-  contexts, the injected `standards` check and central `test-gate`, so native auto-merge waits on
-  the same lint/format and test results Renovate's engine would. The 2026-08 `gate-lint-hooks` /
-  `gate-e2e` required contexts are retired with their workflows.
+  **`platformAutomerge` stays off.** The require-review fallback uses Renovate's own merge
+  engine as the bypassed Renovate App. It waits for every check to pass; GitHub-native
+  auto-merge waits only for required checks.
 
   **`rebaseWhen: "conflicted"` is the exact org-wide posture.** Falling behind
   `main` alone does not trigger a rebase, even for automerge PRs. Org rulesets set
