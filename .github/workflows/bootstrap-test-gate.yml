@@ -58,7 +58,7 @@ jobs:
       - name: Prepare container-writable hosted checkout
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
-      - run: just build && just setup
+      - run: just build-dev && just setup
       - id: suite
         name: Run canonical non-E2E tests
         run: |

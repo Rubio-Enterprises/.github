@@ -2,7 +2,7 @@ name: JUnit gate
 description: Require executed, successful JUnit cases for every selected Lifecycle concern
 inputs:
   concerns:
-    description: "Space-separated required concerns: test and/or e2e; empty means no test surface"
+    description: "Space-separated required concerns: test and/or test-e2e; empty means no test surface"
     required: true
   suite-outcome:
     description: "Outcome of the Lifecycle step, which must be success even without test surfaces"

@@ -100,10 +100,10 @@ jobs:
               if (testRoute) {
                 platform = route === 'macos' ? 'macos' : 'linux';
                 const declared = properties['ci-test-macos'];
-                const order = ['test', 'typecheck', 'e2e', 'package'];
+                const order = ['test', 'typecheck', 'test-e2e', 'package'];
                 if (declared != null && declared !== '') {
                   if (!Array.isArray(declared) || declared.some(value => !order.includes(value))) {
-                    throw new Error('ci-test-macos must contain only test, typecheck, e2e or package');
+                    throw new Error('ci-test-macos must contain only test, typecheck, test-e2e or package');
                   }
                   macosConcerns = order.filter(value => declared.includes(value));
                 }

@@ -7,7 +7,7 @@ recipe="${2:?recipe is required}"
 case "$mode" in
   image) exec "bin/$recipe.sh" ;;
   compose)
-    if [ "$recipe" = setup ]; then just build; fi
+    if [ "$recipe" = setup ]; then just build-dev; fi
     exec just "$recipe"
     ;;
   exec)
@@ -16,7 +16,7 @@ case "$mode" in
       echo "::error::bin/$recipe.sh must be an executable file" >&2
       exit 1
     fi
-    if [ "$recipe" = setup ]; then just build; fi
+    if [ "$recipe" = setup ]; then just build-dev; fi
     exec just exec "bin/$recipe.sh"
     ;;
   macos)

@@ -3,7 +3,7 @@
 # In CI:
 #   - Private repositories run `standards check` and `standards check-pr` inside their CI Image
 #     on the Container Pool.
-#   - Hosted/public repositories install `just`, log in to GHCR, and run `just build`, `just check`,
+#   - Hosted/public repositories install `just`, log in to GHCR, and run `just build-dev`, `just check`,
 #     and `just check-pr` through Docker Compose on the host.
 # No standards logic lives here; change the checks in Rubio-Enterprises/standards.
 name: standards
@@ -187,7 +187,7 @@ jobs:
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
       - name: Build dev image
         if: needs.route.outputs.ci-image != 'true'
-        run: just build
+        run: just build-dev
         env:
           GH_TOKEN: ${{ github.token }}
 

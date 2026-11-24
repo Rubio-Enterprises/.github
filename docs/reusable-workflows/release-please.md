@@ -48,7 +48,7 @@ The repository owns `release-please-config.json` and `.release-please-manifest.j
 2. **lock** (`docker`, fallback `ubuntu-latest`) runs only for a release PR with root `uv.lock`.
    Mints a `contents: write` App token and checks out the branch. On hosted Linux, temporarily
    sparse-checks out central `actions/prepare-hosted-docker` at `main`, prepares disk, then removes
-   that checkout before setup-just and registry login. Runs `just build` and `just exec uv lock`,
+   that checkout before setup-just and registry login. Runs `just build-dev` and `just exec uv lock`,
    pushing a `chore: refresh uv lock` commit only when changed. The version bump otherwise leaves
    the lock stale for the standards check.
 3. **arm** (`small`, fallback `ubuntu-slim`) waits for **lock** to succeed or be skipped, and

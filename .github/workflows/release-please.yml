@@ -109,7 +109,7 @@ jobs:
           BRANCH: ${{ needs.release.outputs.branch }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          just build
+          just build-dev
           just exec uv lock
           git diff --quiet -- uv.lock && exit 0
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \

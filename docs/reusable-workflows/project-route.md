@@ -39,7 +39,7 @@ returned platform. `auto` and `linux` ignore this test-only override, so Standar
 routing remains independent. Public `test` routes always use hosted fallback labels.
 
 The `test` route also reads `ci-test-macos`, an organization multi-select of
-`test`, `typecheck`, `e2e` and `package`, managed through OpenTofu. Missing, null,
+`test`, `typecheck`, `test-e2e` and `package`, managed through OpenTofu. Missing, null,
 empty-string and empty-array values mean no extra leg. Missing event keys trigger
 the properties API. Non-array declarations or unknown values fail; so does a
 non-empty declaration when the effective test platform is already macOS.
@@ -120,14 +120,14 @@ For `linux` and `test` calls with `inspect-image-inputs: true` that would otherw
 select a CI Image, a pull request that changes image inputs selects
 `RUNNERS.docker` (fallback `["ubuntu-latest"]`) and `ci-image=false`. Both injected workflows consume this one
 decision. Their existing Compose branches build the checked-out pull request's Dev
-Image with `just build`, then run their normal Checks and Lifecycle Tasks in it.
+Image with `just build-dev`, then run their normal Checks and Lifecycle Tasks in it.
 No image is published and no tools are overlaid onto the default-branch CI Image.
 
 The decision applies to the job's effective Linux platform. A macOS Shape whose
 `ci-test-route` sends its Test Gate (or built-site Pages job) to `small` or `medium`
 therefore gets the same detection on that `test` call. Its justfile defines `setup`
 only for macOS, so the caller sees `shape=macos` and runs the Lifecycle dispatcher's
-`exec` mode: `just build`, then each `bin/<name>.sh` through `just exec` in the built
+`exec` mode: `just build-dev`, then each `bin/<name>.sh` through `just exec` in the built
 Dev Image, the same scripts a CI Image runs directly
 ([ADR-0049](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0049-check-a-macos-shapes-linux-test-leg-in-its-changed-dev-image.md)).
 
@@ -195,7 +195,7 @@ Use `Rubio-Enterprises/org-ops` (private, ID `1277378935`, small) with its ID in
 1. Append exactly `# Image-routing canary: build this pull request's Dev Image.` to
    its root `Dockerfile`. Both `standards-linux` and `test-gate-linux` must log
    `Project route: docker; CI Image: false; image inputs: changed`, run on the Docker
-   route's runner (`ubuntu-latest` during the hosted initiative), and run `just build`
+   route's runner (`ubuntu-latest` during the hosted initiative), and run `just build-dev`
    against the pull request checkout before their Checks or Lifecycle Scripts.
 2. Append exactly `<!-- Non-image routing canary. -->` to `README.md`, without any
    image-input change. Both route calls must report `image inputs: unchanged` and

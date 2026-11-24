@@ -143,9 +143,9 @@ and macOS checkouts. Never put tokens or secrets in a persisted cache.
 4. The shared [`actions/lifecycle`](../../actions/lifecycle/README.md) runs setup,
    then the requested recipe. A CI Image runs `bin/setup.sh` and
    `bin/<recipe>.sh` directly. Linux runners outside a CI Image run literal
-   `just build`, `just setup`, then `just <recipe>` in the repository's Dev Image;
+   `just build-dev`, `just setup`, then `just <recipe>` in the repository's Dev Image;
    a macOS Shape's Linux route instead runs `bin/setup.sh` and `bin/<recipe>.sh`
-   through `just exec` after `just build`. A native macOS route bootstraps just/mise, uses the existing setup spelling
+   through `just exec` after `just build-dev`. A native macOS route bootstraps just/mise, uses the existing setup spelling
    selector, then runs the literal recipe. No project toolchain is installed on a
    Linux host. Hosted Docker jobs use the existing disk-preparation action and
    Compose services and dependency volumes are cleaned even on failure.

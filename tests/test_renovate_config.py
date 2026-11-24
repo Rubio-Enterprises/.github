@@ -2087,3 +2087,24 @@ class HostFirstRenovateTests(unittest.TestCase):
 
     def test_mise_manager_matches_image_mise_toml(self) -> None:
         self.assertEqual(CONFIG.get("mise", {}).get("managerFilePatterns"), ["/^image/mise\\.toml$/"])
+
+
+class GenerateAfterUpdateTests(unittest.TestCase):
+    """Renovate relocks through the repository's `just generate` (standards#1086)."""
+
+    def test_every_update_runs_just_generate_in_branch_mode(self) -> None:
+        self.assertEqual(CONFIG["postUpgradeTasks"], {
+            "commands": ["just generate"],
+            "fileFilters": ["**/*"],
+            "executionMode": "branch",
+        })
+        for rule in CONFIG["packageRules"]:
+            self.assertNotIn("postUpgradeTasks", rule)
+
+    def test_renovate_writes_no_mise_lock(self) -> None:
+        rules = [rule for rule in CONFIG["packageRules"] if "skipArtifactsUpdate" in rule]
+        self.assertEqual(rules, [CONFIG["packageRules"][0]])
+        self.assertEqual(rules[0]["matchManagers"], ["mise"])
+        self.assertIs(rules[0]["skipArtifactsUpdate"], True)
+        self.assertEqual(set(rules[0]) - {"description"}, {"matchManagers", "skipArtifactsUpdate"})
+        self.assertNotIn("skipArtifactsUpdate", CONFIG)

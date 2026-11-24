@@ -30,9 +30,9 @@ this workflow.
 
 Checkout retains full history and does not persist credentials. A CI Image runs
 `bin/setup.sh` and the Lifecycle Scripts directly. Other Linux runners execute
-`just build`, `just setup` and each existing recipe among `test typecheck e2e package`.
+`just build-dev`, `just setup` and each existing recipe among `test typecheck test-e2e package`.
 The Linux leg of a macOS Shape (router `shape=macos`) has no Linux `just setup`: outside
-a CI Image it runs `just build`, then `bin/setup.sh` and each Lifecycle Script through
+a CI Image it runs `just build-dev`, then `bin/setup.sh` and each Lifecycle Script through
 `just exec` in the built Dev Image. Release Check qualification never selects this mode.
 Both jobs use the [Lifecycle dispatcher](../actions/lifecycle/README.md) for setup
 and single-recipe execution. The workflow retains concern selection, script checks,
@@ -43,15 +43,15 @@ The macOS job installs just in both modes when the gate is enabled. Neither mode
 - **Shape mode:** when the whole Test Gate runs on macOS, bootstrap
   mise through `actions/macos-tools` with `provision: false`. Run `setup-macos`
   then each existing
-  concern through `just test`, `just typecheck`, `just e2e` and `just package`, in
+  concern through `just test`, `just typecheck`, `just test-e2e` and `just package`, in
   that order. The shared policy reader selects the same applicable concerns as
-  Linux, including per-concern Opt-outs. Both `test` and `e2e` require executed
+  Linux, including per-concern Opt-outs. Both `test` and `test-e2e` require executed
   JUnit cases. No concern is skipped because the runner is macOS.
 - **Leg mode:** a Linux test route can declare additional concerns in the organization
   multi-select property `ci-test-macos`, through reviewed OpenTofu configuration.
   Provision locked repository tools and the base's four runners through
   `actions/macos-tools` with `provision: true`, run `bin/setup.sh`, then each declared
-  executable `bin/<concern>.sh` directly, in `test typecheck e2e package` order.
+  executable `bin/<concern>.sh` directly, in `test typecheck test-e2e package` order.
   A declared missing or non-executable script fails. Locked installation fails if
   macOS lock entries are missing. The Linux job remains unchanged.
 
@@ -96,7 +96,7 @@ cases. Failed, cancelled or unexpectedly skipped legs fail the aggregate. An exi
 reasoned Opt-out still succeeds through the applicable leg's policy step.
 
 Script existence declares applicability, except for an explicit per-concern Opt-out
-below. Non-executable scripts fail. No test/e2e script means no JUnit obligation,
+below. Non-executable scripts fail. No test/test-e2e script means no JUnit obligation,
 not an automatic Opt-out. Tests clear their own
 report directory before execution. Linux non-image jobs tear down Compose services
 and dependency volumes even on failure; external organization caches survive.
@@ -124,7 +124,7 @@ job data, changing routes or depending on a third-party cleanup action.
 
 The `actions/junit-gate` composite uses Python's XML parser, independently of any
 Base Image helper version. For each required concern it recursively reads XML under
-`reports/test/` or `reports/e2e/`, counts actual `testcase` elements without a
+`reports/test/` or `reports/test-e2e/`, counts actual `testcase` elements without a
 `skipped` child, and requires at least one executed case and no failures/errors.
 Parent suite totals are not added to child cases; aliases of a report file are
 counted once. Malformed XML, missing reports, failed suite summaries and an
@@ -139,9 +139,9 @@ qualifications. An Opt-out or a run cancelled before upload has no new evidence.
 The aggregate does not upload. Each leg offers up to two artifacts, retained for
 **7 days**:
 
-- `reports`: contents of `reports/`, with `test/`, `e2e/`, `coverage/` and other
+- `reports`: contents of `reports/`, with `test/`, `test-e2e/`, `coverage/` and other
   diagnostic directories at the artifact root. Only JUnit XML belongs under
-  `reports/test/` and `reports/e2e/`: the validator parses every XML file there.
+  `reports/test/` and `reports/test-e2e/`: the validator parses every XML file there.
 - `package`: contents of `dist/`, only after the `package` Lifecycle Script was
   attempted, including a failed package's partial output. `dist/` is the single
   packaged-output directory. Scripts writing elsewhere must copy their output
@@ -196,7 +196,7 @@ test-gate-<leg>-<concerns>-<kind>-<attempt>[-<representative>]
 
 - `leg` is `linux` or `macos`, taken from the execution job id.
 - `concerns` is the applicable concern set, excluding per-concern Opt-outs, in
-  `test-typecheck-e2e-package` order, joined with hyphens, or `none`. It is announced before scripts run, not reduced
+  `test-typecheck-test-e2e-package` order, joined with hyphens, or `none`. It is announced before scripts run, not reduced
   when one fails. macOS shape mode uses the same existing-concern selection as
   Linux; leg mode uses its declared concerns in canonical order.
 - `kind` is `reports` or `package`.
@@ -207,7 +207,7 @@ test-gate-<leg>-<concerns>-<kind>-<attempt>[-<representative>]
   Qualification callers must use distinct repository, leg and concern sets within
   one run; repeated identical qualifications would otherwise collide and warn.
 
-Examples: `test-gate-linux-test-typecheck-e2e-package-reports-1` and
+Examples: `test-gate-linux-test-typecheck-test-e2e-package-reports-1` and
 `test-gate-macos-test-reports-1-SaneBar`. Readers such as coverage workflows and
 org-ops should list a run's artifacts, filter by this contract and select the
 wanted attempt, not assume that every leg wrote a package. Use the run id from the
@@ -318,16 +318,16 @@ replacement for bringing the concern back into CI. Record the reason and trackin
 issue in the same policy file:
 
 ```toml
-[test-gate.e2e]
+[test-gate.test-e2e]
 off = "The wire suite needs a macOS host that can run a virtual machine; no CI runner can today. Tracked in https://github.com/Rubio-Enterprises/noVNC-ARD/issues/124"
 ```
 
 The supported concern tables are `test-gate.test`, `test-gate.typecheck`,
-`test-gate.e2e` and `test-gate.package`. The script stays in `bin/` for manual
-execution and the lifecycle Check still requires it. Both Linux and macOS legs
+`test-gate.test-e2e` and `test-gate.package`. The script stays in `bin/` for manual
+execution and the `recipes` Check still requires its Recipe. Both Linux and macOS legs
 (shape and declared-concern modes) omit the concern, print a notice naming it and
 pointing to the recorded reason, and exclude it from the artifact name. No JUnit
-evidence is required for an opted-out test/e2e concern; an opted-out package is
+evidence is required for an opted-out test/test-e2e concern; an opted-out package is
 not attempted or uploaded. Other concerns and the aggregate result are unchanged.
 This also applies to merge groups and default-branch `test-gate-execution` calls.
 
@@ -408,7 +408,7 @@ no-op guard cannot qualify a broken central implementation.
 
 The optional same-run `candidate-base` artifact has the Release Check format:
 `base-candidate.tar.gz` plus `source.tar.gz`. Docker x86_64 legs load the candidate
-and prevent `just build --pull` replacing it; macOS shape uses its config and
+and prevent `just build-dev --pull` replacing it; macOS shape uses its config and
 macOS leg provisioning uses its mise pins and lock.
 Omit this artifact for ARM or existing CI Image runners, whose candidate image is
 qualified separately. Do not claim these qualifications prove injection, secret

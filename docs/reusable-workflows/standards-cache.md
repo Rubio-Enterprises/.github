@@ -14,7 +14,7 @@ compression midweek, the new format may not be warmed until the next week;
 Checks can restore a compatible older entry or download the database. The
 injected Standards job and default-branch verification still restore the same
 path and key. Non-image hosted builds use shared Docker disk preparation before
-`just build`. Warming does not install project toolchains on the host.
+`just build-dev`. Warming does not install project toolchains on the host.
 
 The independent `verify` job calls `default-branch-check.yml` only for public
 repositories, on push or workflow_dispatch on their actual default branch. It

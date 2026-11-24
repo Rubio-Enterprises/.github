@@ -53,8 +53,10 @@ Use the shared Renovate preset in a consumer's `renovate.json`:
 
 The Renovate runner must have access to the consumer repository. The preset
 updates repository-owned runtime pins in `mise.toml` (the `mise` manager) and
-disables the retired `copier` manager. See the workflow contracts below before
-adding a reusable caller.
+disables the retired `copier` manager. Renovate writes no mise lock itself: after
+every update it runs the repository's `just generate`, which relocks
+`image/mise.lock` and runs the repository's other generation. See the workflow
+contracts below before adding a reusable caller.
 
 The shared preset extends the native Dev Container manager to read
 `.github/.devcontainer/devcontainer.json` as well as its default runtime
@@ -110,7 +112,7 @@ private repositories or for API/CLI-created issues.
 
 | Workflow | Purpose |
 | --- | --- |
-| [`e2e.yml`](./.github/workflows/e2e.yml) | Runs the E2E Lifecycle Script in the CI Image or the literal `just e2e` recipe, with nonempty JUnit proof |
+| [`e2e.yml`](./.github/workflows/e2e.yml) | Runs the E2E Lifecycle Script in the CI Image or the literal `just test-e2e` recipe, with nonempty JUnit proof |
 | [`repository-image.yml`](./.github/workflows/repository-image.yml) | Builds the repository's CI Image (`devcontainer-ci:main`) from its own `Dockerfile` on the Build Service (amd64) and publishes single-platform indices. See [its contract](./docs/reusable-workflows/repository-image.md) |
 | [`app-image.yml`](./.github/workflows/app-image.yml) | Builds one amd64 app or release image on the Build Service and copies it to GHCR (build check, candidate for a build-then-run job, or publish). See [its contract](./docs/reusable-workflows/app-image.md) |
 | [`secret-scan.yml`](./.github/workflows/secret-scan.yml) | Scheduled trufflehog full-history deep-scan (the PR-range gitleaks scan runs in the package's `check:pr`) |
@@ -127,7 +129,7 @@ through its own starter `.github/workflows/test-gate.yml` required status (the
 Test Gate).
 
 E2E callers must grant `contents: read`, `checks: write` and `packages: read` to their calling
-job, and their test runner must produce `reports/e2e/junit.xml`. The reusable
+job, and their test runner must produce `reports/test-e2e/junit.xml`. The reusable
 publishes a JUnit GitHub Check on writable-token runs. Fork pull requests and
 Dependabot runs retain annotations, the job summary, and artifacts without
 attempting a Checks API write. The E2E command's exit status remains the gate.
@@ -213,7 +215,7 @@ This bootstrap repository uses Docker, git and `just`; all project toolchains
 stay inside the image. After a GHCR login:
 
 ```bash
-just build
+just build-dev
 just setup
 just check
 just test

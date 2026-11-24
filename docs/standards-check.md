@@ -36,7 +36,7 @@ post-merge canary are in [project routing](reusable-workflows/project-route.md#p
   Setup failure fails its own step before either Check runs. There is no hook
   installation, standards installation, toolchain bootstrap or Docker daemon inside the job.
 - **Hosted/non-image Linux:** installs the checksum-pinned `just` release, logs
-  into GHCR with the job token, then runs `just build`, `just setup`, `just check`, `just check-pr`.
+  into GHCR with the job token, then runs `just build-dev`, `just setup`, `just check`, `just check-pr`.
   For macOS repositories only, the whole-tree command is `just exec standards check`
   so the native repository's combined `just check` does not invoke SwiftLint on Linux.
 - **Native macOS:** only for `ci-platform=macos`, a parallel `standards-macos` job

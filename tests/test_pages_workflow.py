@@ -248,7 +248,7 @@ def test_real_dispatcher_builds_custom_recipe_or_stops_before_artifact(tmp_path,
     just.write_text('#!/bin/sh\n'
                     'case "$1" in\n'
                     '  --summary) echo setup-macos ;;\n'
-                    '  build) echo build >> calls ;;\n'
+                    '  build-dev) echo build-dev >> calls ;;\n'
                     '  setup-macos) exec bin/setup.sh ;;\n'
                     '  exec) shift; exec "$@" ;;\n'
                     '  *) exec "bin/$1.sh" ;;\n'
@@ -266,5 +266,5 @@ def test_real_dispatcher_builds_custom_recipe_or_stops_before_artifact(tmp_path,
                                  'MODE': mode, 'RECIPE': 'site-build'}, capture_output=True, text=True)
     assert result.returncode == status, result.stderr
     assert (tmp_path / 'calls').read_text().splitlines() == (
-        ['build', 'setup', 'site-build'] if mode in ('compose', 'exec') else ['setup', 'site-build'])
+        ['build-dev', 'setup', 'site-build'] if mode in ('compose', 'exec') else ['setup', 'site-build'])
     assert (tmp_path / 'uploaded').exists() == (status == 0)

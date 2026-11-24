@@ -109,9 +109,9 @@ def test_junit_checks_every_file_and_each_required_concern(tmp_path):
     report(tmp_path, 'malformed.xml', 'reports/test/nested/invalid.xml')
     assert junit(tmp_path).returncode != 0
     (tmp_path / 'reports/test/nested/invalid.xml').unlink()
-    assert junit(tmp_path, 'test e2e').returncode != 0
-    report(tmp_path, 'passed.xml', 'reports/e2e/results.xml')
-    assert junit(tmp_path, 'test e2e').returncode == 0
+    assert junit(tmp_path, 'test test-e2e').returncode != 0
+    report(tmp_path, 'passed.xml', 'reports/test-e2e/results.xml')
+    assert junit(tmp_path, 'test test-e2e').returncode == 0
 
 
 @pytest.mark.parametrize('outcome', ['failure', 'cancelled', 'skipped', ''])
@@ -178,9 +178,9 @@ def test_ci_policy_reader_selects_the_base_interpreter_not_repository_pins(tmp_p
 
 def scripts(root, *, empty_test=False, fail=None):
     (root / 'bin').mkdir()
-    for name in ('test', 'typecheck', 'e2e', 'package'):
+    for name in ('test', 'typecheck', 'test-e2e', 'package'):
         evidence = ''
-        if name in ('test', 'e2e') and not (name == 'test' and empty_test):
+        if name in ('test', 'test-e2e') and not (name == 'test' and empty_test):
             evidence = (f'mkdir -p reports/{name}\n'
                         f"printf '<testsuite><testcase/></testsuite>' > reports/{name}/junit.xml\n")
         path = root / f'bin/{name}.sh'
@@ -192,8 +192,8 @@ def scripts(root, *, empty_test=False, fail=None):
 
 
 @pytest.mark.parametrize(('image', 'os_name', 'expected'), [
-    ('true', 'Linux', ['test', 'typecheck', 'e2e', 'package']),
-    ('false', 'Linux', ['test', 'typecheck', 'e2e', 'package']),
+    ('true', 'Linux', ['test', 'typecheck', 'test-e2e', 'package']),
+    ('false', 'Linux', ['test', 'typecheck', 'test-e2e', 'package']),
 ])
 def test_workflow_executes_only_the_applicable_lifecycle_scripts(tmp_path, image, os_name, expected):
     scripts(tmp_path)
@@ -202,13 +202,13 @@ def test_workflow_executes_only_the_applicable_lifecycle_scripts(tmp_path, image
     assert result.returncode == 0, result.stderr
     assert (tmp_path / 'ran').read_text().splitlines() == expected
     concerns = dict(line.split('=', 1) for line in output.splitlines())['concerns'].strip()
-    assert concerns == ('test' if os_name == 'macOS' else 'test e2e')
+    assert concerns == ('test' if os_name == 'macOS' else 'test test-e2e')
     assert junit(tmp_path, concerns=concerns).returncode == 0
 
 
 @pytest.mark.parametrize(('image', 'expected'), [
-    ('false', ['exec bin/test.sh', 'exec bin/typecheck.sh', 'exec bin/e2e.sh', 'exec bin/package.sh']),
-    ('true', ['test', 'typecheck', 'e2e', 'package']),
+    ('false', ['exec bin/test.sh', 'exec bin/typecheck.sh', 'exec bin/test-e2e.sh', 'exec bin/package.sh']),
+    ('true', ['test', 'typecheck', 'test-e2e', 'package']),
 ])
 def test_macos_shape_linux_leg_runs_scripts_in_the_built_dev_image(tmp_path, image, expected):
     scripts(tmp_path)
@@ -218,11 +218,11 @@ def test_macos_shape_linux_leg_runs_scripts_in_the_built_dev_image(tmp_path, ima
     assert result.returncode == 0, result.stderr
     ran = (tmp_path / 'ran').read_text().splitlines()
     if image == 'false':
-        assert ran[1::2] == ['test', 'typecheck', 'e2e', 'package']
+        assert ran[1::2] == ['test', 'typecheck', 'test-e2e', 'package']
         ran = ran[::2]
     assert ran == expected
     concerns = dict(line.split('=', 1) for line in output.splitlines())['concerns'].strip()
-    assert concerns == 'test e2e'
+    assert concerns == 'test test-e2e'
     assert junit(tmp_path, concerns=concerns).returncode == 0
 
 
@@ -268,8 +268,8 @@ def test_setup_uses_native_scripts_or_literal_host_recipes(tmp_path):
     (binary / 'just').write_text('#!/bin/sh\necho "$*" >> ran\n')
     (binary / 'just').chmod(0o755)
     for image, shape, expected in [('true', 'linux', ['image']), ('true', 'macos', ['image']),
-                                   ('false', 'linux', ['build', 'setup']), ('false', '', ['build', 'setup']),
-                                   ('false', 'macos', ['build', 'exec bin/setup.sh'])]:
+                                   ('false', 'linux', ['build-dev', 'setup']), ('false', '', ['build-dev', 'setup']),
+                                   ('false', 'macos', ['build-dev', 'exec bin/setup.sh'])]:
         (tmp_path / 'ran').unlink(missing_ok=True)
         result, _ = run_shell('Set up dependencies', tmp_path, CI_IMAGE=image, RUNNER_OS='Linux', SHAPE=shape,
                               PATH=f'{binary}:{os.environ["PATH"]}')

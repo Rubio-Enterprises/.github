@@ -117,7 +117,7 @@ jobs:
             fi
             trivy fs --download-db-only --no-progress --quiet --cache-dir "$TRIVY_CACHE_DIR"
           else
-            just build
+            just build-dev
             just exec trivy fs --download-db-only --no-progress --quiet --cache-dir "$TRIVY_CACHE_DIR"
           fi
           echo 'ready=true' >>"$GITHUB_OUTPUT"

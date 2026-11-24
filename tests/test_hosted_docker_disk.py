@@ -77,7 +77,7 @@ def test_central_checkouts_do_not_overlap_repository_execution():
 
 def docker_work(step):
     return (
-        re.search(r'\bjust (?:build|setup)(?:\s|$)|\bdocker (?:build|compose|load|pull|run)\b', step.get('run', ''))
+        re.search(r'\bjust (?:build-dev|setup)(?:\s|$)|\bdocker (?:build|compose|load|pull|run)\b', step.get('run', ''))
         or step.get('uses', '').startswith(('docker/setup-buildx-action@', 'docker/build-push-action@'))
         or ('/actions/app-image@' in step.get('uses', '')
             and step.get('with', {}).get('operation') in ('smoke', 'pull'))

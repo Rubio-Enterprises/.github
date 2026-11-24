@@ -30,7 +30,7 @@ class E2E(unittest.TestCase):
             with self.subTest(image=image), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "bin").mkdir()
-                for name in ("setup", "e2e"):
+                for name in ("setup", "test-e2e"):
                     p = root / "bin" / f"{name}.sh"
                     p.write_text(f"#!/bin/sh\necho {name} >> calls\n")
                     p.chmod(0o755)
@@ -41,7 +41,7 @@ class E2E(unittest.TestCase):
                 for step in ("Install repository dependencies", "Run E2E suite"):
                     result = subprocess.run(["bash", "-euc", run_body(step)], cwd=root, env=env, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                expected = ["setup", "e2e"] if image == "true" else ["just build", "just setup", "just e2e"]
+                expected = ["setup", "test-e2e"] if image == "true" else ["just build-dev", "just setup", "just test-e2e"]
                 self.assertEqual((root / "calls").read_text().splitlines(), expected)
 
     def test_junit_rejects_missing_empty_skipped_failed_and_bad_xml(self):
@@ -51,7 +51,7 @@ class E2E(unittest.TestCase):
         for xml in reports:
             with self.subTest(xml=xml), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                (root / "reports/e2e").mkdir(parents=True)
-                if xml is not None: (root / "reports/e2e/junit.xml").write_text(xml)
+                (root / "reports/test-e2e").mkdir(parents=True)
+                if xml is not None: (root / "reports/test-e2e/junit.xml").write_text(xml)
                 result = subprocess.run(["bash", "-euc", body], cwd=root, env={**os.environ, "SUITE_OUTCOME": "success"}, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, xml == reports[-1], result.stderr)

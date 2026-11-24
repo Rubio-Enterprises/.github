@@ -22,7 +22,7 @@ linters still run in the dev image through `just`.
 
 ## Local commands
 
-First command: `just build`. Host prerequisites are Docker, git and `just`, plus a
+First command: `just build-dev`. Host prerequisites are Docker, git and `just`, plus a
 GHCR login. Never install project toolchains on the host.
 
 - `just setup` syncs the test dependencies into the project volume.
@@ -75,7 +75,7 @@ preset are retired (standards v2 flag day, 2026-10-31).
 | `pages.yml` | Build a site with the shared Lifecycle dispatcher on the Test Gate's project route, then deploy a declared directory to Pages. Refuses repositories with CodeWiki metadata. Before changing inputs, build environment or deployment, read [`docs/reusable-workflows/pages.md`](docs/reusable-workflows/pages.md) |
 | `codewiki-pages.yml` | Push-to-default deploy of a committed CodeWiki (`docs/codewiki/` minus `temp/`, requires the `index.html` viewer) to Pages; the starter caller runs it when `docs/codewiki/metadata.json` exists. Caller grants `contents: read`, `pages: write`, `id-token: write`; Pages enablement/visibility is `.github-private` Terraform's. See [`docs/reusable-workflows/codewiki-pages.md`](docs/reusable-workflows/codewiki-pages.md) |
 | `secret-scan.yml` | Scheduled / dispatched trufflehog full-history scan (`mode: trufflehog`, `--results=verified`); rejects any other mode. The PR-range gitleaks scan runs in the package's `check:pr` |
-| `e2e.yml` | Runs `bin/setup.sh` and `bin/e2e.sh` in a CI Image, otherwise `just setup` and `just e2e`; requires executed JUnit cases at `reports/e2e/junit.xml`. Uses `project-route.yml`, including the native macOS route |
+| `e2e.yml` | Runs `bin/setup.sh` and `bin/test-e2e.sh` in a CI Image, otherwise `just setup` and `just test-e2e`; requires executed JUnit cases at `reports/test-e2e/junit.xml`. Uses `project-route.yml`, including the native macOS route |
 | `testflight.yml` | The signed Apple build reusable — see [`docs/reusable-workflows/testflight.md`](docs/reusable-workflows/testflight.md) and [ADR-0002](docs/adr/0002-shared-apple-testflight-release-architecture.md) |
 | `bump-brew.yml` | Bumps a `:git`-strategy Homebrew formula in `homebrew-tap` to the **release tag that triggered the caller** — rewrites the top-level source `tag:` + `revision:` and inserts/updates `version` (no tarball/sha256, since `:git` formulae build from source) |
 
@@ -207,8 +207,16 @@ release for this repository. Recover regressions through reviewed reverts.
   entries before update classification; the explicit replacement always writes
   `version = "<sha>"  # <tag>`.
 
+  **Renovate writes no mise lock; `just generate` does.** The first package rule sets
+  `skipArtifactsUpdate` for the `mise` manager, and the top-level `postUpgradeTasks` runs
+  `just generate` in branch mode after every update, from any manager, keeping every changed
+  file (`fileFilters: ["**/*"]`). The standards `generate` Recipe relocks `image/mise.lock`
+  for the fleet's three platforms in the base the repository's Dockerfile names, rebuilds the
+  dev image and runs `bin/generate.sh`; the central runner allowlists only `^just generate$`
+  (standards#1086, Decisions 5 and 6). A repository config drops its own `postUpgradeTasks`.
+
   **Mise lock sidecars** (`**/.mise/locks/**`) are generated outputs, not independent
-  manager inputs. Their pins still update through `image/mise.toml`, and Renovate
+  manager inputs. Their pins still update through `image/mise.toml`, and `just generate`
   commits the regenerated sidecars with `image/mise.lock`. Keep mise lock maintenance
   on. `ignorePaths` replaces the inherited list, so preserve the module/test defaults
   alongside the sidecar glob when editing it. The one deliberate omission is `**/test/**`:

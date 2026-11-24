@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import sys
 
-CONCERNS = ('test', 'typecheck', 'e2e', 'package')
+CONCERNS = ('test', 'typecheck', 'test-e2e', 'package')
 POLICY = Path('.github/standards.toml')
 
 
@@ -65,7 +65,7 @@ def main():
                 print('::notice::Test Gate opted out in .github/standards.toml (reason recorded in policy)')
         else:
             selected = [] if whole is not None else select(args.select, excluded)
-            evidence = ''.join(f' {name}' for name in selected if name in ('test', 'e2e'))
+            evidence = ''.join(f' {name}' for name in selected if name in ('test', 'test-e2e'))
             output.write(f'concerns={evidence}\n')
             output.write(f'artifact-concerns={"-".join(selected) or "none"}\n')
             for name in CONCERNS:

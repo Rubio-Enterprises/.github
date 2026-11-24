@@ -4,7 +4,7 @@ import pytest
 
 from test_test_gate import junit, report, run_shell, scripts
 
-CONCERNS = ('test', 'typecheck', 'e2e', 'package')
+CONCERNS = ('test', 'typecheck', 'test-e2e', 'package')
 
 
 def shape(root):
@@ -24,7 +24,7 @@ def test_shape_runs_all_concerns_through_just(tmp_path):
     result, values = execute(tmp_path)
     assert result.returncode == 0, result.stderr
     assert (tmp_path / 'ran').read_text().splitlines() == list(CONCERNS)
-    assert values == {'concerns': ' test e2e', 'artifact-concerns': '-'.join(CONCERNS),
+    assert values == {'concerns': ' test test-e2e', 'artifact-concerns': '-'.join(CONCERNS),
                       'package': 'true'}
     evidence = junit(tmp_path, values['concerns'])
     assert evidence.returncode == 0, evidence.stderr
@@ -34,9 +34,9 @@ def test_shape_runs_all_concerns_through_just(tmp_path):
 @pytest.mark.parametrize('kind', ['missing', 'empty', 'zero', 'all-skipped', 'failed', 'malformed'])
 def test_shape_requires_fresh_executed_e2e_cases(tmp_path, kind):
     shape(tmp_path)
-    report(tmp_path, 'passed.xml', 'reports/e2e/stale.xml')
-    script = tmp_path / 'bin/e2e.sh'
-    script.write_text('#!/bin/sh\necho e2e >> ran\n')
+    report(tmp_path, 'passed.xml', 'reports/test-e2e/stale.xml')
+    script = tmp_path / 'bin/test-e2e.sh'
+    script.write_text('#!/bin/sh\necho test-e2e >> ran\n')
     if kind != 'missing':
         xml = {
             'empty': '', 'zero': '<testsuite tests="0"/>',
@@ -44,22 +44,22 @@ def test_shape_requires_fresh_executed_e2e_cases(tmp_path, kind):
             'failed': '<testsuite><testcase><failure/></testcase></testsuite>',
             'malformed': '<testsuite>',
         }[kind]
-        script.write_text(script.read_text() + 'mkdir -p reports/e2e\n'
-                          + f"printf '%s' '{xml}' > reports/e2e/junit.xml\n")
+        script.write_text(script.read_text() + 'mkdir -p reports/test-e2e\n'
+                          + f"printf '%s' '{xml}' > reports/test-e2e/junit.xml\n")
     result, values = execute(tmp_path)
     assert result.returncode == 0, result.stderr
-    assert values['concerns'] == ' test e2e'
-    assert not (tmp_path / 'reports/e2e/stale.xml').exists()
+    assert values['concerns'] == ' test test-e2e'
+    assert not (tmp_path / 'reports/test-e2e/stale.xml').exists()
     assert junit(tmp_path, values['concerns']).returncode != 0
 
 
 def test_shape_e2e_failure_fails_even_with_passing_reports(tmp_path):
     shape(tmp_path)
-    script = tmp_path / 'bin/e2e.sh'
+    script = tmp_path / 'bin/test-e2e.sh'
     script.write_text(script.read_text().replace('exit 0', 'exit 7'))
     result, values = execute(tmp_path)
     assert result.returncode != 0
-    assert (tmp_path / 'ran').read_text().splitlines() == ['test', 'typecheck', 'e2e']
+    assert (tmp_path / 'ran').read_text().splitlines() == ['test', 'typecheck', 'test-e2e']
     assert junit(tmp_path, values['concerns'], outcome='failure').returncode != 0
 
 

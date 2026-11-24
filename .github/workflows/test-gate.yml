@@ -94,7 +94,7 @@ jobs:
           if [ -n "$MACOS_CONCERNS" ]; then
             test "$platform" = macos
             for concern in $MACOS_CONCERNS; do
-              case "$concern" in test|typecheck|e2e|package) ;; *) echo '::error::invalid macOS concern'; exit 1 ;; esac
+              case "$concern" in test|typecheck|test-e2e|package) ;; *) echo '::error::invalid macOS concern'; exit 1 ;; esac
             done
           fi
           echo "platform=$platform" >> "$GITHUB_OUTPUT"
@@ -209,7 +209,7 @@ jobs:
           docker load < "$RUNNER_TEMP/gate-candidate/base-candidate.tar.gz"
           perl -pi -e 's{^FROM ghcr.io/rubio-enterprises/base:\S+ AS dev.*}
             {FROM ghcr.io/rubio-enterprises/base:candidate AS dev}' Dockerfile
-          # just build --pull must not replace the unpublished candidate
+          # just build-dev --pull must not replace the unpublished candidate
           perl -pi -e 's/docker compose build --pull dev/docker compose build dev/' justfile
       - name: Set up dependencies
         if: steps.policy.outputs.opted-out != 'true'
@@ -245,7 +245,7 @@ jobs:
           for step in $selected; do
             script="bin/$step.sh"
             test -f "$script" && test -x "$script"
-            case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
+            case "$step" in test|test-e2e) rm -rf "reports/$step" ;; esac
             if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
             echo "::group::$script"
             mode=compose
@@ -447,7 +447,7 @@ jobs:
               echo "::error::macOS concern $step requires executable $script"
               exit 1
             fi
-            case "$step" in test|e2e) rm -rf "reports/$step" ;; esac
+            case "$step" in test|test-e2e) rm -rf "reports/$step" ;; esac
             if [ "$step" = package ]; then echo 'package=true' >> "$GITHUB_OUTPUT"; fi
             echo "::group::$script"
             mode=macos

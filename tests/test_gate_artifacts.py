@@ -30,7 +30,7 @@ def test_lifecycle_announces_concern_set_and_package_attempt(tmp_path, job, imag
     result, output = run_shell('Run Lifecycle Scripts', tmp_path, job=job, CI_IMAGE=image,
                                MACOS_CONCERNS=selected, PATH=f'{tmp_path / "bin"}:{os.environ["PATH"]}')
     values = dict(line.split('=', 1) for line in output.splitlines())
-    expected = 'test-package' if selected else 'test-typecheck-e2e-package'
+    expected = 'test-package' if selected else 'test-typecheck-test-e2e-package'
     assert values['artifact-concerns'] == expected
     ran = (tmp_path / 'ran').read_text().splitlines()
     assert values.get('package') == ('true' if 'package' in ran else None)
@@ -274,7 +274,7 @@ def test_upload_action_has_one_pin_short_retention_and_no_empty_warning():
 def test_names_are_unique_for_legs_concerns_attempts_and_representatives():
     steps = document()['runs']['steps']
     names = set()
-    for job, concerns, attempt, repo, upload in product(JOBS, ('test', 'test-package', 'test-typecheck-e2e-package'),
+    for job, concerns, attempt, repo, upload in product(JOBS, ('test', 'test-package', 'test-typecheck-test-e2e-package'),
                                                        (1, 2), ('', 'org-ops', 'SaneBar'), ('reports', 'package')):
         pattern = next(s['with']['name'] for s in steps if s.get('id') == upload)
         assert pattern == "${{ inputs.name }}-" + upload + "-${{ github.run_attempt }}${{ inputs.representative != '' && format('-{0}', inputs.representative) || '' }}"
