@@ -74,7 +74,7 @@ jobs:
             }
             let route = process.env.ROUTE;
             const testRoute = route === 'test';
-            let inspectImageInputs = process.env.INSPECT_IMAGE_INPUTS === 'true' && ['linux', 'test'].includes(route);
+            const inspectImageInputs = process.env.INSPECT_IMAGE_INPUTS === 'true' && ['linux', 'test'].includes(route);
             let macosConcerns = [];
             let platform = route === 'macos' ? 'macos' : 'linux';
             let shape = '';
@@ -111,8 +111,6 @@ jobs:
                   throw new Error('ci-test-macos applies to repositories whose Test Gate runs on Linux');
                 }
               }
-              // A macOS Shape's Linux test leg checks its image like a Linux repository; its native jobs have no Dev Image
-              inspectImageInputs &&= platform !== 'macos';
             }
             if (!Object.hasOwn(fallbacks, route)) {
               throw new Error('route must be auto, linux, test, small, medium, docker, kvm, arm or macos');
