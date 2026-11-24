@@ -1261,6 +1261,24 @@ class RenovateConfigContractTests(unittest.TestCase):
         sample = '# renovate: datasource=github-releases depName=jdx/mise\nMISE_VERSION: "2099.1.2"'
         self.assertEqual(matcher.findall(sample), ["2099.1.2"])
 
+    def test_bare_mise_github_tool_pins_stay_bare(self) -> None:
+        rules = [rule for rule in CONFIG["packageRules"] if "extractVersion" in rule
+                 and rule.get("matchManagers") == ["mise"]]
+        self.assertEqual(len(rules), 1)
+        extract = _python_regex(rules[0]["extractVersion"])
+        self.assertEqual(extract.fullmatch("v2.20.2").group("version"), "2.20.2")
+        self.assertEqual(extract.fullmatch("0.10.1").group("version"), "0.10.1")
+        self.assertIsNone(extract.fullmatch("nightly"))
+        tool = {"manager": "mise", "datasource": "github-releases",
+                "depName": "goreleaser/goreleaser", "packageName": "goreleaser/goreleaser",
+                "fileName": "image/mise.toml"}
+        self.assertTrue(_rule_matches(rules[0], {**tool, "currentValue": "2.20.0"}, {}))
+        # A pin written with its tag prefix keeps the prefix
+        self.assertFalse(_rule_matches(rules[0], {**tool, "currentValue": "v2.20.0"}, {}))
+        for other in ({**tool, "datasource": "github-tags", "currentValue": "2.20.0"},
+                      {**tool, "manager": "custom.regex", "currentValue": "2.20.0"}):
+            self.assertFalse(_rule_matches(rules[0], other, {}))
+
     def test_mise_cli_override_is_manager_independent(self) -> None:
         mise_update = {
             "depName": "jdx/mise",
