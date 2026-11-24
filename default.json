@@ -42,6 +42,13 @@
       "skipArtifactsUpdate": true
     },
     {
+      "description": "mise `github:` tools pinned bare (`\"2.20.0\"`) follow tags such as `v2.20.2`. Renovate's mise github backend adds an extractVersion only for a `version_prefix` option (its aqua and ubi backends strip the `v`), so a bump wrote `v2.20.2` into image/mise.toml while mise locks `version = \"2.20.2\"`, and the locked-tools Check rejected it. Strip the prefix to keep the pin bare.",
+      "matchManagers": ["mise"],
+      "matchDatasources": ["github-releases"],
+      "matchCurrentValue": "/^\\d/",
+      "extractVersion": "^v?(?<version>\\d.*)$"
+    },
+    {
       "description": "Biome is owned only by the standards mise floor. Freeze npm manifest copies (including upstream fork pins) without disabling custom.regex floor/schema bumps in standards.",
       "matchManagers": ["npm"],
       "matchPackageNames": ["@biomejs/biome"],
