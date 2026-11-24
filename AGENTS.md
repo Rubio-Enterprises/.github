@@ -181,9 +181,12 @@ release for this repository. Recover regressions through reviewed reverts.
 
   Stable and pre-1.0 minor, patch, pin, digest and `pinDigest` updates use Renovate-side
   automerge after the applicable release-age checks and green CI. The seven-day default and
-  existing age exemptions stay in place. Renovate supplies no timestamp for ordinary `pin`
-  updates. `config:best-practices` already skips the age check for npm pins, and this
-  preset exempts named Python dev-tool pins. Other undated pins can still be blocked.
+  existing age exemptions stay in place. Every ordinary `pin` update skips the wait: a pin
+  writes the version the range already allows, usually the one the lock already resolves,
+  so it adopts no new release, and Renovate gives it no timestamp
+  ([renovatebot/renovate#40288](https://github.com/renovatebot/renovate/issues/40288)), so
+  a soaked pin would stay pending forever. Pins still merge only when green; `pinDigest`
+  and version updates keep the wait.
   Semver allows breaking changes in 0.x minors: CI only guards what it exercises.
   Keep both automerge rules before the language and image holds and the major draft rule
   last, so grouping and fast lanes cannot re-arm a hold. The Dependency Dashboard shows

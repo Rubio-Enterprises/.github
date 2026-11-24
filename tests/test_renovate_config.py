@@ -487,7 +487,9 @@ class RenovateConfigContractTests(unittest.TestCase):
                     self.assertEqual(resolved["draftPR"], held)
                     self.assertEqual(resolved["prConcurrentLimit"], 1 if held else 5)
                     self.assertEqual(resolved["branchConcurrentLimit"], 1 if held else 5)
-                    self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+                    self.assertEqual(
+                        resolved["minimumReleaseAge"], None if update == "pin" else "7 days"
+                    )
 
     def test_image_pin_policy_keeps_other_locations_and_managers_unchanged(self) -> None:
         for manager, file_name in (
@@ -644,10 +646,13 @@ class RenovateConfigContractTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.assertEqual(_resolve_dependency({**dependency, **changes})["rangeStrategy"], "bump")
 
-    def test_python_dev_tool_pin_alone_skips_the_soak(self) -> None:
+    def test_pins_alone_skip_the_soak(self) -> None:
+        # Renovate gives `pin` updates no release timestamp (renovatebot/renovate#40288),
+        # so a soaked pin would wait on renovate/stability-days forever.
         dependency = {
             "repository": "Rubio-Enterprises/avr",
             "manager": "pep621",
+            "datasource": "pypi",
             "depName": "mypy",
             "packageName": "mypy",
             "fileName": "pyproject.toml",
@@ -655,20 +660,23 @@ class RenovateConfigContractTests(unittest.TestCase):
             "currentVersion": "0.16.4",
             "updateType": "pin",
         }
-        for dep_type in ("dependency-groups", "tool.uv.dev-dependencies"):
-            with self.subTest(dep_type=dep_type):
-                self.assertIsNone(_resolve_dependency({**dependency, "depType": dep_type})["minimumReleaseAge"])
-
         for changes in (
-            {"updateType": "patch"},
-            {"updateType": "major"},
+            {},
+            {"depType": "tool.uv.dev-dependencies"},
             {"depType": "project.dependencies"},
             {"packageName": "black", "depName": "black"},
-            {"manager": "npm", "fileName": "package.json"},
+            {"currentVersion": "2.4.1"},
+            {"manager": "npm", "datasource": "npm", "fileName": "package.json"},
+            {"manager": "cargo", "datasource": "crate", "fileName": "Cargo.toml"},
         ):
             with self.subTest(changes=changes):
+                self.assertIsNone(_resolve_dependency({**dependency, **changes})["minimumReleaseAge"])
+
+        for update in ("patch", "minor", "major", "digest", "pinDigest"):
+            with self.subTest(update=update):
                 self.assertEqual(
-                    _resolve_dependency({**dependency, **changes})["minimumReleaseAge"], "7 days"
+                    _resolve_dependency({**dependency, "updateType": update})["minimumReleaseAge"],
+                    "7 days",
                 )
 
     def test_starter_workflow_pins_advance_only_through_the_package(self) -> None:
@@ -1004,7 +1012,10 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertEqual(resolved["groupSlug"], expected_slug)
                 self.assertTrue(resolved["automerge"])
                 self.assertFalse(resolved["platformAutomerge"])
-                self.assertEqual(resolved["minimumReleaseAge"], "7 days")
+                self.assertEqual(
+                    resolved["minimumReleaseAge"],
+                    None if dependency["updateType"] == "pin" else "7 days",
+                )
                 self.assertFalse(resolved["draftPR"])
                 slugs_by_group[expected_group] = expected_slug
 
@@ -1457,7 +1468,7 @@ class RenovateConfigContractTests(unittest.TestCase):
         self.assertEqual(stable_member["groupSlug"], pin_member["groupSlug"])
         self.assertTrue(pin_member["automerge"])
         self.assertFalse(pin_member["draftPR"])
-        self.assertEqual(pin_member["minimumReleaseAge"], "7 days")
+        self.assertIsNone(pin_member["minimumReleaseAge"])
 
     def test_update_groups_inherit_automerge(self) -> None:
         for group_name in (
@@ -1517,6 +1528,7 @@ class RenovateConfigContractTests(unittest.TestCase):
 
     def test_tool_runtime_pypi_updates_wait_the_uv_release_age(self) -> None:
         # uv projects set exclude-newer to the global age, so a younger PyPI release cannot lock.
+        # A pin writes the version uv.lock already resolves, so it skips the soak.
         group_rule = _rule_with_group("tool runtime dependencies")
         for name in group_rule["matchDepNames"]:
             for update in group_rule["matchUpdateTypes"]:
@@ -1528,7 +1540,8 @@ class RenovateConfigContractTests(unittest.TestCase):
                             "fileName": "pyproject.toml", "depType": "project.dependencies",
                             "currentVersion": current, "updateType": update,
                         })
-                        self.assertEqual(resolved["minimumReleaseAge"], CONFIG["minimumReleaseAge"])
+                        expected = None if update == "pin" else CONFIG["minimumReleaseAge"]
+                        self.assertEqual(resolved["minimumReleaseAge"], expected)
 
     def test_git_sourced_kit_keeps_the_first_party_fast_lane(self) -> None:
         # Renovate maps a uv git source on github.com to github-tags with the owner path.
