@@ -72,10 +72,10 @@ Outputs:
   `platform=linux` with `shape=macos`: the Linux leg of a macOS Shape.
 - `runner`: JSON label array for `runs-on: fromJSON(...)`.
 - `ci-image`: the string `true` only for a repository-specific CI Image runner; otherwise `false`.
-- `image-inputs`: `changed`, `unchanged`, `unknown` or `not-checked`. Only eligible Linux
-  `linux`/`test` pull-request and merge-group calls with `inspect-image-inputs: true`
-  inspect image inputs; a `linux` call from a macOS Shape does not. Calls without the
-  input return `not-checked`.
+- `image-inputs`: `changed`, `unchanged`, `unknown` or `not-checked`. Only
+  `linux`/`test` calls for pull requests and merge groups inspect image inputs,
+  and only when opted in and about to select a CI Image. Other calls return
+  `not-checked`.
 - `macos-concerns`: space-separated declared concerns in canonical order; empty on non-test routes or without a declaration.
 - `macos-runner`: JSON label array for the Test Gate's macOS job, independent of the Linux runner.
 
@@ -123,12 +123,15 @@ decision. Their existing Compose branches build the checked-out pull request's D
 Image with `just build-dev`, then run their normal Checks and Lifecycle Tasks in it.
 No image is published and no tools are overlaid onto the default-branch CI Image.
 
-The decision applies to the job's effective Linux platform. A macOS Shape whose
-`ci-test-route` sends its Test Gate (or built-site Pages job) to `small` or `medium`
-therefore gets the same detection on that `test` call. Its justfile defines `setup`
-only for macOS, so the caller sees `shape=macos` and runs the Lifecycle dispatcher's
-`exec` mode: `just build-dev`, then each `bin/<name>.sh` through `just exec` in the built
-Dev Image, the same scripts a CI Image runs directly
+This includes a macOS Shape's `linux` call: `standards-linux` runs in a Linux
+image. The router still returns `platform=macos` so Standards schedules its
+native leg and, on Docker, runs `just exec standards check` in the Dev Image.
+
+A macOS Shape whose `ci-test-route` sends its Test Gate or built-site Pages job
+to `small` or `medium` gets the same detection on that `test` call. Its justfile
+defines `setup` only for macOS, so the caller sees `shape=macos` and uses the
+Lifecycle dispatcher's `exec` mode: `just build-dev`, then each `bin/<name>.sh`
+through `just exec` in the Dev Image. A CI Image runs these scripts directly
 ([ADR-0049](https://github.com/Rubio-Enterprises/standards/blob/main/docs/adr/0049-check-a-macos-shapes-linux-test-leg-in-its-changed-dev-image.md)).
 
 The router uses `actions/github-script`'s automatic job token with only `contents: read`
@@ -174,9 +177,9 @@ all callers without `inspect-image-inputs: true`, are unchanged. A job with
 `ci-test-route=arm` already builds the pull request's Dev Image on ARM and stays
 there; its separate Standards `linux` call uses Docker on an image-input change
 instead of the CI Image it would otherwise select. Existing Docker
-Test Gates stay Docker. A macOS Shape's own macOS jobs are exempt: its native checks
-have no Dev Image, so its `linux` Standards call, macOS-shape Test Gate and declared
-macOS concerns retain their routing. Only its Linux `test` leg inspects image inputs.
+Test Gates stay Docker. Native macOS jobs do not use a Dev Image. The `macos`
+route and `test` calls that resolve to native macOS never inspect image inputs;
+separate native jobs retain their routing.
 
 The router logs the effective route, image-input decision, whether it selected a
 CI Image and the runner labels. It stays a Docker-free small job with no
@@ -200,6 +203,11 @@ Use `Rubio-Enterprises/org-ops` (private, ID `1277378935`, small) with its ID in
 2. Append exactly `<!-- Non-image routing canary. -->` to `README.md`, without any
    image-input change. Both route calls must report `image inputs: unchanged` and
    use `ci-1277378935-org-ops-small`, with no Dev Image build.
+
+For macOS coverage, repeat on a CI-Image-admitted macOS Shape such as
+`Rubio-Enterprises/t3code-overlay`. Expect the same `standards-linux` routing
+outcomes and verify that `standards-macos` still runs natively. The Docker case
+must run `just exec standards check` after `just build-dev`.
 
 Record the run URLs, head SHAs, runner names and build/Check logs. The first pair
 proves routing and building, not that a new toolchain rejects code. Also use an

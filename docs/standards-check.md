@@ -20,15 +20,17 @@ no image-input inspection. The router's `linux` selection uses `ci-size` for the
 Linux leg even when `ci-platform=macos`, and returns the declared platform separately. A route failure
 fails the required aggregate without running project code.
 
-When a Linux-shape pull request or merge group would otherwise use a CI Image,
-the router compares the event's base and head. If image inputs changed or the
-file list is unavailable or incomplete, the router selects the `docker` route
-and `ci-image=false`. `standards-linux` then uses the same
-hosted/non-image steps below, including hosted disk preparation and the
-container-visible trivy context, to check the pull request's own Dev Image.
-Non-image changes keep the CI Image. Public repositories already build through
-Compose; macOS shapes retain both existing legs. The path list, API limits and
-post-merge canary are in [project routing](reusable-workflows/project-route.md#pull-request-image-inputs).
+When `standards-linux` would otherwise use a CI Image, the router compares the
+pull request or merge group's base and head for both Linux and macOS Shapes.
+Changed image inputs or an unavailable or incomplete file list select the
+`docker` route and `ci-image=false`. The hosted/non-image steps below check the
+pull request's own Dev Image using hosted disk preparation where applicable and
+the container-visible trivy context. Non-image changes keep the CI Image. Public
+repositories already build through Compose. The native macOS leg does not
+inspect image inputs. See [project routing][image-inputs] for the path list, API
+limits and post-merge canary.
+
+[image-inputs]: reusable-workflows/project-route.md#pull-request-image-inputs
 
 - **CI Image:** installs checkout dependencies with `bin/setup.sh`, the same
   dependency-only interface as the Test Gate, then calls `standards check` and
@@ -36,9 +38,11 @@ post-merge canary are in [project routing](reusable-workflows/project-route.md#p
   Setup failure fails its own step before either Check runs. There is no hook
   installation, standards installation, toolchain bootstrap or Docker daemon inside the job.
 - **Hosted/non-image Linux:** installs the checksum-pinned `just` release, logs
-  into GHCR with the job token, then runs `just build-dev`, `just setup`, `just check`, `just check-pr`.
-  For macOS repositories only, the whole-tree command is `just exec standards check`
-  so the native repository's combined `just check` does not invoke SwiftLint on Linux.
+  into GHCR with the job token, then runs `just build-dev`. For Linux Shapes it
+  runs `just setup` and `just check`. For macOS Shapes it runs
+  `just exec bin/setup.sh` only if a Gemfile is present, then runs
+  `just exec standards check` to avoid invoking native checks on Linux. Both
+  shapes run `just check-pr`.
 - **Native macOS:** only for `ci-platform=macos`, a parallel `standards-macos` job
   uses `RUNNERS.macos` (fallback `macos-26`), checks out with no persisted credential,
   installs `just`, then runs `setup-macos` and `check-macos` when listed by `just --summary`,

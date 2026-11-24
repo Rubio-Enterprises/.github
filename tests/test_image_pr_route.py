@@ -190,14 +190,12 @@ def test_test_overrides_keep_arm_and_macos_and_rebuild_on_existing_compose_route
     assert result['output']['platform'] == ('macos' if override == 'macos' else 'linux')
 
 
-@pytest.mark.parametrize('route', ['linux', 'test'])
-def test_declared_macos_shape_is_unchanged(route):
-    result = route_event(route=route, properties={'ci-platform': 'macos'})
-    if route == 'linux':
-        repo_id = IMAGE_PR['event']['repository']['id']
-        data = assert_selection(result, [f'ci-{repo_id}-aw-server-rust-small'], True, 'not-checked')
-    else:
-        data = assert_selection(result, RUNNERS['macos'], inputs='not-checked')
+@pytest.mark.parametrize('route', ['macos', 'test'])
+@pytest.mark.parametrize('event_name', ['pull_request', 'merge_group'])
+def test_native_macos_routes_never_inspect_image_inputs(route, event_name):
+    result = route_event(route=route, event_name=event_name, properties={'ci-platform': 'macos'})
+    data = assert_selection(result, RUNNERS['macos'], inputs='not-checked')
+    assert data['output']['platform'] == 'macos'
     assert data['calls'] == []
 
 
@@ -220,11 +218,20 @@ def test_macos_shape_linux_test_leg_builds_its_changed_image(size, override, eve
     assert data['output']['shape'] == 'macos'
 
 
-def test_macos_shape_standards_linux_route_keeps_its_ci_image():
-    data = route_event(route='linux', properties={'ci-platform': 'macos', 'ci-test-route': 'medium'})
-    repo_id = IMAGE_PR['event']['repository']['id']
-    data = assert_selection(data, [f'ci-{repo_id}-aw-server-rust-small'], True, 'not-checked')
-    assert data['calls'] == []
+@pytest.mark.parametrize('event_name', ['pull_request', 'merge_group'])
+@pytest.mark.parametrize('record,inputs', [
+    (IMAGE_PR, 'changed'), (SOURCE_PR, 'unchanged'), (IMAGE_PR, 'unknown'),
+], ids=['changed', 'unchanged', 'unknown'])
+def test_macos_shape_standards_linux_route_inspects_image_inputs(event_name, record, inputs):
+    result = route_event(record, route='linux', event_name=event_name,
+                         properties={'ci-platform': 'macos', 'ci-test-route': 'medium'},
+                         compare_error=inputs == 'unknown')
+    image = inputs == 'unchanged'
+    repo_id = record['event']['repository']['id']
+    expected = [f"ci-{repo_id}-{record['repo']['repo']}-small"] if image else RUNNERS['docker']
+    data = assert_selection(result, expected, image, inputs)
+    assert [call['path'] for call in data['calls']] == ['GET /repos/{owner}/{repo}/compare/{basehead}']
+    assert data['output']['platform'] == 'macos'
     assert data['output']['shape'] == 'macos'
 
 
