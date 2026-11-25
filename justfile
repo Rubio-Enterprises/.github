@@ -25,6 +25,11 @@ check-pr:
 test *args:
     docker compose run --rm -T dev bin/test.sh "$@" </dev/null
 
+generate *args:
+    @docker run --rm -v "$REPO_DIR:$REPO_DIR" -w "$REPO_DIR" -e MISE_GITHUB_TOKEN -e GH_TOKEN "$(awk '/^FROM ghcr.io\/rubio-enterprises\/base:/ { print $2; exit }' Dockerfile)" standards lock </dev/null
+    @just build-dev
+    docker compose run --rm -T dev standards generate "$@" </dev/null
+
 shell:
     docker compose run --rm dev bash
 
