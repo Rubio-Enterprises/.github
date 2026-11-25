@@ -145,8 +145,9 @@ release for this repository. Recover regressions through reviewed reverts.
 - **`default.json`** is the **org-wide shared preset**. Every consumer's `renovate.json` does
   `extends: ["github>Rubio-Enterprises/.github"]`, which resolves to this file — so editing it
   changes Renovate behavior across onboarded consumers. The shared preset schedules
-  ordinary update branches for weekends in `America/Chicago`; package-specific
-  rules may have narrower schedules. Security vulnerability alert PRs retain
+  ordinary update branches for weekends in `America/Chicago` (`schedule:weekends`); during the
+  temporary backlog drain below, that preset is removed and branches open at any time.
+  Package-specific rules may have narrower schedules. Security vulnerability alert PRs retain
   Renovate's immediate default. Key rules: the built-in **`mise` manager is on** (runtime pins in a
   repository's `image/mise.toml` are repository-owned; the check-tool pins live in the Standards Package);
   the **`copier` manager is off** (Copier is retired); **`github-actions` manager disabled for the
@@ -167,7 +168,7 @@ release for this repository. Recover regressions through reviewed reverts.
 
   - **Majors** as classified by Renovate, including updates from 0.x classified as major.
     The final rule makes them drafts and limits them to one concurrent branch and PR against
-    the shared Renovate backlog. They keep the weekend schedule; closing one declines that
+    the shared Renovate backlog. They follow the shared schedule; closing one declines that
     version. The TypeScript 7 cap still suppresses that migration below 7 while peers are
     incompatible; a major draft alone would not suppress it.
   - **Language feature versions:** Python minor updates in mise, asdf, `.python-version`,
@@ -273,7 +274,9 @@ release for this repository. Recover regressions through reviewed reverts.
 
   **The per-repository admission limits are `commitHourlyLimit: 1`, `prHourlyLimit: 1`,
   `prConcurrentLimit: 5`, and `branchConcurrentLimit: 5`.** A temporary backlog drain raises
-  both hourly limits to 5; revert them to 1 once the drain ends. The hourly commit limit is the direct
+  both hourly limits to 5 and removes `schedule:weekends` so branches open every day. End it
+  once the Dependency Dashboards' Awaiting Schedule and Rate-Limited entries total below about
+  100: revert both hourly limits to 1 and restore `schedule:weekends`, with their tests. The hourly commit limit is the direct
   consumer-CI guard because it counts both new branch pushes and automatic rebases; the PR limit
   separately bounds new PR admission. The concurrent limits bound future ordinary branch/PR
   population but do not close the existing backlog. All four are per repository, not org-wide.
