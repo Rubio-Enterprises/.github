@@ -427,3 +427,25 @@ class Contracts(unittest.TestCase):
             if "docker compose run" in line and "dev bash" not in line:
                 self.assertIn("-T", line)
                 self.assertIn("</dev/null", line)
+
+    def test_generate_locks_in_the_pinned_base_before_building_dev(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            (repo / "justfile").write_bytes((ROOT / "justfile").read_bytes())
+            base = f"{BASE}@{BASE_DIGEST}"
+            (repo / "Dockerfile").write_text(f"FROM {base} AS dev\n")
+            docker = repo / "docker"
+            docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> docker-calls\n')
+            docker.chmod(0o755)
+            subprocess.run(
+                ["just", "generate"], cwd=repo, check=True,
+                env={**os.environ, "PATH": f"{repo}:{os.environ['PATH']}"},
+            )
+            self.assertEqual((repo / "docker-calls").read_text().splitlines(), [
+                f"run --rm -v {repo}:{repo} -w {repo} -e MISE_GITHUB_TOKEN -e GH_TOKEN {base} standards lock",
+                "volume create rubio-uv-cache",
+                "volume create rubio-npm-cache",
+                "compose build --pull dev",
+                "compose run --rm -T dev standards generate",
+            ])
