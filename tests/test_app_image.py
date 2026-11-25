@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The Trivy release actions/trivy/install.sh pins; Renovate moves it, so stubs follow it
+TRIVY_VERSION = re.search(r'^image=\S+:([^:@\s]+)@', (ROOT / "actions/trivy/install.sh").read_text(), re.M)[1]
 ACTION = ROOT / "actions/app-image"
 WORKFLOW = ROOT / ".github/workflows/app-image.yml"
 TEXT = WORKFLOW.read_text()
@@ -596,7 +598,7 @@ class Structure(Workspace):
 printf '%s' "$CONFIG"
 ''')
         # Trivy writes the report a scan asked for: the secret scan and the vulnerability scan are separate calls
-        self.stub("trivy", '''if [[ "$1" == --version ]]; then echo "Version: 0.76.1"; exit 0; fi
+        self.stub("trivy", '''if [[ "$1" == --version ]]; then echo "Version: TRIVY_VERSION"; exit 0; fi
 printf '%s|%s\\n' "$PWD" "$*" >> "$RUNNER_TEMP/trivy-calls"
 args=("$@"); out=""; scanner=""
 for ((i = 0; i < ${#args[@]}; i++)); do
@@ -607,7 +609,7 @@ else
   if [[ -n "${VULN_SCAN_FAILS:-}" ]]; then exit 1; fi
   printf '%s' "$VULNERABILITIES" > "$out"
 fi
-''')
+'''.replace("TRIVY_VERSION", TRIVY_VERSION))
 
     def structure(self, **overrides):
         return self.run_script("structure.sh", **overrides)

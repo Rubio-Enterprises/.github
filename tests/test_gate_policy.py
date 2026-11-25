@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -107,7 +108,8 @@ def test_macos_policy_uses_provisioned_python_for_both_reads():
     steps = WORKFLOW['jobs']['test-gate-macos']['steps']
     setup = step('Set up policy Python', 'test-gate-macos')
     assert setup['uses'].startswith('actions/setup-python@')
-    assert setup['with']['python-version'] == '3.13'
+    # A Python 3 pin (Renovate moves it), not a range or `3.x`
+    assert re.fullmatch(r'3\.\d+(\.\d+)?', setup['with']['python-version'])
     for name in ('Check Test Gate policy', 'Run Lifecycle Scripts'):
         reader = step(name, 'test-gate-macos')
         assert steps.index(setup) < steps.index(reader)
