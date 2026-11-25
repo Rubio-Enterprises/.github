@@ -6,7 +6,7 @@ COPY --chmod=0644 image/mise.lock /etc/mise/mise.lock
 # Global Check pins load before this absolute repository config
 ENV MISE_OVERRIDE_CONFIG_FILENAMES=/etc/mise/config.toml
 RUN chmod 0755 /etc/mise && mise install --locked && mise reshim
-ENV UV_PYTHON=3.13.9
+ENV UV_PYTHON=3.15.2
 
 FROM dev AS ci
 COPY --link --from=ghcr.io/rubio-enterprises/runner:main@sha256:ba4e451bc29fb1341d8e768bc8106059bb4357e8de77c6a3c79002c35ee59d5a --chown=1000:1000 /home/runner /opt/actions-runner
