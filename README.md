@@ -154,7 +154,8 @@ routes use `docker`, while the public `ubuntu-slim` fallback becomes `ubuntu-lat
 
 The shared Renovate preset in `default.json` schedules ordinary updates on
 weekends in `America/Chicago`; vulnerability alerts remain immediate. Existing
-package-specific schedules still apply.
+package-specific schedules still apply. While a temporary backlog drain is on,
+the weekend schedule is lifted and updates open every day.
 
 ### Workflow delivery
 

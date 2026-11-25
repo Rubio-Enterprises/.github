@@ -38,8 +38,8 @@ AGENT_SANDBOX_DEPS = [
     "registry.k8s.io/agent-sandbox/agent-sandbox-controller",
 ]
 CLAUDE_CODE_DEP = "@anthropic-ai/claude-code"
-# Renovate 44.218.0 resolves schedule:weekends to this cron expression
-WEEKEND_SCHEDULE = ["* * * * 0,6"]
+# Renovate's default schedule while the temporary daily drain is on (from 2026-11-25)
+DEFAULT_SCHEDULE = ["at any time"]
 UNGROUPED_EXPRESSION = "$not($exists(groupName)) or groupName = null"
 HELD_POSTURE = {
     "draftPR": True,
@@ -155,7 +155,7 @@ def _resolve_dependency(
         "minimumReleaseAge": CONFIG["minimumReleaseAge"],
         "minimumReleaseAgeBehaviour": "timestamp-required",
         "rangeStrategy": CONFIG["rangeStrategy"],
-        "schedule": CONFIG.get("schedule", WEEKEND_SCHEDULE),
+        "schedule": CONFIG.get("schedule", DEFAULT_SCHEDULE),
     }
     if initial is not None:
         resolved.update(initial)
@@ -187,7 +187,10 @@ class RenovateConfigContractTests(unittest.TestCase):
     def test_global_backlog_posture_is_exact(self) -> None:
         self.assertTrue(CONFIG["dependencyDashboard"])
         self.assertEqual(CONFIG["timezone"], "America/Chicago")
-        self.assertIn("schedule:weekends", CONFIG["extends"])
+        # Temporary daily drain from 2026-11-25: restore schedule:weekends once the backlog
+        # is below about 100, together with the hourly limits below.
+        self.assertNotIn("schedule:weekends", CONFIG["extends"])
+        self.assertNotIn("schedule", CONFIG)
         self.assertNotIn(":disableDependencyDashboard", CONFIG["extends"])
         # Temporary backlog drain from 2026-11-21; revert both to 1 afterwards.
         self.assertEqual(CONFIG["commitHourlyLimit"], 5)
@@ -556,7 +559,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                         self.assertTrue(resolved["pinDigests"])
                         self.assertEqual(resolved["groupName"], group)
                         self.assertEqual(resolved["groupSlug"], "standards-base-and-runner")
-                        self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
+                        self.assertEqual(resolved["schedule"], DEFAULT_SCHEDULE)
                         self.assertIsNone(resolved["minimumReleaseAge"])
                         self.assertTrue(resolved["automerge"])
                         self.assertFalse(resolved["platformAutomerge"])
@@ -583,7 +586,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                         self.assertFalse(resolved.get("enabled", True))
                         self.assertFalse(resolved["pinDigests"])
                         self.assertNotEqual(resolved.get("groupSlug"), "standards-base-and-runner")
-                        self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
+                        self.assertEqual(resolved["schedule"], DEFAULT_SCHEDULE)
 
     def test_host_first_float_rule_preserves_release_pins_and_other_images(self) -> None:
         dependency = {
@@ -615,7 +618,7 @@ class RenovateConfigContractTests(unittest.TestCase):
                 self.assertTrue(resolved.get("enabled", True))
                 self.assertTrue(resolved["pinDigests"])
                 self.assertIsNone(resolved["groupName"])
-                self.assertEqual(resolved["schedule"], WEEKEND_SCHEDULE)
+                self.assertEqual(resolved["schedule"], DEFAULT_SCHEDULE)
 
     def test_python_dev_tools_are_exact_pins_only_in_dev_groups(self) -> None:
         dependency = {

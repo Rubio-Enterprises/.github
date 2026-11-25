@@ -3,7 +3,6 @@
   "extends": [
     "config:best-practices",
     ":semanticCommits",
-    "schedule:weekends",
     "helpers:pinGitHubActionDigests",
     "customManagers:dockerfileVersions"
   ],
