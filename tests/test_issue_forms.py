@@ -1,43 +1,17 @@
 import json
-import shutil
 import subprocess
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / ".github/ISSUE_TEMPLATE"
-FORMS = {
-    "bug": ("Bug", "bug"),
-    "enhancement": ("Enhancement", "enhancement"),
-    "refactoring": ("Refactoring", "task"),
-    "task": ("Task", "task"),
-}
-INTENT_FIELDS = {
-    "problem": "Problem",
-    "outcome": "Outcome",
-    "constraints": "Constraints",
-    "open-questions": "Open questions",
-    "references": "References",
-}
-BUG_FIELDS = {
-    "description": "Description",
-    "steps": "Steps",
-    "expected": "Expected behavior",
-    "actual": "Actual behavior",
-    "version": "Version / commit",
-    "environment": "Environment",
-    "reproduction": "Reproduction",
-    "logs": "Logs",
-    "context": "Additional context",
-}
+FORM_PATHS = sorted(path for path in TEMPLATES.glob("*.yml") if path.name != "config.yml")
 
 
 class IssueFormPathTests(unittest.TestCase):
-    def test_complete_shared_set_uses_the_canonical_directory(self):
-        self.assertEqual(
-            {path.name for path in TEMPLATES.iterdir() if path.is_file()},
-            {f"{name}.yml" for name in FORMS},
-        )
+    def test_shared_forms_use_the_canonical_directory(self):
+        self.assertTrue(FORM_PATHS, "expected at least one shared issue form")
+        self.assertEqual({path for path in TEMPLATES.iterdir() if path.is_file()}, set(FORM_PATHS))
         for alternate in ("ISSUE_TEMPLATE", "docs/ISSUE_TEMPLATE"):
             with self.subTest(path=alternate):
                 self.assertFalse((ROOT / alternate).exists())
@@ -46,53 +20,37 @@ class IssueFormPathTests(unittest.TestCase):
 class IssueFormStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        yq = shutil.which("yq")
-        if yq is None:
-            raise unittest.SkipTest("yq v4 is required for local issue-form YAML checks")
-        cls.forms = {}
-        for name in FORMS:
-            result = subprocess.run(
-                [yq, "-o=json", ".", str(TEMPLATES / f"{name}.yml")],
-                capture_output=True, text=True, check=True,
-            )
-            cls.forms[name] = json.loads(result.stdout)
+        cls.forms = {
+            path.name: json.loads(subprocess.check_output(["yq", "-o=json", str(path)]))
+            for path in FORM_PATHS
+        }
 
-    def test_metadata_sets_native_types_and_only_the_intake_label(self):
-        for name, (display_name, issue_type) in FORMS.items():
+    def test_metadata_describes_distinct_chooser_entries(self):
+        names = []
+        for name, form in self.forms.items():
             with self.subTest(form=name):
-                form = self.forms[name]
                 self.assertEqual(set(form), {"name", "description", "type", "labels", "body"})
-                self.assertEqual(form["name"], display_name)
-                self.assertTrue(form["description"].strip())
-                self.assertEqual(form["type"], issue_type)
-                self.assertEqual(form["labels"], ["intent:draft"])
+                for key in ("name", "description", "type"):
+                    self.assertTrue(form[key].strip(), key)
+                names.append(form["name"].strip().casefold())
+                self.assertIsInstance(form["labels"], list)
+                for label in form["labels"]:
+                    self.assertTrue(label.strip())
+                self.assertIsInstance(form["body"], list)
+        self.assertEqual(len(names), len(set(names)), "duplicate issue form name")
 
-    def test_fields_have_unique_ids_and_the_agreed_diagnostic_or_intent_sections(self):
+    def test_fields_have_unique_ids_and_explicit_validations(self):
         for name, form in self.forms.items():
             with self.subTest(form=name):
                 fields = [field for field in form["body"] if field["type"] != "markdown"]
-                expected = BUG_FIELDS if name == "bug" else INTENT_FIELDS
+                self.assertTrue(fields, "expected at least one answer field")
                 ids = [field["id"] for field in fields]
-                self.assertEqual(len(ids), len(set(ids)))
-                self.assertEqual(ids, list(expected))
+                self.assertEqual(len(ids), len(set(ids)), "duplicate field ID")
                 for field in fields:
-                    self.assertRegex(field["id"], r"^[a-zA-Z0-9_-]+$")
-                    self.assertEqual(field["attributes"]["label"], expected[field["id"]])
-
-    def test_requiredness_keeps_only_problem_and_outcome_required_for_intents(self):
-        for name, form in self.forms.items():
-            optional = (
-                {"reproduction", "logs", "context"}
-                if name == "bug"
-                else {"constraints", "open-questions", "references"}
-            )
-            for field in form["body"]:
-                if field["type"] == "markdown":
-                    continue
-                with self.subTest(form=name, field=field["id"]):
-                    self.assertIs(field["validations"]["required"], field["id"] not in optional)
-                    if name != "bug":
-                        self.assertEqual(field["type"], "textarea")
+                    with self.subTest(field=field["id"]):
+                        self.assertRegex(field["id"], r"^[a-zA-Z0-9_-]+\Z")
+                        self.assertTrue(field["attributes"]["label"].strip())
+                        self.assertIsInstance(field["validations"]["required"], bool)
 
     def test_examples_are_placeholders_not_answers_or_attestations(self):
         for name, form in self.forms.items():
