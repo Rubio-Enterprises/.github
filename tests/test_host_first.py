@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The Trivy release actions/trivy/install.sh pins; Renovate moves it, so stubs follow it
+TRIVY_VERSION = re.search(r'^image=\S+:([^:@\s]+)@', (ROOT / "actions/trivy/install.sh").read_text(), re.M)[1]
 ASSETS = ROOT / "actions/repository-image"
 DIGEST = "sha256:" + "a" * 64
 OTHER = "sha256:" + "b" * 64
@@ -296,7 +298,7 @@ fi
         self.stub("uname", 'case "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
         for status in (0, 1):
             with self.subTest(status=status):
-                self.stub("trivy", 'if [[ "$1" == --version ]]; then echo "Version: 0.76.1"; exit 0; fi\necho sensitive-fixture-output\nexit ' + str(status) + '\n')
+                self.stub("trivy", f'if [[ "$1" == --version ]]; then echo "Version: {TRIVY_VERSION}"; exit 0; fi\necho sensitive-fixture-output\nexit ' + str(status) + '\n')
                 result = self.run_script("scan")
                 self.assertEqual(result.returncode, status, result.stderr)
                 self.assertNotIn("sensitive-fixture-output", result.stdout + result.stderr)
