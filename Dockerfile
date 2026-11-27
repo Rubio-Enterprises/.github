@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 FROM ghcr.io/rubio-enterprises/base:main@sha256:273f3fcaeaca36f6b60aaddaa96a710fb8de122533a13e6c49b153075809c1f7 AS dev
 # mise 2026.11.1 reads mise.lock beside a custom config filename
 COPY --chmod=0644 image/mise.toml /etc/mise/config.toml
